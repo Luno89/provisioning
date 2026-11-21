@@ -14,13 +14,13 @@ dynamic DNS.
   native k3s, which can use its GPUs, or k3d in Docker without them. It starts when something runs on it and stops when idle. Its
   agent also runs coding agents you have there (Claude Code, Codex, Gemini, Antigravity, Goose).
 - **Your Koala** (an instance) is a set of pods on one of your machines, signed in through root.
-- **The hub** holds projects you share with other people.
+- **Sharing a project** with other people, and the hub that held shared projects, are tabled; `docs/archive-ledger.md` says where their code is.
 - **The pool** (trying Koala on Koala's servers) is tabled until the hosted version is out; `docs/archive-ledger.md` says where its code is.
 
 | Part | What |
 |---|---|
-| `apps/backend` | The API, its Temporal workers and the agent engine's host; one program that runs as root, an instance or the hub |
-| `apps/frontend` | React; the same app serves root, an instance and the hub |
+| `apps/backend` | The API, its Temporal workers and the agent engine's host; one program that runs as root or an instance |
+| `apps/frontend` | React; the same app serves root and an instance |
 | `apps/local-agent` | The machine agent: joins a machine, runs its k3s and coding agents, updates itself |
 | `packages/agent-engine`, `engine-core`, `context-engine`, `harness-types` | Procedures, tools, model calls and the shapes they share |
 | `packages/cdktf-infra` | Terraform stacks for each app |
@@ -34,11 +34,11 @@ Linux with Docker, Node.js 20+ and, for models, an NVIDIA or AMD GPU with its dr
 ```bash
 sudo bash scripts/setup-root.sh   # once: Docker, the docker group, firewalld
 npm run setup                     # as yourself: binaries, packages, Terraform bindings, the platform keys
-npm run dev                       # root and the hub; the first time, this computer joins as a machine and Koala installs on it
+npm run dev                       # root; the first time, this computer joins as a machine and Koala installs on it
 ```
 
 The first `npm run dev` asks for your password once, for the join: k3s and, with an NVIDIA GPU, NVIDIA's container toolkit. Then
-sign in at http://koala.localhost:5175; your Koala is at http://dev.localhost:5173 and the hub at http://hub.localhost:5176.
+sign in at http://koala.localhost:5175; your Koala is at http://dev.localhost:5173.
 
 The dev stack is disposable: `npm run dev:reset` removes this computer as a machine and everything dev made, and the next
 `npm run dev` starts it fresh. Everything hot-reloads, and a reload stops whatever that process was running.

@@ -19,7 +19,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
-  AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
+  AccessRevocations, SessionEnds, SessionSockets, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
   backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, SettingsError, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
@@ -30,7 +30,6 @@ import { machineBundle as newMachineBundle, machineGatewayTls, wireMachines } fr
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
-import { hubInstanceWork, wireHub } from './hub/wiring/hub.js';
 import { InstanceSide, wireInstances } from './instances/wiring/instances.js';
 import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
@@ -55,7 +54,6 @@ import {
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import { GiteaService, pushToBuild } from './projects/index.js';
-import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookUrl } from './hub/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
 import { collectorEndpoint, collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
@@ -148,7 +146,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message), dependencies);
   const appExposureService = new AppExposureService(db, clusterService, io, {
     edge: instanceSide.edge,
-    groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
+    groupOf: async (dep) => (dep.gitappProjectId ? db.projects.getProjectGroup(dep.gitappProjectId) : undefined),
     domain: () => (isOff(settings.ingressDomain) ? undefined : settings.ingressDomain),
   });
   const clusterProxyService = sharedClusterProxy(clusterAccess);
@@ -159,7 +157,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   telemetry.exportTo(telemetrySink);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: clusterProxyService, koalasCluster })));
-  const gitea = tenantServices?.gitea ?? settings.hubGitea;
+  const gitea = tenantServices?.gitea;
   const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` }, { dataDir: settings.dataDir, registryPullHost: tenantServices?.registryPullHost, reportsTo: dependencies });
   const infisicalService = new InfisicalService(keys.data, tenantServices ? tenantServices.infisical : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` }, settings.dataDir, dependencies);
   checkServices(dependencies, {
@@ -170,7 +168,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     webTools: tenantServices?.webTools,
   });
   const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
-  const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
+  const { projectRepoService, channels, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, settings.mesh, settings.dataDir);
   const machineTemporalAddress = settings.instance?.machineTemporalAddress;
   const gatewayTlsPlace = settings.instance?.gatewayTls;
@@ -214,7 +212,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await sessionEnds.follow();
   const sessionSockets = new SessionSockets();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
-  revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
+  revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   app.set('trust proxy', settings.trustProxy);
   app.use(inFlightLimit());
   app.use(cors({
@@ -236,7 +234,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         return res.status(401).json({ error: 'Invalid webhook signature' });
       }
 
-      void hub.repoPushed(project.id).catch((err: Error) => console.warn(`[webhook] the hub was not told ${project.id}'s repository moved: ${err.message}`));
       const decided = pushToBuild(JSON.parse(rawBody.toString('utf8')));
       if ('ignored' in decided) return res.status(200).json({ status: 'ignored', reason: decided.ignored });
       const payload = decided.build;
@@ -252,16 +249,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.error(`[webhook] Gitea webhook error: ${(err as Error).message}`);
       res.status(500).json({ error: 'Internal error processing webhook' });
     }
-  }));
-
-  app.post(`${HUB_REPO_HOOK_PATH}/:projectId`, express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
-    const projectId = String(req.params.projectId);
-    const signature = req.header('X-Gitea-Signature');
-    if (!hubRepoHookSecrets(keys.data, projectId).some((secret) => giteaService.verifyWebhookSignature(req.body as Buffer, signature, secret))) {
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-    const told = hub.hubService ? await hub.hubService.repoMoved(projectId) : false;
-    return told ? res.status(202).json({ status: 'accepted' }) : res.status(404).json({ error: 'Unknown shared project' });
   }));
 
   app.use(metrics.middleware());
@@ -311,27 +298,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const signInReturn = settings.root ? settings.root.signInReturn : {};
   for (const problem of [...signInWith.problems, ...(signInReturn.problem ? [signInReturn.problem] : [])]) console.warn(`[sign-in] ${problem}`);
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,
+    db, authService, auth, sessionKey: keys.session, appUrl: APP_URL, accounts: holdsAccounts(role), revocations,
     providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, sessionKey: keys.session, accounts: authService }), passwords,
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
-  const hub = await wireHub({
-    dependencies,
-    role, mongoUri: settings.mongo.uri, hubDatabase: settings.hubDatabase, ingressDomain: isOff(settings.ingressDomain) ? undefined : settings.ingressDomain, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
-    hubRepoHook: {
-      url: async (projectId) => {
-        if (!gitea) throw new Error(`${role.role} keeps no repositories, so no shared project's repository sends it pushes`);
-        return hubRepoHookUrl(gitea.reachesKoalaAt, projectId);
-      },
-      secret: (projectId) => hubRepoHookSecret(typeof keys.data === 'string' ? keys.data : keys.data.current, projectId),
-    },
-    notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
-    republish: () => appExposureService.syncExposedApps(),
-    rootProvider,
-    vouch: rootSignIn && role.role === 'hub' ? (req) => rootSignIn.personToken((req as { clientSession?: Parameters<typeof rootSignIn.personToken>[0] }).clientSession) : undefined,
-    rootToken,
-  });
-
   tenant.get('/ingress/verify', asyncRoute(async (req, res) => {
     const domain = String(req.query.domain ?? '');
     if (!domain) return res.status(400).send('domain required');
@@ -395,11 +365,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
+  wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 
-  const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
+  const { poisoning, evalHost, level2Service, mcpCatalogue } = await wireEngine({
     tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {}, dependencies }, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
@@ -424,10 +394,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     setInterval(() => { void sweepPayloads(); }, PRUNE_INTERVAL_MS).unref();
   }
 
-  const { treeModels, groveRuns, groveOrder, planService } = wireProjects({
+  const { treeModels, groveRuns } = wireProjects({
     tenant, db, io, role, dataKey: keys.data, core, gitea: giteaService, infra: infraService, clusters: clusterService, apps: appService,
     temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
-    workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, sharing: () => hub.sharingService, getOwnedProject,
+    workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, getOwnedProject,
   });
   const { egress } = wireActions({
     tenant, db, role, underTest: settings.underTest, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
@@ -451,14 +421,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },
     });
   }
-  if (hub.reaches) {
-    if (!files) throw new Error('the hub reaches this backend for its projects\' files, and this backend serves none');
-    hub.setWork(hubInstanceWork({
-      db, releases: odooReleases, treeRuns: groveRuns, plans: planService, order: groveOrder, accepted: evalHost.acceptedNeeds,
-      itemChats, runs: engineRuns, procedures: procedureService, extensions, files: files.fileService, revocations,
-    }));
-  }
-
   if (!settings.underTest && gitea && tenants) {
     runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
       (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${gitea.reachesKoalaAt}`); },

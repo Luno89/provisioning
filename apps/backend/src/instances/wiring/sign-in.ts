@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { AccessRevocations, Database, PlatformKeys, RoleConfig } from '../../platform/index.js';
-import { clientKeysFrom, HUB_CLIENT_ID, OIDC_PATH } from '../lib/oidc.js';
+import { clientKeysFrom, OIDC_PATH } from '../lib/oidc.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
@@ -13,7 +13,6 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
     issuer: `${deps.publicUrl.replace(/\/+$/, '')}${OIDC_PATH}`,
     signing: deps.role.signing,
     cookieKey: Buffer.from(crypto.hkdfSync('sha256', currentOf(deps.keys.session), 'koala-sign-in-provider', 'cookies', 32)).toString('hex'),
-    hubUrl: deps.role.hubLink?.url,
     proxied: deps.proxied,
     reach: deps.reach,
   }, deps.db);
@@ -31,15 +30,6 @@ export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: stri
       rootUrl: role.instance.rootUrl,
       owner: role.instance.ownerId,
       announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': role.instance.id, authorization: `Bearer ${deps.instanceCredential}` } },
-    }, deps.db, deps.revocations);
-  }
-  if (role.role === 'hub' && role.hub) {
-    return new RootSignIn({
-      ...common,
-      kind: 'hub',
-      clientId: HUB_CLIENT_ID,
-      rootUrl: role.hub.rootUrl,
-      announce: { path: '/api/hub-link/sign-in-key', headers: { authorization: `Bearer ${role.hub.credential}` } },
     }, deps.db, deps.revocations);
   }
   return undefined;

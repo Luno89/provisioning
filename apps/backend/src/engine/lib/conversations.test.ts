@@ -24,12 +24,8 @@ describe('who said what in a conversation', () => {
     expect(closeTurn(opened, 'r1', { author: { kind: 'agent', slug: 'koala' }, content: 'hello', at: 't' }, 't').messages[1]).toMatchObject({ role: 'assistant', author: { kind: 'agent', slug: 'koala' } });
   });
 
-  it('knows when a message calls Koala in', async () => {
-    const { mentionsKoala, personMessage } = await import('./conversations.js');
-    expect(mentionsKoala('@koala how is it going?')).toBe(true);
-    expect(mentionsKoala('hey @Koala')).toBe(true);
-    expect(mentionsKoala('the koala is cute')).toBe(false);
-    expect(mentionsKoala('mail me@koala.dev')).toBe(false);
+  it('refuses an empty message', async () => {
+    const { personMessage } = await import('./conversations.js');
     expect(personMessage('bo', '', 't')).toEqual({ problem: 'the message is empty' });
   });
 });

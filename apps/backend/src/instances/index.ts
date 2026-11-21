@@ -3,9 +3,9 @@ export { DEV_SPLIT, devSplitOwner, devSplitPlace, devSplitPlan, envFileText, rea
 export type { SplitPlace } from './lib/dev-split.js';
 export { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, labelOfLocal, localHost, nestedHost, offersNested } from './lib/edge-addresses.js';
 export type { AddressScope } from './lib/edge-addresses.js';
-export { checkMoveToken, generateIdentityKey, issueMoveToken, MOVE_TOKEN_HEADER, moveTokenOnce, publicKeyPem } from './lib/identity-token.js';
-export type { IdentityKeyPair, UsedTokenClaim } from './lib/identity-token.js';
-export { nameProblem, suggestedGroup } from './lib/instance-names.js';
+export { generateIdentityKey, publicKeyPem } from './lib/identity-token.js';
+export type { IdentityKeyPair } from './lib/identity-token.js';
+export { nameProblem } from './lib/instance-names.js';
 export { dataHolds } from './lib/instance-updates.js';
 export type { InstanceRelease } from './lib/instance-updates.js';
 export type { InstanceWatchRecord } from './lib/instance-watch.js';

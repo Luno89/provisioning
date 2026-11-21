@@ -57,8 +57,6 @@ async function seed(db: Database, world: World): Promise<void> {
   await db.machines.saveLocalAgentDevice({ id: `device-${owner}`, ownerId: owner, name: 'laptop' } as never);
   await db.instances.saveInstance({ id: `instance-${owner}`, ownerId: owner, name: `inst${owner.replace(/\W/g, '')}`, createdAt: at } as never);
   await db.instances.oidcUpsert('Grant', `grant-${owner}`, { accountId: owner });
-  await db.hub.saveHubLink({ projectId: project, ownerId: owner, hubProjectId: `hub-${owner}`, pulledThrough: 0, sharedAt: at });
-  await db.hub.saveHubSnapshot(project, 'trees', { id: tree } as never);
 }
 
 const ONE_ACCOUNT: Record<string, number> = {
@@ -68,7 +66,6 @@ const ONE_ACCOUNT: Record<string, number> = {
   corpus: 1,
   fileShares: 1,
   giteaAccounts: 1,
-  hubLinks: 1,
   instances: 1,
   keeperSettings: 1,
   localAgentDevices: 1,
@@ -93,27 +90,6 @@ const ONE_ACCOUNT: Record<string, number> = {
 };
 
 export function databaseContract(make: () => Promise<Database>): void {
-  describe('one database the areas share', () => {
-    it('shows the hub a tree, a story and a conversation saved through their own areas', async () => {
-      const db = await make();
-      await db.projects.saveTree({ id: 'tree-1', ownerId: 'owner-1', name: 'Shop', createdAt: at, updatedAt: at } as never);
-      await db.projects.saveLeaf({ id: 'leaf-1', treeId: 'tree-1', branchId: 'branch-1', title: 'Checkout', status: 'pending', createdAt: at, updatedAt: at } as never);
-      await db.engine.saveConversation({ id: 'chat-1', ownerId: 'owner-1', title: 'Talk', messages: [], createdAt: at, updatedAt: at } as never);
-      expect(await db.hub.syncedRecord('trees', 'tree-1')).toMatchObject({ id: 'tree-1', name: 'Shop' });
-      expect(await db.hub.syncedRecord('leaves', 'leaf-1')).toMatchObject({ id: 'leaf-1', title: 'Checkout' });
-      expect(await db.hub.syncedRecord('conversations', 'chat-1')).toMatchObject({ id: 'chat-1', title: 'Talk' });
-    });
-
-    it('lets each area read what the hub wrote, and forget what it deleted', async () => {
-      const db = await make();
-      await db.projects.saveTree({ id: 'tree-1', ownerId: 'owner-1', name: 'Shop', createdAt: at, updatedAt: at } as never);
-      await db.hub.patchSyncedRecord('trees', 'tree-1', { set: { name: 'Shop on the hub' } });
-      await db.hub.patchSyncedRecord('trees', 'tree-2', { set: { ownerId: 'owner-1', name: 'Made on the hub', createdAt: at, updatedAt: at } });
-      expect((await db.projects.getTrees()).map((tree) => [tree.id, tree.name]).sort()).toEqual([['tree-1', 'Shop on the hub'], ['tree-2', 'Made on the hub']]);
-      await db.hub.deleteSyncedRecord('trees', 'tree-1');
-      expect((await db.projects.getTrees()).map((tree) => tree.id)).toEqual(['tree-2']);
-    });
-  });
 
   describe('one account, one project and its runs across every area', () => {
     const related = (world: World) => ({
@@ -148,7 +124,7 @@ export function databaseContract(make: () => Promise<Database>): void {
       await seed(db, one);
       await seed(db, two);
       const removed = await db.accounts.removeAccountRecords('owner-1', related(one));
-      expect(removed).toEqual({ ...ONE_ACCOUNT, memoryWatermarks: 1, crawl_frontier: 1, pipelineRuns: 1, hubSnapshots: 1, oidcArtifacts: 1 });
+      expect(removed).toEqual({ ...ONE_ACCOUNT, memoryWatermarks: 1, crawl_frontier: 1, pipelineRuns: 1, oidcArtifacts: 1 });
       expect(await db.accounts.accountLeftovers('owner-1')).toEqual({});
       expect(await db.accounts.accountLeftovers('owner-2')).toEqual(ONE_ACCOUNT);
       expect(await db.accounts.getUserById('owner-1')).toBeUndefined();
@@ -160,7 +136,6 @@ export function databaseContract(make: () => Promise<Database>): void {
       expect(await db.memory.getMemoryWatermark(`conversation:${one.conversation}`)).toBeUndefined();
       expect(await db.memory.getMemoryWatermark(`conversation:${two.conversation}`)).toBe(at);
       expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['build-owner-2']);
-      expect(await db.hub.hubSnapshot('trees', one.tree)).toBeUndefined();
       expect(await db.instances.oidcFind('Grant', 'grant-owner-1')).toBeUndefined();
       expect(await db.instances.oidcFind('Grant', 'grant-owner-2')).toBeDefined();
       expect(await db.accounts.removeAccountRecords('owner-1', { watermarkKeys: [], ingestIds: [], projectIds: [] })).toEqual({});

@@ -2,8 +2,6 @@ import type { Tx } from './transaction.js';
 import { MongoPlatformStore } from '../store.js';
 import { MongoAccountsStore } from '../../accounts/store.js';
 import { MongoInstancesStore } from '../../instances/store.js';
-import { MongoHubStore } from '../../hub/store.js';
-import { markingHubWrites } from '../../hub/lib/hub-sync.js';
 import { MongoProjectsStore } from '../../projects/store.js';
 import { MongoReleasesStore } from '../../releases/store.js';
 import { MongoFilesStore } from '../../files/store.js';
@@ -37,7 +35,6 @@ export class MongoDB implements Database {
   readonly platform: MongoPlatformStore;
   readonly accounts: MongoAccountsStore;
   readonly instances: MongoInstancesStore;
-  readonly hub: MongoHubStore;
   readonly projects: MongoProjectsStore;
   readonly releases: MongoReleasesStore;
   readonly files: MongoFilesStore;
@@ -53,8 +50,7 @@ export class MongoDB implements Database {
     this.platform = new MongoPlatformStore(() => this.db!);
     this.accounts = new MongoAccountsStore(() => this.db!);
     this.instances = new MongoInstancesStore(() => this.db!);
-    this.hub = new MongoHubStore(() => this.db!);
-    this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
+    this.projects = new MongoProjectsStore(() => this.db!);
     this.releases = new MongoReleasesStore(() => this.db!);
     this.files = new MongoFilesStore(() => this.db!, this.settings.dataKey);
     this.machines = new MongoMachinesStore(() => this.db!);
@@ -63,7 +59,7 @@ export class MongoDB implements Database {
     this.memory = new MongoMemoryStore(() => this.db!);
     this.checks = new MongoChecksStore(() => this.db!);
     this.infrastructure = new MongoInfrastructureStore(() => this.db!, this.settings.dataKey);
-    this.engine = markingHubWrites(new MongoEngineStore(() => this.db!), this.hub);
+    this.engine = new MongoEngineStore(() => this.db!);
   }
 
   async init(): Promise<void> {
@@ -75,7 +71,6 @@ export class MongoDB implements Database {
     await this.platform.ensureIndexes();
     await this.accounts.ensureIndexes();
     await this.instances.ensureIndexes();
-    await this.hub.ensureIndexes();
     await this.projects.ensureIndexes();
     await this.releases.ensureIndexes();
     await this.files.ensureIndexes();

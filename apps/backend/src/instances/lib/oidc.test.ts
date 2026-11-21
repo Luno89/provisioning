@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
-  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientKeysFrom, clientMetadata, hubClient, instanceClient,
+  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientKeysFrom, clientMetadata, instanceClient,
   logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal, signInWaitingFor,
 } from './oidc.js';
 
@@ -9,29 +9,26 @@ const keys = identityKeysFrom(generateIdentityKey());
 const jwk = publicJwkOf(keys);
 
 describe('who root signs in where', () => {
-  it('signs only its owner in to an instance, and anyone in to the hub', () => {
+  it('signs only its owner in to an instance', () => {
     expect(signInRefusal({ kind: 'instance', owner: 'u1' }, 'u1')).toBeUndefined();
     expect(signInRefusal({ kind: 'instance', owner: 'u1' }, 'u2')).toBe('this instance belongs to someone else');
-    expect(signInRefusal({ kind: 'hub' }, 'u2')).toBeUndefined();
   });
 
-  it('issues an instance\'s owner the operator and owner claims there, anyone else only a person\'s, and nobody an operator\'s on the hub', () => {
+  it('issues an instance\'s owner the operator and owner claims there, and anyone else only a person\'s', () => {
     expect(claimsFor({ id: 'u1' }, { kind: 'instance', owner: 'u1' })).toEqual([{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }]);
     expect(claimsFor({ id: 'u2', roles: ['operator'] }, { kind: 'instance', owner: 'u1' })).toEqual([{ role: 'person' }]);
-    expect(claimsFor({ id: 'u1', roles: ['operator'] }, { kind: 'hub' })).toEqual([{ role: 'person' }]);
   });
 
   it('reads back only claims it could have issued', () => {
-    expect(claimsShaped([{ role: 'person' }, { role: 'shared', project: 'p1', as: 'client' }])).toBe(true);
+    expect(claimsShaped([{ role: 'person' }, { role: 'shared', project: 'p1', as: 'client' }])).toBe(false);
     expect(claimsShaped([{ role: 'root' }])).toBe(false);
     expect(claimsShaped([{ role: 'person' }, { role: 'space-of', person: 'owner' }])).toBe(true);
     expect(claimsShaped([{ role: 'space-of' }])).toBe(false);
-    expect(claimsShaped([{ role: 'shared', project: 'p1', as: 'admin' }])).toBe(false);
     expect(claimsShaped('person')).toBe(false);
   });
 });
 
-describe('an instance or the hub as root\'s client', () => {
+describe('an instance as root\'s client', () => {
   it('describes a client by the key it named, signing in back at its own address and hearing logouts there', () => {
     const metadata = clientMetadata({ clientId: 'inst-u1', kind: 'instance', url: 'https://u1.example.com/', key: jwk, owner: 'u1' });
     expect(metadata).toMatchObject({
@@ -45,12 +42,10 @@ describe('an instance or the hub as root\'s client', () => {
     expect((metadata.jwks as { keys: { kid: string }[] }).keys[0]!.kid).toBe(keys.kid);
   });
 
-  it('knows an instance or the hub as a client only once it has named its key', () => {
+  it('knows an instance as a client only once it has named its key', () => {
     const record = { id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com' };
     expect(instanceClient(record)).toBeUndefined();
     expect(instanceClient({ ...record, signIn: { jwk, since: 'x' } })).toMatchObject({ clientId: 'inst-u1', owner: 'u1' });
-    expect(hubClient('https://hub.example.com', undefined)).toBeUndefined();
-    expect(hubClient('https://hub.example.com', { jwk, since: 'x' })).toMatchObject({ clientId: 'hub', kind: 'hub' });
   });
 
   it('says an instance has not named its sign-in key until it has', () => {
@@ -74,7 +69,7 @@ describe('an instance or the hub as root\'s client', () => {
   });
 
   it('sends someone on only to a path of its own', () => {
-    expect(safeNextPath('/hub/join/abc')).toBe('/hub/join/abc');
+    expect(safeNextPath('/projects/abc')).toBe('/projects/abc');
     expect(safeNextPath('//evil.example.com')).toBeUndefined();
     expect(safeNextPath('https://evil.example.com')).toBeUndefined();
     expect(safeNextPath('/a\nSet-Cookie: x')).toBeUndefined();

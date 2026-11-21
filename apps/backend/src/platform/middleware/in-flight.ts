@@ -1,10 +1,10 @@
 import type { RequestHandler } from 'express';
-import { InFlightLimits, limitedAddress, limitedPath } from '../lib/in-flight-limits.js';
+import { InFlightLimits, limitedAddress } from '../lib/in-flight-limits.js';
 
 export function inFlightLimit(limits: InFlightLimits = new InFlightLimits()): RequestHandler {
   return (req, res, next) => {
     const address = req.ip ?? req.socket.remoteAddress ?? '';
-    if (!limitedAddress(address) || !limitedPath(req.path)) return next();
+    if (!limitedAddress(address)) return next();
     if (!limits.enter(address)) {
       res.status(429).json({ error: 'Too many requests from your address are still open; try again once some have finished.' });
       return;

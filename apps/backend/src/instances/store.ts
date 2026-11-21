@@ -10,7 +10,6 @@ import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from './lib/dependency-findings.js';
 
 export interface InstancesStore extends AreaStore {
-  claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
   dropJoinTokens(): Promise<number>;
   getInstances(ownerId?: string): Promise<InstanceRecord[]>;
   saveInstance(instance: InstanceRecord): Promise<void>;
@@ -20,8 +19,6 @@ export interface InstancesStore extends AreaStore {
   getReleases(): Promise<InstanceRelease[]>;
   recordRelease(release: InstanceRelease): Promise<InstanceRelease>;
   saveSignInKey(instanceId: string, key: SignInKey): Promise<boolean>;
-  getHubSignInKey(): Promise<SignInKey | undefined>;
-  saveHubSignInKey(key: SignInKey): Promise<void>;
   oidcUpsert(model: string, id: string, payload: Record<string, unknown>, expiresIn?: number): Promise<void>;
   oidcFind(model: string, id: string): Promise<Record<string, unknown> | undefined>;
   oidcFindBy(model: string, field: 'uid' | 'userCode', value: string): Promise<Record<string, unknown> | undefined>;
@@ -62,10 +59,6 @@ export const RETIRED_JOIN_TOKENS = 'instanceJoinTokens';
 export class MongoInstancesStore implements InstancesStore {
   constructor(private readonly db: () => Db) {}
 
-  private get handoffs(): Collection {
-    return this.db().collection('identityHandoffs');
-  }
-
   private get instanceRegistry(): Collection {
     return this.db().collection('instances');
   }
@@ -92,7 +85,6 @@ export class MongoInstancesStore implements InstancesStore {
 
   async ensureIndexes(): Promise<void> {
     await keepWrittenDocuments(this.db(), ['instances']);
-    await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });
     await this.oidcArtifacts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -102,16 +94,6 @@ export class MongoInstancesStore implements InstancesStore {
     await this.oidcArtifacts.createIndex({ model: 1, userCode: 1 });
     await this.clientSessions.createIndex({ ownerId: 1 });
     await this.clientSessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-  }
-
-  async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
-    try {
-      await this.handoffs.insertOne({ _id: jti as never, expiresAt: new Date(expiresAt) });
-      return true;
-    } catch (err) {
-      if ((err as { code?: number }).code === 11000) return false;
-      throw err;
-    }
   }
 
   async dropJoinTokens(): Promise<number> {
@@ -211,19 +193,6 @@ export class MongoInstancesStore implements InstancesStore {
   async saveSignInKey(instanceId: string, key: SignInKey): Promise<boolean> {
     const updated = await this.instanceRegistry.updateOne({ _id: instanceId as never }, { $set: { signIn: key } });
     return updated.matchedCount > 0;
-  }
-
-  private get hubSignIn(): Collection<SignInKey & { _id: string }> {
-    return this.db().collection<SignInKey & { _id: string }>('hubSignIn');
-  }
-
-  async getHubSignInKey(): Promise<SignInKey | undefined> {
-    const doc = await this.hubSignIn.findOne({ _id: 'hub' });
-    return doc ? { jwk: doc.jwk, since: doc.since } : undefined;
-  }
-
-  async saveHubSignInKey(key: SignInKey): Promise<void> {
-    await this.hubSignIn.replaceOne({ _id: 'hub' }, { jwk: key.jwk, since: key.since }, { upsert: true });
   }
 
   async oidcUpsert(model: string, id: string, payload: Record<string, unknown>, expiresIn?: number): Promise<void> {

@@ -103,7 +103,6 @@ describe('what each role starts is what that role\'s workers run', () => {
     const missing: string[] = [];
     for (const [name, { place, roles }] of Object.entries(WORKFLOWS)) {
       for (const role of roles) {
-        if (role === 'hub') continue;
         for (const file of world.reachable(name)) {
           for (const proxy of world.proxies.get(file) ?? []) {
             if (proxy.queue === 'device') continue;

@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { childEnvWorld, namesIn } from '@koala/engine-core/testing/child-env';
-import { mainHeads } from '../../hub/services/HubRepoSync.js';
+import { withSeedBundle } from '../../engine-host/sandboxes/seed-bundle.js';
 import { ClusterAccess } from '../../infrastructure/services/ClusterAccess.js';
 import { InfrastructureService, terraformPlacesFor } from '../../infrastructure/services/InfrastructureService.js';
 import { KEY_NAMES } from '../lib/keys.js';
@@ -31,9 +31,9 @@ describe('what a child process of the backend is handed', () => {
 
   it('gives git no platform key', async () => {
     printsNames('git', 'err', 1);
-    const said = await mainHeads({ url: 'http://127.0.0.1:9/owner.git' }, { url: 'http://127.0.0.1:9/hub.git' }).then(() => 'answered', (err: Error) => err.message);
+    const said = await withSeedBundle({ 'a.txt': 'a' }, async () => 'answered').then(() => 'answered', (err: Error) => err.message);
     const names = namesIn(said);
-    expect(names).toContain('GIT_TERMINAL_PROMPT');
+    expect(names).toContain('GIT_AUTHOR_NAME');
     for (const key of KEYS) expect(names).not.toContain(key);
   });
 });

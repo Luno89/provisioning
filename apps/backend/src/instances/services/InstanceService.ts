@@ -44,7 +44,7 @@ export interface InstanceSettings {
   siteNames?: readonly string[] | undefined;
   releases?: ReleaseSource | undefined;
   notices?: { tell(): Promise<number> } | undefined;
-  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
+  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' } | undefined>) | undefined;
   connected?: ((instanceId: string) => boolean) | undefined;
   serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
   reach?: InstanceReach | undefined;

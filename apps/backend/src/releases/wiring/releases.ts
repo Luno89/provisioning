@@ -30,7 +30,7 @@ import { projectAppRouter } from '../routes/project-app.js';
 import { customizationsRouter } from '../routes/customizations.js';
 import { clientImportRouter } from '../routes/client-import.js';
 import { releasesRouter } from '../routes/releases.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 import { changesIn } from '../services/repo-changes.js';
 import { releaseDecider } from '../services/release-decider.js';
 

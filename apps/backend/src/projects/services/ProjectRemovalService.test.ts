@@ -9,15 +9,11 @@ import { loadProjectScope, ProjectRemovalService } from './ProjectRemovalService
 const at = '2026-10-21T00:00:00Z';
 type Workflows = AccountRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>;
 
-async function setUp(shared = false) {
+async function setUp() {
   const db = memoryDatabase();
   const workflows = mock<Workflows>();
   workflows.state.mockResolvedValue({ state: 'none' });
-  const takenBack: string[] = [];
-  const service = new ProjectRemovalService({
-    store: db, workflows, now: () => at,
-    hub: { shared: async () => shared, takeBack: async (_owner, projectId) => { takenBack.push(projectId); } },
-  });
+  const service = new ProjectRemovalService({ store: db, workflows, now: () => at });
   await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', giteaOwner: 'koala-ann', giteaRepo: 'shop', appType: 'gitapp', createdAt: at });
   await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop tree', type: 'odoo-addons', projectIds: ['p1'], createdAt: at, updatedAt: at });
   await db.projects.saveBranch({ id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: at, updatedAt: at });
@@ -25,7 +21,7 @@ async function setUp(shared = false) {
   await db.engine.saveConversation({ id: 'about-tree', ownerId: 'ann', title: 't', treeId: 't1', messages: [], createdAt: at, updatedAt: at });
   await db.engine.saveConversation({ id: 'side', ownerId: 'ann', title: 's', projectId: 'p1', messages: [], createdAt: at, updatedAt: at });
   await db.releases.savePipelineRunInfo({ id: 'run-1', projectId: 'p1', commitSha: 'abc', ref: 'main', status: 'running', temporalWorkflowId: 'build-1', startedAt: at });
-  return { db, workflows, service, takenBack };
+  return { db, workflows, service };
 }
 
 describe('what deleting a project takes', () => {
@@ -53,12 +49,6 @@ describe('previewing a project\'s deletion', () => {
     const { service } = await setUp();
     const preview = await service.preview('ann', 'p1');
     expect(preview).toMatchObject({ name: 'Shop', repository: 'koala-ann/shop', trees: [{ id: 't1', name: 'Shop tree', leaves: 1, conversations: 1 }], keptConversations: 1, builds: 1, state: { state: 'none' } });
-    expect(preview?.sharedOnHub).toBeUndefined();
-  });
-
-  it('says the hub copy goes too when the project is shared', async () => {
-    const { service } = await setUp(true);
-    expect((await service.preview('ann', 'p1'))?.sharedOnHub).toBe(true);
   });
 
   it('shows nothing of a project that is another owner\'s or not there', async () => {
@@ -82,13 +72,12 @@ describe('deleting a project', () => {
   });
 
   it('marks the project as being removed and starts the removal as its owner', async () => {
-    const { db, workflows, service, takenBack } = await setUp();
+    const { db, workflows, service } = await setUp();
     workflows.state.mockResolvedValueOnce({ state: 'none' }).mockResolvedValueOnce({ state: 'running', done: [] });
     const removed = await service.remove('ann', 'p1', ' Shop ');
     expect(removed).toEqual({ ok: true, state: { state: 'running', done: [] } });
     expect(workflows.start).toHaveBeenCalledWith('RemoveProjectWorkflow', 'remove-project-p1', [{ projectId: 'p1' }], 'ann');
     expect((await db.projects.getProjects())[0]?.removal).toEqual({ startedAt: at, requestedBy: 'ann' });
-    expect(takenBack).toEqual([]);
   });
 
   it('starts the deletion as work for nobody, so the fence it raises round the project never stops its own steps', async () => {
@@ -106,10 +95,4 @@ describe('deleting a project', () => {
     expect(workflows.start).not.toHaveBeenCalled();
   });
 
-  it('takes a shared project back from the hub before the removal starts', async () => {
-    const { workflows, service, takenBack } = await setUp(true);
-    await service.remove('ann', 'p1', 'Shop');
-    expect(takenBack).toEqual(['p1']);
-    expect(workflows.start).toHaveBeenCalledTimes(1);
-  });
 });

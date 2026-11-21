@@ -40,8 +40,6 @@ export interface KoalaMetrics {
   toolCallSeconds: Histogram;
   sandboxProvisionSeconds: Histogram;
   imageBuildSeconds: Histogram;
-  hubSyncSeconds: Histogram;
-  hubChangesSent: Counter;
   mailSent: Counter;
   telemetryRelayed: Counter;
   poisoningSignals: Counter;
@@ -68,8 +66,6 @@ export function instrumentsOn(meter: Meter): KoalaMetrics {
     toolCallSeconds: seconds(meter, 'koala_tool_call_seconds', 'How long each tool call took, by tool and outcome'),
     sandboxProvisionSeconds: seconds(meter, 'koala_sandbox_provision_seconds', 'How long a run waited for its sandbox, by outcome'),
     imageBuildSeconds: seconds(meter, 'koala_image_build_seconds', 'How long an image build took, by kind and outcome'),
-    hubSyncSeconds: seconds(meter, 'koala_hub_sync_seconds', 'How long each hub sync step took, by step'),
-    hubChangesSent: meter.createCounter('koala_hub_changes_sent', { description: 'Changes sent to the hub' }),
     mailSent: meter.createCounter('koala_mail_sent', { description: 'Emails sent, by way and outcome' }),
     telemetryRelayed: meter.createCounter('koala_telemetry_relayed', { description: 'Telemetry batches relayed from machines, by signal and outcome' }),
     poisoningSignals: meter.createCounter('koala_poisoning_signals', { description: 'Signs of context or memory poisoning found in runs, by kind and severity' }),

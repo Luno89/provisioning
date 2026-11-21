@@ -24,7 +24,6 @@ import type { InfisicalService, InfrastructureService, ClusterService, AppServic
 import type { MachineService } from '../../machines/index.js';
 import type { WorkspaceConclusionService } from '../../memory/index.js';
 import { previewPush, type PushMessage } from '../../monitoring/index.js';
-import type { ProjectSharingService } from '../services/ProjectSharingService.js';
 import type { createEngineHost, createRunStarter, createStoredAgentRegistry } from '../../engine-host/index.js';
 import { createGroveLauncher } from '../../engine-host/grove-launcher.js';
 import { runAskingVia } from '../../engine-host/temporal/run-cancellation.js';
@@ -40,7 +39,7 @@ import { treesRouter } from '../routes/trees.js';
 import { plansRouter } from '../routes/plans.js';
 import { branchesRouter } from '../routes/branches.js';
 import { leavesRouter } from '../routes/leaves.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 
 const PUSHED_NOTICES: readonly string[] = ['preview-ready'];
 
@@ -142,7 +141,6 @@ export interface ProjectsWiringDeps {
   workspaceConclusions: Pick<WorkspaceConclusionService, 'conclude'>;
   workspaceRepos: ReturnType<typeof createWorkspaceRepoResolver>;
   concluded: (ownerId: string, conversationId: string | undefined) => void;
-  sharing: () => Pick<ProjectSharingService, 'shared' | 'takeBackForDeletion'> | undefined;
   getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
 }
 
@@ -166,10 +164,6 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
 
   const projectRemoval = new ProjectRemovalService({
     store: db,
-    hub: {
-      shared: async (projectId) => (deps.sharing()?.shared(projectId) ?? false),
-      takeBack: async (ownerId, projectId) => { await deps.sharing()?.takeBackForDeletion(ownerId, projectId); },
-    },
     workflows: temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporalBridge.client, engineQueue, PROJECT_REMOVAL_PROGRESS_QUERY),
   });
   tenant.use('/api/projects', projectsRouter({

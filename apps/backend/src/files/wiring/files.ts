@@ -21,7 +21,7 @@ import { StoryDropService } from '../services/StoryDropService.js';
 import { artifactsRouter } from '../routes/artifacts.js';
 import { filesRouter, shareRouter } from '../routes/files.js';
 import { projectFilesRouter } from '../routes/project-files.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 
 export interface InstanceFiles {
   storedFiles: StoredFiles;

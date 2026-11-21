@@ -33,7 +33,7 @@ import { serverOrdersRouter } from '../routes/server-orders.js';
 import { ServerOrderService } from '../services/ServerOrderService.js';
 import { rootNodeWorkflowId } from '../lib/server-orders.js';
 import { RootNodeWorkflow } from '../../workflows/RootNodeWorkflow.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 import { QUEUES } from '../../platform/index.js';
 
 export interface InfrastructureWiringDeps {

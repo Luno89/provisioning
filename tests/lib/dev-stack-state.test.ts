@@ -113,8 +113,8 @@ describe('what a run that needs the dev stack is told', () => {
 
 describe('where provisioning the dev stack stopped', () => {
   it('names the step npm run dev was on and what root last recorded', () => {
-    expect(provisioningFailed('npm run dev stopped (1)', { devStep: '[5] Root and the hub', root: { kind: 'provisioning', stage: `root does not answer on ${ROOT} yet` } }))
-      .toBe(`provisioning the dev stack failed at npm run dev's step "[5] Root and the hub": npm run dev stopped (1); root does not answer on ${ROOT} yet`);
+    expect(provisioningFailed('npm run dev stopped (1)', { devStep: '[5] Root', root: { kind: 'provisioning', stage: `root does not answer on ${ROOT} yet` } }))
+      .toBe(`provisioning the dev stack failed at npm run dev's step "[5] Root": npm run dev stopped (1); root does not answer on ${ROOT} yet`);
     expect(provisioningFailed('root reports putting your Koala on this computer failed: no image', { devStep: '[7] This computer joins your account as a machine, and Koala is put on it' }))
       .toBe('provisioning the dev stack failed at npm run dev\'s step "[7] This computer joins your account as a machine, and Koala is put on it": root reports putting your Koala on this computer failed: no image');
     expect(provisioningFailed('npm run setup failed (1)', {})).toBe('provisioning the dev stack failed before npm run dev started: npm run setup failed (1)');

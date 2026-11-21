@@ -77,12 +77,6 @@ describe('creating, listing and reading conversations', () => {
     expect((await plain.get('/api/conversations/c1')).data).toMatchObject({ id: 'c1' });
   });
 
-  it('names who wrote each message other than the viewer\'s when the conversation is in a shared project', async () => {
-    await app.db.hub.saveHubLink({ projectId: 'p1', hubId: 'h1', members: [{ personId: 'm1', email: 'm1@example.com' }] } as never);
-    await app.db.engine.saveConversation(chat({ messages: [{ role: 'user', content: 'from m1', at: 'x', author: { kind: 'person', id: 'm1' } } as Conversation['messages'][number]] }));
-    const read = await app.get<{ messages: { authorName?: string }[] }>('/api/conversations/c1');
-    expect(read.data.messages[0]?.authorName).toBe('m1@example.com');
-  });
 });
 
 describe('a conversation bound to something', () => {

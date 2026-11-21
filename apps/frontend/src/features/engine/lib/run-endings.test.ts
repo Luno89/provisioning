@@ -14,7 +14,7 @@ describe('how a run ended, in words', () => {
 
   it('says a revoked run ended because its access was revoked, and why', () => {
     expect(endedLine({ how: 'revoked', revokedBecause: 'signed-out-everywhere', at })).toBe('Ended because the access it worked with was revoked: they signed out everywhere')
-    expect(endedLine({ how: 'revoked', revokedBecause: 'removed-from-shared-project', at })).toBe('Ended because the access it worked with was revoked: they were removed from the shared project')
+    expect(endedLine({ how: 'revoked', revokedBecause: 'account-removed', at })).toBe('Ended because the access it worked with was revoked: their account is being removed')
     expect(endedTone({ how: 'revoked', at })).toBe('warn')
     expect(endedTone({ how: 'failed', at })).toBe('bad')
     expect(endedTone({ how: 'finished', at })).toBe('good')

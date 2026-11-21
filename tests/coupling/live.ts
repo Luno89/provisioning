@@ -65,7 +65,7 @@ export const entriesOf = (dir = LIVE, read: CmdlineOf = cmdlineOf): string[] => 
 
 export function measuringProblem(entries: readonly string[]): string | undefined {
   if (entries.length === 0) return 'the dev stack is not measuring what the live suites run: stop it and start it with COUPLING_LIVE=1 npm run dev';
-  if (!entries.some(runsInPod)) return 'the dev stack measures root and the hub but not your Koala\'s pods: stop it and start it again with COUPLING_LIVE=1 npm run dev, which applies the instance chart with dev.coverage';
+  if (!entries.some(runsInPod)) return 'the dev stack measures root but not your Koala\'s pods: stop it and start it again with COUPLING_LIVE=1 npm run dev, which applies the instance chart with dev.coverage';
   return undefined;
 }
 

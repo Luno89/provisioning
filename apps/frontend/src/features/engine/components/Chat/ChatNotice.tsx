@@ -1,10 +1,9 @@
-import { AlertTriangle, BellRing, Boxes, CheckCircle2, Eye, GitMerge, Hourglass, KeyRound, Leaf, ShieldOff, TreeDeciduous } from 'lucide-react';
+import { AlertTriangle, BellRing, Boxes, CheckCircle2, Eye, Hourglass, KeyRound, Leaf, ShieldOff, TreeDeciduous } from 'lucide-react';
 import type { ConversationNotice, NoticeKind } from '../../api/chat-pack.js';
 import { OpenApp } from '../../../releases';
 import { formatHash } from '../../../platform';
 
 const LOOK: Record<NoticeKind, { icon: typeof Eye; tone: string }> = {
-  'hub-main-conflict': { icon: GitMerge, tone: 'text-amber-300' },
   'preview-ready': { icon: Eye, tone: 'text-amber-300' },
   'release-live': { icon: CheckCircle2, tone: 'text-emerald-300' },
   'release-failed': { icon: AlertTriangle, tone: 'text-rose-300' },

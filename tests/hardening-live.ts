@@ -222,7 +222,7 @@ async function main(): Promise<void> {
   try {
     await clientAddresses(image);
     await plaintextRefusals(image);
-    step('a root, an instance and a hub of their own start in production containers from this commit\'s image');
+    step('a root and an instance of their own start in production containers from this commit\'s image');
     const stack = await startSplitStack();
     try {
       await noStubClouds(stack);

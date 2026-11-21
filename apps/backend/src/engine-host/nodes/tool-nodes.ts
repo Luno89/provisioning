@@ -7,9 +7,8 @@ import {
 import { capabilitiesOf } from '@koala/engine-core';
 import { handleFor, ticketFor, type HostNodeServices } from './services.js';
 import { notesForRun, withLearned } from '../../engine/lib/tool-notes.js';
-import { heldBackFromOthers } from '../../engine/lib/acting-for.js';
-import { accessOf, offerable, withheldWhy } from '../../engine/lib/tool-access.js';
-import { asPerson, memberPrincipal, type Principal } from '../../platform/lib/permissions.js';
+import { accessOf, offerable, WITHHELD_WHY } from '../../engine/lib/tool-access.js';
+import { asPerson, type Principal } from '../../platform/lib/permissions.js';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 
 const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | 'none' | string[] => {
@@ -45,16 +44,16 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 's
       const model = (inputs.binding as { model?: unknown } | undefined)?.model;
       const notes = services.memories ? notesForRun(await services.memories.list(run.launch.ownerId), typeof model === 'string' && model ? model : undefined) : undefined;
       const delegates = new Set(((inputs.delegates as AgentDefinition[] | undefined) ?? []).map((agent) => agent.slug));
-      const principal = (run.launch.principal as Principal | undefined) ?? (run.launch.actingFor ? memberPrincipal(run.launch.actingFor.personId, run.launch.actingFor.projectId, run.launch.actingFor.role) : asPerson(run.launch.ownerId));
-      const forMember = (tool: { name: string; effect?: string | undefined }) => (!run.launch.keptTo || !heldBackFromOthers(tool.name))
-        && (delegates.has(tool.name) || offerable(accessOf(tool.name, tool, isMcpToolName(tool.name)), principal, run.launch.ownerId, run.launch.actingFor?.projectId ?? run.launch.projectId));
+      const principal = (run.launch.principal as Principal | undefined) ?? asPerson(run.launch.ownerId);
+      const offered = (tool: { name: string; effect?: string | undefined }) =>
+        delegates.has(tool.name) || offerable(accessOf(tool.name, tool, isMcpToolName(tool.name)), principal, run.launch.ownerId, run.launch.projectId);
       const all = [...resolved.tools, ...chosen];
-      const kept = all.filter(forMember);
+      const kept = all.filter(offered);
       const tools = notes ? withLearned(kept, notes) : kept;
       const withheld = [
         ...resolved.withheld,
         ...fromServers.withheld,
-        ...all.filter((tool) => !forMember(tool)).map((tool) => ({ name: tool.name, why: run.launch.keptTo && heldBackFromOthers(tool.name) ? 'people other than the owner talked in this conversation' : withheldWhy(run.launch.actingFor) })),
+        ...all.filter((tool) => !offered(tool)).map((tool) => ({ name: tool.name, why: WITHHELD_WHY })),
       ];
 
       const handled = run.handles ?? {};

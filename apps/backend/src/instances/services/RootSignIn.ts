@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import * as client from 'openid-client';
 import { importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  decryptValue, encryptValue, endsSessions, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
+  decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
@@ -183,7 +183,6 @@ export class RootSignIn {
       ownerId: who.sub,
       email: who.email,
       refreshToken: encryptValue(tokens.refresh_token, this.settings.dataKey),
-      ...this.heldAccess(tokens, now),
       startedAt: new Date(now).toISOString(),
       expiresAt: new Date(now + SESSION_SECONDS * 1000).toISOString(),
     });
@@ -203,23 +202,6 @@ export class RootSignIn {
     const decoded = token ? verifyJWT(token, 'client-session', this.settings.sessionKey) : null;
     const session = signedInSession(decoded);
     return session && decoded && !this.revoked.ended(session) ? { ...session, until: Number(decoded.exp) * 1000 } : undefined;
-  }
-
-  private heldAccess(tokens: { access_token?: string | undefined; expires_in?: number | undefined }, now: number): { accessToken?: string; accessExpiresAt?: string } {
-    if (!tokens.access_token || !tokens.expires_in) return {};
-    return { accessToken: encryptValue(tokens.access_token, this.settings.dataKey), accessExpiresAt: new Date(now + tokens.expires_in * 1000).toISOString() };
-  }
-
-  async personToken(session: SignedInSession | undefined): Promise<string | undefined> {
-    if (!session) return undefined;
-    const usable = (stored: Awaited<ReturnType<Store['instances']['getClientSession']>>) =>
-      stored && stored.ownerId === session.userId && stored.accessToken && stored.accessExpiresAt && Date.parse(stored.accessExpiresAt) > this.now() + 60_000
-        ? decryptValue(stored.accessToken, this.settings.dataKey)
-        : undefined;
-    const held = usable(await this.store.instances.getClientSession(session.sid));
-    if (held) return held;
-    if (await this.renew(session) === 'ended') return undefined;
-    return usable(await this.store.instances.getClientSession(session.sid));
   }
 
   async end(session: Pick<SignedInSession, 'sid'>): Promise<void> {
@@ -256,7 +238,6 @@ export class RootSignIn {
     await this.store.instances.saveClientSession({
       ...stored,
       ...(tokens.refresh_token ? { refreshToken: encryptValue(tokens.refresh_token, this.settings.dataKey) } : {}),
-      ...this.heldAccess(tokens, this.now()),
     });
     const now = this.now();
     const renewed: SignedInSession = { ...session, email: who.email, claims: who.claims, freshUntil: now + CLAIMS_SECONDS * 1000 };
@@ -277,7 +258,7 @@ export class RootSignIn {
     }
     const events = payload.events as Record<string, unknown> | undefined;
     const event: AccessRevoked = { personId: String(payload.sub ?? ''), at: String(payload.koala_revoked_at ?? ''), because: payload.koala_why as AccessRevoked['because'] };
-    if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event) || !endsSessions(event)) return { ok: false, error: 'that is not a logout token' };
+    if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event)) return { ok: false, error: 'that is not a logout token' };
     await this.store.instances.recordRevocation({ subject: event.personId, before: event.at });
     this.revoked.revoke(event.personId, event.at);
     await this.store.instances.dropClientSessionsOf(event.personId);

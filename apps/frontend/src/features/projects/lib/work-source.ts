@@ -1,6 +1,5 @@
 import { createContext, useContext } from 'react'
 import type { QueryKey } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
 import { listBranches, listLeaves, listTrees, getTreeRun, orderFeatures, orderStories, type TreeRunStatus } from '../api/grove'
 import { acceptTask, dropTask, listExtensions, listRunEndings, listTasks, type EngineTask, type ExtensionSummary, type RunEnding } from '../../engine'
 import { listReleases, type ReleaseList } from '../../releases'
@@ -10,8 +9,6 @@ import { getProcedure } from '../../engine'
 import { listTreePlans } from '../api/plans'
 import type { PlanProposal } from '@koala/harness-types'
 import type { Branch } from '../types/grove'
-import type { FileScope } from '../../files'
-import type { HubRequest } from '../../hub'
 import type { TurnLogEntry } from '../../engine'
 import type { Leaf } from './leaf-types'
 import type { PipelineRun } from '../components/PipelineRunRow'
@@ -21,20 +18,8 @@ import type { Procedure } from '@koala/agent-engine/procedure'
 
 export type WorkPower = 'change-work' | 'change-files' | 'run-work' | 'delete-work' | 'threads' | 'story-code'
 
-export interface HubPlace {
-  projectId: string
-  online: boolean
-  requests: HubRequest[]
-  people: ReadonlyMap<string, string>
-  ownerEmail?: string | undefined
-}
-
-export type BoardChat = { kind: 'channel' } | { kind: 'story' | 'feature'; id: string; title: string }
-
 export interface WorkSource {
   key: readonly unknown[]
-  hub?: HubPlace | undefined
-  chat?: ((chat: BoardChat) => ReactNode) | undefined
   pushed: boolean
   can(power: WorkPower): boolean
   listTrees(): Promise<WorkTree[]>
@@ -54,7 +39,6 @@ export interface WorkSource {
   orderFeatures(treeId: string, branchIds: readonly string[]): Promise<void>
   acceptTask(taskId: string): Promise<void>
   dropTask(taskId: string): Promise<void>
-  fileScope(projectId: string): FileScope
 }
 
 export const localWorkSource: WorkSource = {
@@ -78,7 +62,6 @@ export const localWorkSource: WorkSource = {
   orderFeatures,
   acceptTask,
   dropTask,
-  fileScope: (projectId) => ({ kind: 'project', projectId }),
 }
 
 export const WorkSourceContext = createContext<WorkSource>(localWorkSource)

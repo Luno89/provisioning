@@ -81,9 +81,9 @@ describe('InfisicalService', () => {
   });
 
   it('refuses every call with the reason it was given where it reaches no Infisical, asking nothing', async () => {
-    const none = new InfisicalService(MASTER_KEY, { none: 'the hub keeps no project\'s secrets, so it reaches no Infisical' }, dataDir);
-    await expect(none.resolveBaseUrl()).rejects.toThrow('the hub keeps no project\'s secrets, so it reaches no Infisical');
-    await expect(none.setSecret('p1', 'STRIPE_KEY', 'v')).rejects.toThrow('the hub keeps no project\'s secrets, so it reaches no Infisical');
+    const none = new InfisicalService(MASTER_KEY, { none: 'root keeps no project\'s secrets, so it reaches no Infisical' }, dataDir);
+    await expect(none.resolveBaseUrl()).rejects.toThrow('root keeps no project\'s secrets, so it reaches no Infisical');
+    await expect(none.setSecret('p1', 'STRIPE_KEY', 'v')).rejects.toThrow('root keeps no project\'s secrets, so it reaches no Infisical');
     expect(post).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
   });

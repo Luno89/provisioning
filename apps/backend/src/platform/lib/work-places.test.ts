@@ -7,10 +7,9 @@ describe('where work runs', () => {
     expect(queueOf('cluster')).toBe('cluster-ops-queue');
   });
 
-  it('runs root\'s own work on root, every place on an instance, and nothing on the hub', () => {
+  it('runs root\'s own work on root and every place on an instance', () => {
     expect(placesOf('root')).toEqual(['host']);
     expect(placesOf('instance')).toEqual(['engine', 'stream', 'cluster', 'host']);
-    expect(placesOf('hub')).toEqual([]);
     expect(roleRuns('root', 'cluster')).toBe(false);
     expect(roleRuns('instance', 'cluster')).toBe(true);
   });

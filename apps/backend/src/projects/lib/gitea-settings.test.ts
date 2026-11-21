@@ -8,7 +8,7 @@ describe('the settings a process reaches Gitea with', () => {
     expect(giteaSettingsFrom(GIVEN)).toEqual({ url: 'http://gitea-http.gitea.svc.cluster.local:3000', reachesKoalaAt: 'http://luno.nowrinkles.svc.cluster.local' });
   });
 
-  it('reads the hub\'s on dev: the instance\'s Gitea on this computer, and the hub on the pod network', () => {
+  it('reads a Gitea on this computer that sends pushes to the pod network', () => {
     expect(giteaSettingsFrom({ GITEA_URL: 'http://127.0.0.1:31737', GITEA_REACHES_KOALA_AT: 'http://10.42.0.1:3003/' })).toEqual({ url: 'http://127.0.0.1:31737', reachesKoalaAt: 'http://10.42.0.1:3003' });
   });
 

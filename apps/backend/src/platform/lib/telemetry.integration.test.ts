@@ -16,7 +16,7 @@ const traced = tracedTemporal();
 
 describe('the settings every process starts telemetry with', () => {
   it('names the service, the role and the instance, and exports only where the environment names a collector', () => {
-    expect(telemetrySettings({ role: { role: 'hub' }, telemetry: {} }, 'koala-backend')).toEqual({ service: 'koala-backend', role: 'hub', sink: undefined });
+    expect(telemetrySettings({ role: { role: 'root' }, telemetry: {} }, 'koala-backend')).toEqual({ service: 'koala-backend', role: 'root', sink: undefined });
     const settings = telemetrySettings({ role: { role: 'instance' }, telemetry: { instanceId: 'inst-1', version: 'abc123', otlpEndpoint: 'http://c:4318' } }, 'koala-worker-engine');
     expect(settings).toMatchObject({ service: 'koala-worker-engine', role: 'instance', instanceId: 'inst-1', version: 'abc123' });
     expect(settings.sink).toBeDefined();

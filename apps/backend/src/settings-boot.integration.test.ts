@@ -64,10 +64,10 @@ describe('a process started without a setting its role requires', () => {
     expect(said).toContain('MACHINE_GATEWAY_PORT is not set');
   });
 
-  it('stops: the hub names what it lacks', async () => {
-    const { code, said } = await stopsAt('src/index.ts', { ...CONNECTION, ...BACKEND_PLACE, ROLE: 'hub', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, HUB_CREDENTIAL: 'hub', GITEA_URL: 'http://127.0.0.1:1', GITEA_REACHES_KOALA_AT: 'http://127.0.0.1:1' });
+  it('stops: a backend started as the archived hub names the roles there are', async () => {
+    const { code, said } = await stopsAt('src/index.ts', { ...CONNECTION, ...BACKEND_PLACE, ROLE: 'hub', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, HUB_CREDENTIAL: 'hub' });
     expect(code).toBe(1);
-    expect(said).toContain('HUB_DATABASE is not set');
+    expect(said).toContain('ROLE is "hub"; it has to be one of root, instance');
   });
 
   it('stops: each worker names what it lacks', async () => {

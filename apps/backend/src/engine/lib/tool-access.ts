@@ -1,5 +1,4 @@
 import { authorize, allowed, type Actions, type Principal, type Resource } from '../../platform/lib/permissions.js';
-import type { ActingFor } from '@koala/agent-engine/procedure';
 
 export const PROJECT_REFS = ['projectId', 'project', 'treeId', 'branchId', 'leafId', 'leafIds', 'taskId'] as const;
 export type ProjectRef = typeof PROJECT_REFS[number];
@@ -144,8 +143,6 @@ export function resourceFor(access: ToolAccess, ownerId: string, args: Readonly<
   }
 }
 
-const forWhom = (asker: Pick<ActingFor, 'email' | 'role'>): string => `Koala is answering ${asker.email}, a ${asker.role} on this shared project`;
-
 export function accessProblem(
   tool: string,
   access: ToolAccess,
@@ -153,22 +150,12 @@ export function accessProblem(
   ownerId: string,
   args: Readonly<Record<string, unknown>>,
   resolved: ProjectResolution,
-  asker?: Pick<ActingFor, 'email' | 'role'> | undefined,
 ): string | undefined {
   const target = resourceFor(access, ownerId, args, resolved);
   if (!target) return undefined;
-  if ('outside' in target) {
-    return asker
-      ? `${forWhom(asker)}, so ${tool} may not be given that ${target.outside}: it names something outside this shared project.`
-      : `${tool} may not be given that ${target.outside}: it names nothing of yours.`;
-  }
+  if ('outside' in target) return `${tool} may not be given that ${target.outside}: it names nothing of yours.`;
   const decision = authorize(principal, target.action as never, target.resource);
-  if (decision.allowed) return undefined;
-  if (!asker) return `${tool} was not run: ${decision.error}`;
-  if (target.resource.kind === 'project' && decision.status === 403) return `${forWhom(asker)}, so it may not use ${tool} here: ${decision.error}`;
-  const named = PROJECT_REFS.find((name) => args[name] !== undefined && args[name] !== null && args[name] !== '');
-  if (target.resource.kind === 'project' && named) return `${forWhom(asker)}, so ${tool} may not be given that ${named}: it names something outside this shared project.`;
-  return `${forWhom(asker)}, so it may not use ${tool}, which reaches beyond the project.`;
+  return decision.allowed ? undefined : `${tool} was not run: ${decision.error}`;
 }
 
 export function offerable(access: ToolAccess, principal: Principal, ownerId: string, projectId?: string | undefined): boolean {
@@ -182,8 +169,7 @@ export function offerable(access: ToolAccess, principal: Principal, ownerId: str
   }
 }
 
-export const withheldWhy = (asker: Pick<ActingFor, 'email'> | undefined): string =>
-  asker ? `it reaches beyond the shared project ${asker.email} is on` : 'it reaches beyond what this run may do';
+export const WITHHELD_WHY = 'it reaches beyond what this run may do';
 
 export function grantProblem(tool: string, access: ToolAccess, granter: Principal, ownerId: string): string | undefined {
   if (offerable(access, granter, ownerId)) return undefined;

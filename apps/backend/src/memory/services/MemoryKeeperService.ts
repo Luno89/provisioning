@@ -36,7 +36,6 @@ export interface MemoryKeeperStore {
 
 export type StartMemoryRun = (request: {
   ownerId: string;
-  keptTo?: string | undefined;
   agentSlug: string;
   message: string;
   runId: string;
@@ -152,19 +151,10 @@ export class MemoryKeeperService {
     await this.startNow(conclusion, report);
   }
 
-  private async keptTo(conclusion: Conclusion): Promise<string | undefined> {
-    if (conclusion.projectId) return conclusion.projectId;
-    const tree = conclusion.treeId ? (await this.deps.store.projects.getTrees()).find((entry) => entry.id === conclusion.treeId && entry.ownerId === conclusion.ownerId) : undefined;
-    return tree?.projectIds?.[0];
-  }
-
   private async startNow(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
-    const keptTo = conclusion.heardOthers ? await this.keptTo(conclusion) : undefined;
-    if (conclusion.heardOthers && !keptTo) return;
     try {
       await this.deps.start({
         ownerId: conclusion.ownerId,
-        ...(keptTo ? { keptTo } : {}),
         agentSlug: MEMORY_KEEPER,
         message: conclusion.message,
         runId: conclusion.runId,

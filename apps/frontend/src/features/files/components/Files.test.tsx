@@ -65,7 +65,7 @@ describe('a project\'s stored files', () => {
 
   it('shows and adds for someone who may not move or remove, offering no rename, remove or selection', async () => {
     vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'a.txt', path: 'a.txt', type: 'file', size: 1 }])
-    show(<StoredFiles scope={{ kind: 'hub', projectId: 'h1' }} rearranges={false} />)
+    show(<StoredFiles scope={{ kind: 'project', projectId: 'p1' }} rearranges={false} />)
     expect(await screen.findByRole('button', { name: 'Open a.txt' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Download a.txt' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Upload' })).toBeTruthy()
@@ -267,17 +267,6 @@ describe('adding files', () => {
     vi.mocked(filesApi.dropStoredFiles).mockRejectedValueOnce(refused(507, { error: 'full', needed: 5 * 1024 ** 2, free: 1024 ** 2 }))
     await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [new File(['1'], 'p.txt'), new File(['2'], 'q.txt')]) })
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('This needs 5.0 MB and only 1.0 MB is free, so nothing was uploaded.'))
-  })
-
-  it('on the hub sends each file on its own, and asks no room of the person\'s instance', async () => {
-    const hub = { kind: 'hub' as const, projectId: 'h1' }
-    show(<StoredFiles scope={hub} rearranges={false} />)
-    await screen.findByText(/Nothing here yet/)
-    const files = [new File(['1'], 'x.txt'), new File(['2'], 'y.txt')]
-    await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, files) })
-    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledTimes(2))
-    expect(filesApi.dropStoredFiles).not.toHaveBeenCalled()
-    expect(filesApi.storedRoom).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,8 @@
+import type { Router } from 'express';
 import type { GpuWithoutDriver, MachineGpu } from '@koala/engine-core';
 import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/lib/dns-providers.js';
 import type { AgentUpdateReport, MachineAgent, ManualMachineAgent } from '../../machines/index.js';
+export type Mounts = { use(path: string, router: Router): unknown };
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
 export type ClusterProviderName = 'machine' | 'pool' | 'root';

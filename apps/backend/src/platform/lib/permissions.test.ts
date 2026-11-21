@@ -3,8 +3,8 @@ import { noteOnSpan } from '@koala/engine-core/telemetry';
 
 vi.mock('@koala/engine-core/telemetry', async (actual) => ({ ...(await actual<object>()), noteOnSpan: vi.fn() }));
 import {
-  PERMISSIONS, SHARED_ROLES, allowed, authorize, claimsOf, clusterResource, principalOf, sharedActionsOf, withSharedRole,
-  type Principal, type Resource, type SharedAction, type SharedRole, sessionPermissions,
+  PERMISSIONS, allowed, authorize, claimsOf, clusterResource, principalOf,
+  type Principal, type Resource, sessionPermissions,
 } from './permissions.js';
 
 const person = (id: string, extra: Principal['claims'] = []): Principal => ({ kind: 'person', id, claims: [{ role: 'person' }, ...extra] });
@@ -13,9 +13,8 @@ const instanceOwner = person('owner', [{ role: 'operator' }, { role: 'instance-o
 const someone = person('someone');
 
 describe('claimsOf', () => {
-  it('gives the operator claim from the operator role on root, never on the hub', () => {
+  it('gives the operator claim from the operator role on root', () => {
     expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'root' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
-    expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'hub' })).toEqual([{ role: 'person' }]);
     expect(claimsOf({ id: 'a' }, { role: 'root' })).toEqual([{ role: 'person' }]);
   });
 
@@ -44,13 +43,11 @@ describe('the permissions table', () => {
     expect(allowed(operator, 'see-platform-dependencies', { kind: 'install' })).toBe(true);
     expect(allowed(person('owner', [{ role: 'instance-owner' }]), 'see-platform-dependencies', { kind: 'install' })).toBe(true);
     expect(authorize(someone, 'see-platform-dependencies', { kind: 'install' })).toEqual({ allowed: false, status: 403, error: 'Only whoever runs this Koala sees whether the services it depends on answer.' });
-    expect(allowed(person('member', [{ role: 'shared', project: 'p1', as: 'owner' }]), 'see-platform-dependencies', { kind: 'install' })).toBe(false);
   });
 
   it('lets only whoever runs this Koala set it up again, saying why to anyone else', () => {
     expect(allowed(person('owner', [{ role: 'instance-owner' }]), 'set-up-again', { kind: 'install' })).toBe(true);
     expect(authorize(someone, 'set-up-again', { kind: 'install' })).toEqual({ allowed: false, status: 403, error: 'Only whoever runs this Koala sets it up again.' });
-    expect(allowed(person('member', [{ role: 'shared', project: 'p1', as: 'owner' }]), 'set-up-again', { kind: 'install' })).toBe(false);
   });
 
   it('lets only the instance owner change the instance settings', () => {
@@ -115,35 +112,10 @@ describe('the permissions table', () => {
       expect(allowed(someone, action, { kind: 'workflow' })).toBe(false);
     }
   });
-
-  const SHARED_EXPECTED: Record<SharedRole, readonly SharedAction[]> = {
-    owner: ['see-project', 'see-people', 'invite', 'change-roles', 'remove-people', 'change-files', 'approve-changes', 'work-stories', 'release', 'see-secrets', 'change-settings', 'pin-and-comment', 'ask-koala'],
-    collaborator: ['see-project', 'see-people', 'change-files', 'approve-changes', 'work-stories', 'pin-and-comment'],
-    client: ['see-project', 'see-people', 'pin-and-comment', 'ask-koala'],
-  };
-
-  it('gives each role on a shared project exactly its actions, there and nowhere else', () => {
-    for (const role of SHARED_ROLES) {
-      const member = withSharedRole(someone, 'p1', role);
-      expect(sharedActionsOf(member, 'p1'), role).toEqual(SHARED_EXPECTED[role]);
-      expect(sharedActionsOf(member, 'p2'), role).toEqual([]);
-    }
-    expect(sharedActionsOf(operator, 'p1')).toEqual([]);
-  });
-
-  it('replaces a member\'s role rather than adding a second one', () => {
-    const member = withSharedRole(withSharedRole(someone, 'p1', 'owner'), 'p1', 'client');
-    expect(sharedActionsOf(member, 'p1')).toEqual(SHARED_EXPECTED.client);
-  });
-
-  it('refuses a shared action with the table\'s sentence', () => {
-    expect(authorize(withSharedRole(someone, 'p1', 'client'), 'invite', { kind: 'shared-project', id: 'p1' }))
-      .toEqual({ allowed: false, status: 403, error: 'Only an owner can invite people to this project.' });
-  });
 });
 
 describe('what the session says a person may do', () => {
-  const on = (role: 'root' | 'instance' | 'hub', roles: ('operator')[] = []) =>
+  const on = (role: 'root' | 'instance', roles: ('operator')[] = []) =>
     principalOf({ id: 'me', roles }, { role, instanceOwnerId: role === 'instance' ? 'me' : undefined });
 
   it('gives an instance\'s owner its settings and the operator\'s powers there, but no accounts to manage', () => {
@@ -159,9 +131,6 @@ describe('what the session says a person may do', () => {
     });
   });
 
-  it('gives nobody on the hub an operator\'s power, whatever role is stored', () => {
-    expect(Object.values(sessionPermissions(on('hub', ['operator']), { holdsAccounts: false })).some(Boolean)).toBe(false);
-  });
 });
 
 describe('a refusal on the span that is running', () => {

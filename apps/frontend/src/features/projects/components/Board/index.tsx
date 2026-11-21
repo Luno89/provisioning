@@ -16,7 +16,6 @@ import { useResizableWidth } from '../Workspace/useResizableWidth'
 import { resizeHandle } from '../Workspace/shared'
 import { useProjectWork } from '../../hooks/useProjectWork'
 import { ProjectStoredFiles } from '../../../files'
-import { StoredFiles } from '../../../files'
 import { keyedBy, useWorkSource } from '../../lib/work-source'
 import { RepositoryFiles } from '../../../files'
 import { StoryDrops } from './StoryDrops'
@@ -123,7 +122,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
 
   const itemUnread = main.kind !== 'board' && !openBranch
   useRouteSync(
-    itemUnread || source.hub ? undefined : tree
+    itemUnread ? undefined : tree
       ? {
           kind: 'tree',
           treeId: tree.id,
@@ -250,12 +249,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
             <div className="mt-4">
               <StoryTasks tasks={(tasks.data ?? []).filter((task) => task.leafId === openLeaf.id).sort((a, b) => (openLeaf.tasks ?? []).indexOf(a.id) - (openLeaf.tasks ?? []).indexOf(b.id) || byRank(a, b))} />
             </div>
-            {project && source.hub && (
-              <div className="mt-4 rounded border border-[var(--bark-700)] p-2" data-testid="story-files">
-                <StoredFiles scope={source.fileScope(project.id)} dir={storyFolder(openLeaf.id)} title="Files for this story" rearranges={source.can('change-files')} />
-              </div>
-            )}
-            {project && !source.hub && (
+            {project && (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded border border-[var(--bark-700)] p-2" data-testid="story-code">
                   <RepositoryFiles projectId={project.id} leafId={openLeaf.id} title="Code for this story">
@@ -345,8 +339,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           </button>
         )}
         <div className={`flex-1 min-h-0 ${side.kind === 'threads' ? 'overflow-y-auto p-3' : side.kind === 'item' ? 'flex flex-col' : ''}`}>
-          {side.kind === 'channel' && project && source.chat && source.chat({ kind: 'channel' })}
-          {side.kind === 'channel' && project && !source.chat && (
+          {side.kind === 'channel' && project && (
             <ProjectChannel projectId={project.id} onOpenTree={openTree} onOpenStory={openStory} />
           )}
           {side.kind === 'threads' && binding && (
@@ -361,13 +354,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
           {side.kind === 'conversation' && binding && (
             <ChatSurface key={side.id} conversationId={side.id} binding={binding} hideSidebar onOpenTree={openTree} onOpenStory={openStory} />
           )}
-          {side.kind === 'item' && main.kind === 'story' && openLeaf && source.chat && (
-            <div className="flex-1 min-h-0">{source.chat({ kind: 'story', id: openLeaf.id, title: openLeaf.title })}</div>
-          )}
-          {side.kind === 'item' && main.kind === 'feature' && openFeature && source.chat && (
-            <div className="flex-1 min-h-0">{source.chat({ kind: 'feature', id: openFeature.id, title: openFeature.title })}</div>
-          )}
-          {side.kind === 'item' && main.kind === 'story' && openLeaf && !source.chat && (
+          {side.kind === 'item' && main.kind === 'story' && openLeaf && (
             <div className="flex-1 min-h-0">
               <ItemChat
                 key={openLeaf.id}
@@ -379,7 +366,7 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
               />
             </div>
           )}
-          {side.kind === 'item' && main.kind === 'feature' && openFeature && !source.chat && (
+          {side.kind === 'item' && main.kind === 'feature' && openFeature && (
             <div className="flex-1 min-h-0">
               <ItemChat
                 key={openFeature.id}

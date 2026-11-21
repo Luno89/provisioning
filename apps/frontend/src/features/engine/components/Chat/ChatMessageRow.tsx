@@ -9,7 +9,6 @@ import type { ChannelAddress } from '../../../projects';
 
 export interface ChatMessageData {
   role: 'user' | 'assistant' | 'notice';
-  authorName?: string | undefined;
   notice?: import('../../api/chat-pack.js').ConversationNotice | undefined;
   content: string;
   reasoning?: string | undefined;
@@ -82,7 +81,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   address,
   onAskKoala,
   conversationId,
-  hubProjectId,
 }: {
   message: ChatMessageData;
   packLabel?: string;
@@ -91,7 +89,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   address?: ChannelAddress | undefined;
   onAskKoala?: (() => void) | undefined;
   conversationId?: string | undefined;
-  hubProjectId?: string | undefined;
 }) {
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
@@ -137,7 +134,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
       <div className="flex-1 min-w-0 space-y-1.5">
         <div className="flex items-center gap-2 text-xs text-slate-400 font-sans">
           <span className={`font-semibold ${isUser ? 'text-slate-200' : 'text-emerald-400'}`}>
-            {isUser ? message.authorName ?? 'You' : packLabel}
+            {isUser ? 'You' : packLabel}
           </span>
           {message.at && (
             <span className="text-slate-500 text-[11px]">
@@ -184,7 +181,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </div>
         )}
 
-        {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} conversationId={conversationId} hubProjectId={hubProjectId} />}
+        {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} conversationId={conversationId} />}
 
         {message.interruptedReason && (
           <div className="mt-2 text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2 flex items-center gap-2 select-none">

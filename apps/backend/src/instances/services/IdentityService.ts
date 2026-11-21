@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { Database, RoleConfig } from '../../platform/index.js';
 import { publicKeyPem } from '../lib/identity-token.js';
 import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
-import { SIGN_IN_KEY_NOT_NAMED, signInWaitingFor, START_PATH } from '../lib/oidc.js';
+import { signInWaitingFor, START_PATH } from '../lib/oidc.js';
 import { hashCredential } from './InstanceService.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
@@ -24,22 +24,12 @@ export class IdentityService {
     return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && inService(instance));
   }
 
-  async goUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }): Promise<GoTo | undefined> {
+  async goUrl(user: { id: string; email: string }): Promise<GoTo | undefined> {
     if (!this.role.signing) return undefined;
-    if (to?.hub) {
-      if (!this.role.hubLink) return undefined;
-      if (!(await this.store.instances.getHubSignInKey())) return { waiting: SIGN_IN_KEY_NOT_NAMED.hub };
-      const going = to.next && /^\/[^/\\]/.test(to.next) ? to.next : undefined;
-      return { url: `${this.role.hubLink.url}${START_PATH}${going ? `?next=${encodeURIComponent(going)}` : ''}` };
-    }
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
     const waiting = signInWaitingFor(instance);
     return waiting ? { waiting } : { url: `${instance.url.replace(/\/+$/, '')}${START_PATH}` };
-  }
-
-  hubUrl(): string | undefined {
-    return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go?to=hub` : undefined;
   }
 
   removalUrl(): string | undefined {

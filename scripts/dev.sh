@@ -55,13 +55,13 @@ if [ "$(cat "${DEV_DATA}/image.sha" 2>/dev/null || true)" != "${IMAGE_INPUTS}" ]
   printf '%s\n' "${IMAGE_INPUTS}" > "${DEV_DATA}/image.sha"
 fi
 
-say "Root and the hub"
+say "Root"
 npx tsx "${ROOT}/apps/backend/src/scripts/dev-root.ts"
 echo "  settings in ${DEV_DATA}"
 set -a; . "${DEV_DATA}/urls.env"; set +a
 with_env() { echo "set -a; . '${DEV_DATA}/$1.env'; set +a; exec $2"; }
 
-bash "${ROOT}/scripts/stop-dev-servers.sh" 3002 3003 5173 5175 5176
+bash "${ROOT}/scripts/stop-dev-servers.sh" 3002 5173 5175
 
 KOALA_COVERAGE=""
 if [ "${COUPLING_LIVE:-}" = 1 ]; then
@@ -74,13 +74,11 @@ if [ "${COUPLING_LIVE:-}" = 1 ]; then
   export NODE_OPTIONS="--enable-source-maps --import ${ROOT}/tests/coupling/live-hook.mjs ${NODE_OPTIONS:-}"
 fi
 
-ROOT_NAMES="root,root-worker,hub,web-root,web-hub"
+ROOT_NAMES="root,root-worker,web-root"
 ROOT_PROCESSES=(
   "bash -c \"$(with_env root 'npm run -s dev -w apps/backend')\""
   "bash -c \"$(with_env root 'npm run -s dev:worker -w apps/backend')\""
-  "bash -c \"$(with_env hub 'npm run -s dev -w apps/backend')\""
   "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5175 --strictPort --host 0.0.0.0"
-  "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5176 --strictPort --host 0.0.0.0"
 )
 
 if [ "${JOINING}" = 1 ]; then
@@ -111,16 +109,15 @@ fi
 COLLECTOR_IP="$(k3s kubectl --kubeconfig "${KUBECONFIG_FILE}" -n monitoring get service otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
 if [ -n "${COLLECTOR_IP}" ] && [ "${COLLECTOR_IP}" != None ]; then
   export OTEL_EXPORTER_OTLP_ENDPOINT="http://${COLLECTOR_IP}:4318"
-  TELEMETRY_LINE="root's and the hub's telemetry go to the collector on this computer's k3s, beside your Koala's (Grafana: koala_role root and hub)"
+  TELEMETRY_LINE="root's telemetry goes to the collector on this computer's k3s, beside your Koala's (Grafana: koala_role root)"
 else
-  TELEMETRY_LINE="your Koala has not installed its collector yet; root's and the hub's telemetry go to it from the next start"
+  TELEMETRY_LINE="your Koala has not installed its collector yet; root's telemetry goes to it from the next start"
 fi
 
-say "Dev runs as production does; the logs of root, the hub and your Koala's pods follow"
+say "Dev runs as production does; the logs of root and your Koala's pods follow"
 echo "  ${TELEMETRY_LINE}"
 echo "  Root:        ${ROOT_WEB}   (sign in here)"
 echo "  Your Koala:  ${INSTANCE_WEB}   (pods on this computer's k3s, running this checkout under a watcher)"
-echo "  Hub:         ${HUB_WEB}"
 
 exec npx concurrently --kill-others-on-fail \
   --names "${ROOT_NAMES},web-koala,machine,koala" \

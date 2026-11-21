@@ -9,10 +9,10 @@ import { dropIntoRepository, projectFileKeys } from '../projects'
 import { groveKeys } from '../projects'
 import { joinPath, type PickedFile } from './lib/file-drop'
 import {
-  checksRoom, countsLinks, fileIdsUnder, fits, linksStopped, takenPaths, targetPaths, totalSize, uploadRefusal, uploadWay,
+  fileIdsUnder, fits, linksStopped, takenPaths, targetPaths, totalSize, uploadRefusal, uploadWay,
   type Upload, type UploadRefusal,
 } from './lib/file-upload'
-import type { FileScope, ShareableScope, ShareDays } from './types'
+import type { FileScope, ShareDays } from './types'
 
 export function useStoredFiles(scope: FileScope, dir: string, enabled = true) {
   return useQuery({ queryKey: fileKeys.list(scope, dir), queryFn: () => listStoredFiles(scope, dir), enabled })
@@ -37,8 +37,8 @@ export function useStoredUpload(scope: FileScope) {
   const [progress, setProgress] = useState<UploadProgress | undefined>()
   const list = (dir: string) => client.fetchQuery({ queryKey: fileKeys.list(scope, dir), queryFn: () => listStoredFiles(scope, dir), staleTime: 0 })
   const send = async ({ dir, picked }: Upload, replace: boolean): Promise<string[]> => {
-    const way = uploadWay(scope, picked.length)
-    if (way === 'drop' && scope.kind !== 'hub') {
+    const way = uploadWay(picked.length)
+    if (way === 'drop') {
       setProgress({ done: 0, total: picked.length, share: 0 })
       const { files } = await dropStoredFiles(scope, dir, picked, replace, (share) => setProgress({ done: 0, total: picked.length, share }))
       return files.map((one) => one.path)
@@ -55,7 +55,7 @@ export function useStoredUpload(scope: FileScope) {
   const upload = useMutation({
     mutationFn: async ({ upload: wanted, replace }: { upload: Upload; replace: boolean }): Promise<UploadOutcome> => {
       const targets = targetPaths(wanted)
-      if (!replace && checksRoom(scope)) {
+      if (!replace) {
         const needed = totalSize(wanted.picked)
         const { free } = await storedRoom()
         if (!fits(needed, free)) return { kind: 'room', needed, free }
@@ -99,7 +99,7 @@ export function useStoredChanges(scope: FileScope) {
   })
   const moveMany = useMutation({
     mutationFn: async ({ moves, confirmed }: { moves: readonly Move[]; confirmed: boolean }): Promise<MoveOutcome> => {
-      if (!confirmed && countsLinks(scope)) {
+      if (!confirmed) {
         const shares = await client.fetchQuery({ queryKey: fileKeys.shares, queryFn: listFileShares, staleTime: 0 })
         if (shares.some((share) => share.fileId)) {
           const stopped = linksStopped(shares, await fileIdsUnder(list, moves.map((one) => one.from)))
@@ -127,7 +127,7 @@ export function useFileShares() {
   return useQuery({ queryKey: fileKeys.shares, queryFn: listFileShares })
 }
 
-export function useShareFile(scope: ShareableScope) {
+export function useShareFile(scope: FileScope) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({ path, days }: { path: string; days: ShareDays }) => shareStoredFile(scope, path, days),

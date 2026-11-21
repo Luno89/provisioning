@@ -8,10 +8,6 @@ import { AccountRemovalService, type AccountRemovalWorkflows, type RemovalWorkfl
 import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
-import { HubService } from '../../hub/services/HubService.js';
-import type { HubPeople } from '../../hub/services/HubPeople.js';
-import { localHubPeople } from '../../hub/testing/in-process-hub.js';
-import { memoryHubStore } from '../../hub/testing/memory-hub-store.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { koalaPlacedAndUp } from '../../instances/testing/placed-koala.js';
@@ -46,13 +42,13 @@ const confirmed = async (req: { body?: { password?: string } }) => {
 
 const principalFor = (user: { id: string; roles?: ('operator')[] | undefined }) => principalOf(user, { role: 'root' });
 
-const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => {
+const mount = async (prefix: '/api/account' | '/api/admin') => {
   harness = await mountRouter({
     prefix,
     user: PERSON,
     router: async (db) => {
       await seedPeople(db);
-      const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', hub, principalFor });
+      const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', principalFor });
       return prefix === '/api/account'
         ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); }, confirmed })
         : adminRouter({ db, operatorOnly, removal, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }) });
@@ -227,34 +223,5 @@ describe('a person removing their own account on root', () => {
     expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).status).toBe(202);
     expect(types).toEqual([ROOT_REMOVAL_WORKFLOW]);
     expect(cleared).toBe(1);
-  });
-});
-
-
-describe('removing an account that is on shared projects', () => {
-  it('is refused while they alone own a project others are on, and otherwise lets them go from every project first', async () => {
-    const tokens: string[] = [];
-    const sent = new HubService({ store: memoryHubStore(), invites: { send: async (request) => { tokens.push(request.join); return { link: 'l', emailed: false }; } } });
-    const shop = await sent.create(PERSON, { name: 'Shop' });
-    const alone = await sent.create(PERSON, { name: 'Alone' });
-    if (!shop.ok || !alone.ok) throw new Error('not made');
-    await sent.invite(PERSON, shop.value.project.id, { email: ADMIN.email, role: 'collaborator' });
-    await sent.accept(ADMIN, tokens[0]!);
-    await mount('/api/account', localHubPeople(sent));
-
-    expect((await call('get', '/api/account/removal')).data.blockers).toEqual(['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first']);
-    const refused = await call('delete', '/api/account', { confirm: PERSON.email });
-    expect(refused.status).toBe(409);
-    expect(started).toEqual([]);
-    expect((await sent.mine(PERSON.id)).length).toBe(2);
-
-    await sent.changeRole(PERSON.id, shop.value.project.id, ADMIN.id, 'owner');
-    expect((await call('delete', '/api/account', { confirm: PERSON.email })).status).toBe(403);
-    expect((await sent.mine(PERSON.id)).length).toBe(2);
-    expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).status).toBe(202);
-    expect(started.length).toBe(1);
-    expect(await sent.mine(PERSON.id)).toEqual([]);
-    expect((await sent.view(ADMIN.id, alone.value.project.id)).ok).toBe(false);
-    expect((await sent.mine(ADMIN.id)).map((entry) => entry.project.name)).toEqual(['Shop']);
   });
 });

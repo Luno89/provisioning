@@ -2,18 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   HANDOVER_TOOL, endedOf, ended, runGrantProblem, handoverPath, handoverPrompt, newRunGrant, outsideScopeProblem, renderHandover, revoked, revokedNotice, revokes,
 } from './run-grants.js';
-import { asPerson, memberPrincipal } from '../../platform/lib/permissions.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const now = new Date('2026-10-29T10:00:00Z');
 const owner = newRunGrant({ id: 'g1', ownerId: 'owner', runId: 'run-1', principal: asPerson('owner'), startedBy: 'person', projectId: 'p1', now });
-const member = newRunGrant({ id: 'g2', ownerId: 'owner', runId: 'run-2', principal: memberPrincipal('member', 'p1', 'client'), startedBy: 'person', projectId: 'p1', sharedProjectId: 'p1', now });
 const platform = newRunGrant({ id: 'g3', ownerId: 'owner', runId: 'run-3', principal: asPerson('owner'), startedBy: 'platform', now });
 
 describe('a run grant', () => {
   it('holds its starter\'s claims as they were, narrowed to what the run is for', () => {
     expect(owner).toMatchObject({ personId: 'owner', runId: 'run-1', state: 'live', scope: { projectId: 'p1' }, issuedAt: now.toISOString() });
-    expect(member.personId).toBe('member');
-    expect(member.scope).toEqual({ projectId: 'p1', sharedProjectId: 'p1' });
   });
 
   it('is revoked for what its person started when they sign out everywhere or change their sign-in, never for platform work', () => {
@@ -23,11 +20,9 @@ describe('a run grant', () => {
     expect(revokes(owner, { personId: 'someone-else', because: 'signed-out-everywhere' })).toBe(false);
   });
 
-  it('is revoked whoever started it when the account goes, and on one shared project only when its person is removed from it', () => {
+  it('is revoked whoever started it when the account goes', () => {
     expect(revokes(platform, { personId: 'owner', because: 'account-removed' })).toBe(true);
-    expect(revokes(member, { personId: 'member', because: 'removed-from-shared-project', sharedProjectId: 'p1' })).toBe(true);
-    expect(revokes(member, { personId: 'member', because: 'removed-from-shared-project', sharedProjectId: 'p2' })).toBe(false);
-    expect(revokes(owner, { personId: 'owner', because: 'removed-from-shared-project', sharedProjectId: 'p1' })).toBe(false);
+    expect(revokes(owner, { personId: 'owner', because: 'account-removed' })).toBe(true);
   });
 
   it('is revoked or ended once, and an ended grant never comes back', () => {

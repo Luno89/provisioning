@@ -81,7 +81,7 @@ async function settingsThenSignsOut(stack: SplitStack, watching: Watched): Promi
 }
 
 async function main(): Promise<void> {
-  step('a root, an instance with its engine worker and a hub start in containers from this commit\'s image');
+  step('a root and an instance with its engine worker start in containers from this commit\'s image');
   const stack = await startSplitStack({ engine: true });
   console.log(`  root ${stack.rootUrl}, instance ${stack.instanceUrl}`);
   const model = await startModelStandIn(ANSWER);

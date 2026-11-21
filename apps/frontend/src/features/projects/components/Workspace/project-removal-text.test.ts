@@ -15,10 +15,6 @@ describe('what the delete-project popup says', () => {
     ])
   })
 
-  it('says the hub copy goes when the project is shared', () => {
-    expect(projectRemovalLines({ name: 'shop', trees: [], keptConversations: 0, builds: 0, apps: [], sharedOnHub: true, state: { state: 'none' } })).toContain('Its copy on the hub, which is taken back first: everyone it was shared with loses it')
-  })
-
   it('says which step it is on, or why it stopped', () => {
     expect(projectRemovalProgress({ state: 'running', done: ['workflows'] })).toBe('Deleting its repositories (2 of 7)')
     expect(projectRemovalProgress({ state: 'running', done: ['workflows', 'repositories', 'apps'] })).toBe('Deleting its workspaces (4 of 7)')

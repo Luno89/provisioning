@@ -6,8 +6,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mainHeads, syncMain } from '../../hub/services/HubRepoSync.js';
-import { giteaHubRepos, HUB_REPO, hubBotOf, hubOrgOf } from '../../hub/services/HubRepos.js';
 import { GiteaConflictError, GiteaService } from '../services/GiteaService.js';
 
 const run = promisify(execFile);
@@ -97,7 +95,7 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
     await rm(scratch, { recursive: true, force: true });
   });
 
-  describe('Gitea, as GiteaService and the hub drive it', { timeout: 0 }, () => {
+  describe('Gitea, as GiteaService drives it', { timeout: 0 }, () => {
     it('refuses anyone who does not sign in, over the API, the registry and git', async () => {
       expect(await api('GET', `/users/${ADMIN}`, undefined)).toMatchObject({ status: 403, body: { message: 'Only signed in user is allowed to call APIs.' } });
       expect((await api('GET', '/user', basic(ADMIN, 'not-the-password'))).status).toBe(401);
@@ -331,38 +329,6 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
       await service.deleteBranch('ann', 'bundled', 'feature/x');
       expect((await api('GET', '/repos/ann/bundled/branches/feature/x', asAdmin())).status).toBe(404);
       expect(await service.pullBranchBundle(auth, 'ann', 'bundled', 'feature/x', path.join(scratch, 'gone.bundle'))).toBe(false);
-    });
-
-    it('keeps a shared project\'s repository in an organisation its bot pushes to, synced with the owner\'s main, and removes it all', async () => {
-      const repos = giteaHubRepos(service, { url: async () => hookUrl, secret: () => 'hub-secret' });
-      const access = await repos.create('p1');
-      expect(await service.findRepo(hubOrgOf('p1'), HUB_REPO)).not.toBeNull();
-      expect(await service.repoServesFiles(hubOrgOf('p1'), HUB_REPO)).toBe(false);
-      await service.ensureOrg(hubOrgOf('p1'));
-      await service.ensureOrgRepo(hubOrgOf('p1'), HUB_REPO);
-      await expect(service.letWrite(hubOrgOf('p1'), HUB_REPO, 'nobody')).rejects.toThrow(/HTTP 422/);
-      expect(access.username).toBe(hubBotOf('p1'));
-      const admin = await service.getAdminCredentials();
-      const owner = { url: await service.repoGitUrl('ann', 'shop'), auth: { username: admin.username, token: admin.password } };
-      const hub = { url: access.url, auth: { username: access.username, token: access.token } };
-      expect((await syncMain(owner, hub, () => 'kept')).outcome).toBe('to-hub');
-      const heads = await mainHeads(owner, hub);
-      expect(heads.owner).toBeTruthy();
-      expect(heads.hub).toBe(heads.owner);
-      const pushed = await pushTo(`${hubOrgOf('p1')}/${HUB_REPO}`, heads.hub!);
-      const hook = heard.find((entry) => entry.event === 'push' && (JSON.parse(entry.body.toString('utf8')) as Pushed).after === pushed.after && (JSON.parse(entry.body.toString('utf8')) as Pushed).repository.full_name === pushed.repository.full_name)!;
-      expect(service.verifyWebhookSignature(hook.body, hook.signature, 'hub-secret')).toBe(true);
-      expect((await repos.files('p1')).sort()).toEqual(['.gitignore', 'README.md', 'docs/guide.md', 'notes.txt', 'src/app.ts', 'src/lib/util.ts', 'src/new.ts']);
-      expect(await repos.read('p1', 'notes.txt')).toBe('back\n');
-      expect(await repos.read('p1', 'src/lib/util.ts')).toBe('export const a = 1;\n');
-      const refused = await api('DELETE', `/orgs/${hubOrgOf('p1')}`, asAdmin());
-      expect(refused.status).toBe(500);
-      expect((refused.body as { message: string }).message).toMatch(/^user still has ownership of repositories/);
-      await repos.remove('p1');
-      expect(await service.findRepo(hubOrgOf('p1'), HUB_REPO)).toBeNull();
-      expect(await service.userExists(hubBotOf('p1'))).toBe(false);
-      expect((await api('GET', `/orgs/${hubOrgOf('p1')}`, asAdmin())).status).toBe(404);
-      await service.deleteOrg(hubOrgOf('p1'));
     });
 
     it('deletes a person with everything they own, once', async () => {

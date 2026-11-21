@@ -3,7 +3,6 @@ import { Check, X } from 'lucide-react'
 import { engineKeys, type EngineTask, type TaskStatus } from '../../../engine'
 import { errorMessage } from '../../../../api/client'
 import { keyedBy, useWorkSource } from '../../lib/work-source'
-import { waitingOn } from './hub-waiting'
 
 const STATUS_WORD: Record<TaskStatus, string> = {
   proposed: 'proposed',
@@ -54,9 +53,7 @@ export function StoryTasks({ tasks }: { tasks: readonly EngineTask[] }) {
                   <div className="text-slate-200 break-words">{task.title}</div>
                   <div className="text-slate-500 break-words">Done means: {task.doneMeans}</div>
                 </div>
-                {waitingOn(source.hub, ['accept-task', 'drop-task'], 'taskId', task.id) ? (
-                  <span className="shrink-0 text-[11px] text-amber-200" data-testid="task-waiting">{waitingOn(source.hub, ['accept-task', 'drop-task'], 'taskId', task.id)}</span>
-                ) : decides && (
+                {decides && (
                   <>
                     <button type="button" disabled={busy} onClick={() => accept.mutate(task.id)} aria-label={`Accept “${task.title}”`} className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-600 text-[11px] text-white cursor-pointer disabled:opacity-50">
                       <Check size={11} aria-hidden="true" /> Accept

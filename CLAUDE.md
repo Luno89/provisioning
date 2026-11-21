@@ -41,7 +41,8 @@ Audiobookshelf, Open WebUI and others) and runs agents that work on the person's
   also runs coding agents (Claude Code, Codex, Gemini, Antigravity, Goose) over ACP.
 - **An instance** is a person's Koala: the instance chart's pods on one of their machines. It serves one owner and
   signs people in only through root.
-- **The hub** holds projects shared between people; the owner's instance keeps the working copy.
+- **Sharing a project, and the hub, are tabled** (owner, 2026-11-20: "we can shelve sharing a project functionality and address it
+  then"); `docs/archive-ledger.md` says where their code is.
 - **The pool** (trials on Koala's servers, and the move from there to one's own machine) is tabled until the hosted version is out
   (owner, 2026-11-20: "lets table the pool trial until the hosted version is out"); `docs/archive-ledger.md` says where its code is.
 
@@ -90,7 +91,7 @@ secrets; commit as work lands, and push only on the owner's say.
 sudo bash scripts/setup-root.sh  # once, on Linux: Docker, the docker group, firewalld
 npm run setup        # from a clean clone: binaries, packages, CDKTF bindings, the platform keys
 npm run dev:reset    # dev is disposable: removes this computer as a machine (its k3s and Koala), dev's databases, Temporal and Headscale
-npm run dev          # root, its worker and the hub on this computer; the first time, this computer joins as a machine (one sudo prompt) and Koala installs on its k3s
+npm run dev          # root and its worker on this computer; the first time, this computer joins as a machine (one sudo prompt) and Koala installs on its k3s
 
 npm run ship         # a fresh dev stack, then every ship step on this commit, then push main; run in your own terminal, once a day
 npm run gate -- <step>  # one ship step alone against the running stack, its pass kept for this commit
@@ -127,8 +128,8 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 
 - **Dev runs as production does** (owner, 2026-11-05) and is **disposable** (owner, 2026-11-14): `npm run dev:reset` removes
   everything dev made, and the next `npm run dev` builds it again from nothing. Nobody keeps their own Koala on it.
-- `npm run dev` runs root (API :3002, web http://koala.localhost:5175, sign in there), its host worker and the hub (API :3003, web
-  http://hub.localhost:5176) as processes on this computer. Your Koala is the instance chart's pods on this computer's k3s, running
+- `npm run dev` runs root (API :3002, web http://koala.localhost:5175, sign in there) and its host worker as processes on this
+  computer. Your Koala is the instance chart's pods on this computer's k3s, running
   this checkout under a watcher, its backend on :30320 and its web at http://dev.localhost:5173. Port 3001 is not used.
 - **Everything hot-reloads, and a reload kills what is running.** Saving a file a worker imports restarts it, and a step that is not
   idempotent gets one attempt, so a save during a live run can fail the run. Wait for it to finish.
@@ -136,14 +137,14 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 
 ## Security and accounts
 
-- **Accounts live on root** (owner, 2026-10-26). An instance and the hub make no accounts and sign people in only through root's OpenID provider. The
+- **Accounts live on root** (owner, 2026-10-26). An instance makes no accounts and signs people in only through root's OpenID provider. The
   first account needs the setup code; every later sign-up needs an invite and confirms its email before it is an account (owner,
   2026-10-28). Nothing tells a stranger whether an address has an account.
 - **Who may do what is decided in one place**, the permissions table, which every route, socket handler, service and tool call asks,
-  and the browser asks the same answers. A person is a set of claims (operator, instance owner, a role on a shared project), never
+  and the browser asks the same answers. A person is a set of claims (operator, instance owner), never
   an `isAdmin` shortcut. Adding a permission is a row in the table and a call where the action happens.
 - **Every signed token says what it is for**, and a session ends on the server when signed out. Revocation is one event: signing out
-  everywhere, a password or two-factor change, an account's removal or a hub removal ends that person's sessions, connections and
+  everywhere, a password or two-factor change or an account's removal ends that person's sessions, connections and
   runs' grants at once, on root and on every client.
 - **Risky changes ask for proof** (owner, 2026-10-30): turning two-factor on or off, changing the password and removing the account
   take a current code or the password. Wrong passwords and codes lock per account, never the person out of their own browser, and
@@ -210,7 +211,7 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 - A setting is one of four things: **required** (the process stops naming it), **off with a reason** the person sees, **a constant**
   in code, or **a test parameter**. Half of a feature is a problem, never off. Adding a setting means reading it in the role's
   reader, setting it in every writer, and extending the writer tests.
-- **`ROLE` is root, instance or hub**, each exactly one thing. A process started without it stops.
+- **`ROLE` is root or instance**, each exactly one thing. A process started without it stops.
 - **Where work runs is no setting** (owner, 2026-11-10): every queue and the roles that run it are named once in code.
 - Five platform keys, one per purpose; no process starts without them. Nothing is derived from an old secret any more.
 
@@ -283,11 +284,10 @@ Nothing has a deadline: work ends when it finishes, fails for good, or is stoppe
   those marked with why (owner, 2026-11-09). A failed check says where it failed (owner, 2026-11-09).
 - A tree's workspace is composed, built and published; a task that needs what is not built yet waits for it, never fails.
 
-## Projects, the hub and releases
+## Projects and releases
 
 - A project's channel hears what happens to its work. Koala changes work in a chat only through a card the person approves.
-- Every member of a shared project sees everything in it (owner, 2026-10-26: "we can pair it down later"). Koala acts for the member
-  who asked and reaches nothing outside the project; an MCP server is a tool (owner, 2026-10-26).
+- Shared projects and their members are tabled with sharing (owner, 2026-11-20); see `docs/archive-ledger.md`.
 - Invites that would make an account are limited per person (owner, 2026-10-26).
 - How a project's builds are released is a procedure its type names. A release that would lose something the person made waits for
   them to see it. The cluster is the truth for which slot is live.

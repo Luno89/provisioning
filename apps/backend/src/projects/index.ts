@@ -32,8 +32,6 @@ export { ensureInfisicalOperator, syncProjectSecrets } from './services/ProjectS
 export type { SecretSyncInfra } from './services/ProjectSecretSync.js';
 export { projectSecretsFor } from './services/ProjectSecretsService.js';
 export type { SignIn } from './services/ProjectSecretsService.js';
-export { ProjectSharingService } from './services/ProjectSharingService.js';
-export type { HubSharing, SharingOutcome } from './services/ProjectSharingService.js';
 export { createSecretVault, SecretRequestService } from './services/SecretRequestService.js';
 export { TreeHomeService } from './services/TreeHomeService.js';
 export { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';

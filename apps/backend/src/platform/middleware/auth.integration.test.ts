@@ -196,24 +196,18 @@ describe('what is open without a session, by role', () => {
     opened ??= testDatabase().then(async (db) => { await db.init(); return db; });
     return opened;
   };
-  const opens = async (role: 'root' | 'instance' | 'hub', path: string): Promise<boolean> => {
+  const opens = async (role: 'root' | 'instance', path: string): Promise<boolean> => {
     const db = await database();
     const call = at(path);
     await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, sessionEnds: noEnds }).requireAuth(call.req, call.res, call.next);
     return call.result().nexted;
   };
 
-  it('lets the hub sign people in like an instance, and lets root take its hub\'s invites and show one to whoever holds its code', async () => {
-    for (const path of ['/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout']) expect(await opens('hub', path), path).toBe(true);
-    expect(await opens('hub', '/auth/handoff')).toBe(false);
-    expect(await opens('hub', '/auth/login')).toBe(false);
-    expect(await opens('root', '/hub-link/sign-in-key')).toBe(true);
-    expect(await opens('hub', '/hub/projects')).toBe(false);
-    expect(await opens('root', '/hub-link/invite')).toBe(true);
-    expect(await opens('root', '/hub-link/invitation')).toBe(true);
-    expect(await opens('instance', '/hub-link/invite')).toBe(false);
-    expect(await opens('hub', '/hub-root/people/u1')).toBe(true);
-    expect(await opens('root', '/hub-root/people/u1')).toBe(false);
+  it('lets an instance sign people in only through root, and opens nothing of the archived hub on root', async () => {
+    for (const path of ['/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout']) expect(await opens('instance', path), path).toBe(true);
+    expect(await opens('instance', '/auth/handoff')).toBe(false);
+    expect(await opens('instance', '/auth/login')).toBe(false);
+    for (const path of ['/hub-link/sign-in-key', '/hub-link/invite', '/hub-link/invitation', '/instances/hub-token']) expect(await opens('root', path), path).toBe(false);
   });
 
     it('lets anyone open a shared file\'s link, and nothing else of a person\'s files', async () => {
@@ -231,12 +225,11 @@ describe('what is open without a session, by role', () => {
     expect(await opens('instance', '/auth/login')).toBe(false);
     expect(await opens('instance', '/auth/provider/google')).toBe(false);
     expect(await opens('instance', '/auth/provider/google/callback')).toBe(false);
-    expect(await opens('hub', '/auth/provider/google')).toBe(false);
     expect(await opens('instance', '/identity/keys')).toBe(false);
   });
 
   it('lets an instance reach every route root answers with its credential, which checks it there', async () => {
-    for (const path of ['/instances/sign-in-key', '/instances/status', '/instances/release', '/instances/updates', '/instances/release-findings', '/instances/machines', '/instances/machines/join-code', '/instances/machines/m-1', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/hub-token', '/instances/mail']) {
+    for (const path of ['/instances/sign-in-key', '/instances/status', '/instances/release', '/instances/updates', '/instances/release-findings', '/instances/machines', '/instances/machines/join-code', '/instances/machines/m-1', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/mail']) {
       expect(await opens('root', path), path).toBe(true);
     }
     expect(await opens('root', '/instances/mine')).toBe(false);

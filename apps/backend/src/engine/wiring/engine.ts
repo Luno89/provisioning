@@ -58,7 +58,7 @@ import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js'
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { buildWebTools, corpusEndpoints, type WebToolsPlace } from './web-tools.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 import { proceduresRouter } from '../routes/procedures.js';
 import { engineRouter } from '../routes/engine.js';
 import { engineToolsRouter } from '../routes/engine-tools.js';

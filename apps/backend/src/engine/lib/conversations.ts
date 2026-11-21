@@ -4,7 +4,7 @@ import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 
 export type MessageAuthor = { kind: 'person'; id: string } | { kind: 'agent'; slug: string } | { kind: 'platform' };
 
-export type NoticeKind = 'hub-main-conflict' | 'preview-ready' | 'release-live' | 'release-failed' | 'tree-quiet' | 'leaf-failed' | 'secret-needed' | 'workspace-ready' | 'workspace-waiting' | 'workspace-failed' | 'client-database-awaited' | 'alert-firing' | 'alert-resolved' | 'run-revoked';
+export type NoticeKind = 'preview-ready' | 'release-live' | 'release-failed' | 'tree-quiet' | 'leaf-failed' | 'secret-needed' | 'workspace-ready' | 'workspace-waiting' | 'workspace-failed' | 'client-database-awaited' | 'alert-firing' | 'alert-resolved' | 'run-revoked';
 export type NoticeAction = 'open-preview' | 'open-app' | 'cut-over' | 'open-tree' | 'open-story' | 'enter-secret' | 'open-workspace' | 'open-settings' | 'open-monitoring';
 
 export interface ConversationNotice {
@@ -135,8 +135,6 @@ export function personMessage(ownerId: string, content: string, at: string, atta
   return { role: 'user', author: { kind: 'person', id: ownerId }, content: text, at, ...(attachments.length ? { attachments: [...attachments] } : {}) };
 }
 
-export const mentionsKoala = (text: string): boolean => /(^|\s)@koala\b/i.test(text);
-
 export type ChatKind = Conversation['kind'];
 
 export const postedNotToYou = (who: string): string => `${who} posted, not to you: `;
@@ -149,17 +147,6 @@ export function heardAs(message: Pick<ConversationMessage, 'role' | 'author' | '
   const who = names[message.author.id] ?? SOMEONE;
   if (kind === 'channel' && !message.runId) return `${postedNotToYou(who)}${said}`;
   return `${who}: ${said}`;
-}
-
-export function withAuthorNames<T extends { messages: ConversationMessage[] }>(conversation: T, viewerId: string, names: ReadonlyMap<string, string>): T & { messages: (ConversationMessage & { authorName?: string })[] } {
-  return {
-    ...conversation,
-    messages: conversation.messages.map((message) => {
-      const id = message.author?.kind === 'person' ? message.author.id : undefined;
-      const name = id && id !== viewerId ? names.get(id) : undefined;
-      return name ? { ...message, authorName: name } : message;
-    }),
-  };
 }
 
 export const peopleIn = (messages: readonly Pick<ConversationMessage, 'author'>[]): string[] =>

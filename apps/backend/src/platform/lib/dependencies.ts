@@ -5,7 +5,7 @@ import { ownReach } from '../../infrastructure/lib/cluster-places.js';
 
 export type DependencyId =
   | 'mongo' | 'temporal' | 'minio' | 'gitea' | 'infisical' | 'registry'
-  | 'searxng' | 'crawl4ai' | 'root' | 'hub' | 'collector';
+  | 'searxng' | 'crawl4ai' | 'root' | 'collector';
 
 export interface DependencyDescription {
   name: string;
@@ -22,7 +22,6 @@ export const DEPENDENCIES: { readonly [D in DependencyId]: DependencyDescription
   searxng: { name: 'web search (SearXNG)', checkedBy: 'GET /healthz' },
   crawl4ai: { name: 'page reading (Crawl4AI)', checkedBy: 'GET /health' },
   root: { name: 'Koala\'s root', checkedBy: 'whether this instance\'s connection to root is open' },
-  hub: { name: 'the hub', checkedBy: 'whether this instance\'s connection to the hub is open' },
   collector: { name: 'the telemetry collector', checkedBy: 'whether its OTLP receiver answers' },
 };
 
@@ -111,8 +110,7 @@ export function dependenciesOf(settings: AnyProcessSettings): DependencyId[] {
   const always: DependencyId[] = ['mongo', 'temporal', ...(sendsTelemetry(settings) ? ['collector' as const] : [])];
   switch (settings.koalaProcess) {
     case 'backend': {
-      if (settings.tenant) return [...always, 'minio', 'gitea', 'infisical', 'registry', ...webDependencies(settings.tenant.webTools), 'root', 'hub'];
-      if (settings.hubGitea) return [...always, 'gitea'];
+      if (settings.tenant) return [...always, 'minio', 'gitea', 'infisical', 'registry', ...webDependencies(settings.tenant.webTools), 'root'];
       return always;
     }
     case 'worker-engine':

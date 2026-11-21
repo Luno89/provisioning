@@ -14,7 +14,6 @@ export const queueOf = (place: Place): string => QUEUES[place];
 const PLACES: Record<PlatformRole, readonly Place[]> = {
   root: ['host'],
   instance: ['engine', 'stream', 'cluster', 'host'],
-  hub: [],
 };
 
 export const placesOf = (role: PlatformRole): readonly Place[] => PLACES[role];

@@ -5,11 +5,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_ENGINE_TASK_QUEUE, RUN_ABOUT_MEMO, RUN_AGENT_MEMO, RUN_CONVERSATION_MEMO, RUN_ID_MEMO, workflowOfRun } from '../temporal/contracts.js';
 import type { SamplingConfig } from '@koala/harness-types';
 import type { AgentRegistry } from './registry.js';
-import { machineChoice, machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
+import { machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { ProcedureRunInput, RunTicket } from '../temporal/contracts.js';
-import { asPerson, memberPrincipal, type Principal } from '../../platform/lib/permissions.js';
+import { asPerson, type Principal } from '../../platform/lib/permissions.js';
 import type { GrantRequest, GrantStartedBy } from '../../engine/index.js';
-import type { ActingFor } from '@koala/agent-engine/procedure';
 
 export interface WorkflowStarter {
   start(
@@ -29,8 +28,6 @@ export interface WorkflowStarter {
 
 export interface StartRunRequest {
   ownerId: string;
-  actingFor?: ActingFor | undefined;
-  keptTo?: string | undefined;
   agentSlug: string;
   message: string;
   inputs?: Record<string, unknown> | undefined;
@@ -75,8 +72,6 @@ export class MachineUnavailableError extends Error {
   }
 }
 
-export const MEMBERS_OFF_MACHINES = 'Koala answers a member of a shared project on its owner\'s own model, never on the owner\'s machine, and the owner\'s default model is on their machine; the owner can set a default model that is not on a machine';
-
 export class EngineUnavailableError extends Error {
   constructor() {
     super('The engine is not connected to Temporal, so runs cannot be started right now.');
@@ -94,12 +89,12 @@ export interface RunStarterOptions {
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
-  binding?: ((ownerId: string, conversationId: string, asker?: ActingFor | undefined) => Promise<Record<string, string> | undefined>) | undefined;
+  binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
   continueAfterEvents?: number | undefined;
   closing?: ((ownerId: string) => Promise<string | undefined>) | undefined;
   machines?: ((ownerId: string, choice: MachineChoice) => Promise<string | undefined>) | undefined;
   turns?: {
-    open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined; askedBy?: string | undefined; attachments?: MessageAttachment[] | undefined }): Promise<void>;
+    open(turn: { ownerId: string; conversationId: string; runId: string; message: string; asks?: string | undefined; attachments?: MessageAttachment[] | undefined }): Promise<void>;
     fail(turn: { ownerId: string; conversationId: string; runId: string }, why: string): Promise<void>;
   } | undefined;
 }
@@ -122,36 +117,31 @@ export function createRunStarter(options: RunStarterOptions) {
       const agent = await options.registry.agent(request.ownerId, request.agentSlug);
       if (!agent) throw new UnknownAgentError(request.agentSlug);
 
-      const asked = request.actingFor && request.modelId && machineChoice(request.modelId) ? undefined : request.modelId;
       const runnable = await options.registry.runnable(request.ownerId, request.agentSlug, request.procedureId, {
-        modelId: asked,
+        modelId: request.modelId,
         chat: Boolean(request.conversationId),
       });
       if (!runnable) throw new UnknownProcedureError(request.procedureId ?? agent.procedure);
-      if (runnable.machine && request.actingFor) throw new MachineUnavailableError(MEMBERS_OFF_MACHINES);
       if (runnable.machine) {
         if (!options.machines) throw new MachineUnavailableError('this server cannot reach people\'s machines');
         const problem = await options.machines(request.ownerId, runnable.machine);
         if (problem) throw new MachineUnavailableError(problem);
       }
-      const modelId = runnable.machine ? machineChoiceId(runnable.machine) : asked;
+      const modelId = runnable.machine ? machineChoiceId(runnable.machine) : request.modelId;
 
       const runId = request.runId ?? newRunId();
 
-      const principal = request.actingFor
-        ? memberPrincipal(request.actingFor.personId, request.actingFor.projectId, request.actingFor.role)
-        : await options.principal?.(request.ownerId) ?? asPerson(request.ownerId);
+      const principal = await options.principal?.(request.ownerId) ?? asPerson(request.ownerId);
       const bound = request.conversationId && options.binding
-        ? await options.binding(request.ownerId, request.conversationId, request.actingFor)
+        ? await options.binding(request.ownerId, request.conversationId)
         : undefined;
-      const grantProject = request.actingFor?.projectId ?? request.keptTo ?? request.projectId;
+      const grantProject = request.projectId;
       const grant = await options.grants?.issue({
         ownerId: request.ownerId,
         runId,
         principal,
-        startedBy: request.actingFor ? 'person' : request.startedBy ?? 'platform',
+        startedBy: request.startedBy ?? 'platform',
         ...(grantProject ? { projectId: grantProject } : {}),
-        ...(request.actingFor ? { sharedProjectId: request.actingFor.hubProjectId } : {}),
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
       });
       const ticket: RunTicket = {
@@ -160,8 +150,6 @@ export function createRunStarter(options: RunStarterOptions) {
         ownerId: request.ownerId,
         principal,
         ...(grant ? { grantId: grant.id } : {}),
-        ...(request.actingFor ? { actingFor: request.actingFor, projectId: request.actingFor.projectId } : {}),
-        ...(request.keptTo && !request.actingFor ? { keptTo: request.keptTo, projectId: request.keptTo } : {}),
         agentSlug: request.agentSlug,
         ...(request.conversationId ? { conversationId: request.conversationId } : {}),
         trigger: 'user',
@@ -184,14 +172,13 @@ export function createRunStarter(options: RunStarterOptions) {
           ...(request.conversationId ? { conversationId: request.conversationId } : {}),
           message: `${request.message}${attachmentsText(request.attachments)}`,
         },
-        ...((request.actingFor?.projectId ?? request.keptTo) ? { projectId: request.actingFor?.projectId ?? request.keptTo } : {}),
         ...(options.continueAfterEvents ? { continueAfterEvents: options.continueAfterEvents } : {}),
       };
 
       const turn = request.conversationId && options.turns && savesConversation(runnable.procedure)
         ? { ownerId: request.ownerId, conversationId: request.conversationId, runId }
         : undefined;
-      if (turn) await options.turns!.open({ ...turn, message: request.message, ...(request.asks ? { asks: request.asks } : {}), ...(request.actingFor ? { askedBy: request.actingFor.personId } : {}), ...(request.attachments?.length ? { attachments: request.attachments } : {}) });
+      if (turn) await options.turns!.open({ ...turn, message: request.message, ...(request.asks ? { asks: request.asks } : {}), ...(request.attachments?.length ? { attachments: request.attachments } : {}) });
 
       try {
         await workflows.start('AgentRunWorkflow', {
@@ -199,7 +186,7 @@ export function createRunStarter(options: RunStarterOptions) {
           taskQueue: queue,
           args: [input],
           owner: request.ownerId,
-          project: request.actingFor?.projectId ?? request.keptTo ?? request.projectId ?? request.bound?.projectId ?? bound?.projectId,
+          project: request.projectId ?? request.bound?.projectId ?? bound?.projectId,
           memo: {
             [RUN_ID_MEMO]: runId,
             [RUN_AGENT_MEMO]: request.agentSlug,

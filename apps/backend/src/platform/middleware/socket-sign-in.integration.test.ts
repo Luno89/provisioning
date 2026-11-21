@@ -10,7 +10,6 @@ import { sessionToken } from '../lib/auth.js';
 import { SessionEnds } from '../services/SessionEnds.js';
 import { SessionSockets } from '../services/SessionSockets.js';
 import { AccessRevocations } from '../services/AccessRevocations.js';
-import { endsSessions } from '../lib/revocations.js';
 
 const KEY = 'socket-session-key';
 const closing: Array<() => Promise<void>> = [];
@@ -26,7 +25,7 @@ async function serve(failing = false) {
   const sessionSockets = new SessionSockets();
   const revocations = new AccessRevocations();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
-  revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
+  revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   const real = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', role: 'root', sessionEnds });
   const auth = failing ? { ...real, sessionFromCookie: async () => { throw new Error('the database did not answer'); } } : real;
   const server = http.createServer();
@@ -81,8 +80,6 @@ describe('an open connection ends with its session', () => {
     const after = await opened(url, sessionToken({ id: 'ann', email: 'ann@example.com' }, KEY, { now: Date.now() + 60_000 }));
     await revocations.revoked({ personId: 'ann', because: 'signed-out-everywhere', at: new Date().toISOString() });
     expect(await before.closed).toBe('io server disconnect');
-    expect(after.socket.connected).toBe(true);
-    await revocations.revoked({ personId: 'ann', because: 'removed-from-shared-project', at: new Date(Date.now() + 120_000).toISOString(), sharedProjectId: 'sp1' });
     expect(after.socket.connected).toBe(true);
   });
 });

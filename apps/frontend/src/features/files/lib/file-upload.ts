@@ -1,4 +1,4 @@
-import type { FileScope, FileShare, StoredFile } from '../types'
+import type { FileShare, StoredFile } from '../types'
 import { joinPath, sizeText, type PickedFile } from './file-drop'
 import { parentOf } from './file-browser'
 
@@ -13,14 +13,9 @@ export const targetPaths = ({ dir, picked }: Upload): string[] => picked.map((on
 
 export const totalSize = (picked: readonly PickedFile[]): number => picked.reduce((sum, one) => sum + one.file.size, 0)
 
-export type UploadWay = 'put' | 'drop' | 'each'
+export type UploadWay = 'put' | 'drop'
 
-export const uploadWay = (scope: FileScope, count: number): UploadWay =>
-  count <= 1 ? 'put' : scope.kind === 'hub' ? 'each' : 'drop'
-
-export const checksRoom = (scope: FileScope): boolean => scope.kind !== 'hub'
-
-export const countsLinks = (scope: FileScope): boolean => scope.kind !== 'hub'
+export const uploadWay = (count: number): UploadWay => (count <= 1 ? 'put' : 'drop')
 
 const ancestorsOf = (path: string): string[] => {
   const parts = path.split('/')

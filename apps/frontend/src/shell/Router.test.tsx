@@ -81,6 +81,21 @@ describe('TanStack Router configuration and route matching', () => {
     }
   });
 
+  it('opens no page at the archived shared-project addresses, landing on chat instead', async () => {
+    const qc = createTestQueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <App />
+      </QueryClientProvider>
+    );
+    await screen.findByRole('button', { name: /infrastructure/i });
+
+    for (const from of ['/shared', '/shared/p1', '/hub/join/t1']) {
+      await act(async () => { await router.navigate({ to: from as never }); });
+      await waitFor(() => expect(router.state.location.pathname, from).toBe('/chat'));
+    }
+  });
+
   it('navigates to projects view', async () => {
     const qc = createTestQueryClient();
     render(

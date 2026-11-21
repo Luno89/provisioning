@@ -2,7 +2,7 @@ import { readAttachments, type AttachableFile } from '../lib/attachments.js';
 import { type Request, Router } from 'express';
 import { asyncRoute, type Database, fieldsOf, trimmedText } from '../../platform/index.js';
 import type { Conversation } from '../lib/conversations.js';
-import { personMessage, titleFrom, withAuthorNames } from '../lib/conversations.js';
+import { personMessage, titleFrom } from '../lib/conversations.js';
 import { conversationContext } from '../lib/conversation-context.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -49,12 +49,9 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   }));
 
   router.get('/:id', asyncRoute(async (req, res) => {
-    const viewer = userOf(req).id;
-    const found = (await deps.ownedConversations(viewer)).find((c) => c.id === req.params.id);
+    const found = (await deps.ownedConversations(userOf(req).id)).find((c) => c.id === req.params.id);
     if (!found) return res.status(404).json({ error: 'No such conversation' });
-    const settled = deps.turns ? await deps.turns.settle(found) : found;
-    const members = new Map((await db.hub.getHubLinks()).flatMap((link) => link.members ?? []).map((member) => [member.personId, member.email]));
-    res.json(members.size > 0 ? withAuthorNames(settled, viewer, members) : settled);
+    res.json(deps.turns ? await deps.turns.settle(found) : found);
   }));
 
   router.post('/', asyncRoute(async (req, res) => {

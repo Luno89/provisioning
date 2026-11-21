@@ -2,7 +2,6 @@ import { withWorkFor, workIsUnnamed } from '@koala/engine-core/work-for';
 import type { Client } from '@temporalio/client';
 import { describe, expect, it } from 'vitest';
 import { mock, mockDeep } from 'vitest-mock-extended';
-import type { HubPeople } from '../../hub/index.js';
 import type { InstanceRecord, InstanceRelease, InstanceWatchRecord } from '../../instances/index.js';
 import { principalOf, type Principal } from '../../platform/lib/permissions.js';
 import { OWNER_ATTRIBUTE } from '../../platform/lib/workflow-owner.js';
@@ -16,7 +15,7 @@ const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => pr
 
 const user = (id: string, extra: Partial<UserMetadata> = {}): UserMetadata => ({ id, email: `${id}@example.com`, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', ...extra });
 
-async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; releases?: InstanceRelease[]; current?: string; watches?: InstanceWatchRecord[]; logouts?: UndeliveredLogout[]; steps?: boolean } = {}) {
+async function set(options: { instances?: InstanceRecord[]; releases?: InstanceRelease[]; current?: string; watches?: InstanceWatchRecord[]; logouts?: UndeliveredLogout[]; steps?: boolean } = {}) {
   const db = memoryDatabase();
   await db.accounts.saveUser(user('ana', { roles: ['operator'] }));
   await db.accounts.saveUser(user('bob'));
@@ -29,7 +28,6 @@ async function set(options: { hub?: HubPeople; instances?: InstanceRecord[]; rel
     now: () => 'now',
     principalFor,
     revocations: { revoked: async (event) => { revoked.push(event); } },
-    hub: options.hub,
     instances: options.instances ? async () => options.instances! : undefined,
     releases: options.releases ? async () => options.releases! : undefined,
     currentRelease: options.current,
@@ -54,13 +52,6 @@ describe('what removing an account would take', () => {
   it('says there is no such account', async () => {
     const { service } = await set();
     expect(await service.preview('nobody')).toBeUndefined();
-  });
-
-  it('adds what the hub says the person is the only owner of', async () => {
-    const hub = mock<HubPeople>();
-    hub.blockers.calledWith('bob').mockResolvedValue(['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first']);
-    const { service } = await set({ hub });
-    expect((await service.preview('bob'))?.blockers).toEqual(['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first']);
   });
 
   it('shows the person\'s instance, where there is one', async () => {
@@ -141,26 +132,6 @@ describe('removing an account', () => {
     expect(workflows.start).toHaveBeenCalledTimes(1);
   });
 
-  it('is refused while the hub says the account is the only owner of a shared project, and lets the person go from the hub first otherwise', async () => {
-    const hub = mock<HubPeople>();
-    hub.blockers.mockResolvedValueOnce(['you are the only owner of the shared project "Shop", which others are on; make one of them an owner first']);
-    const { workflows, service } = await set({ hub });
-    const refused = await service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob);
-    expect(refused).toMatchObject({ ok: false, refusal: { status: 409, error: 'The account cannot be removed yet', blockers: [expect.stringContaining('Shop')] } });
-    expect(hub.letGo).not.toHaveBeenCalled();
-    hub.blockers.mockResolvedValue([]);
-    expect((await service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob)).ok).toBe(true);
-    expect(hub.letGo).toHaveBeenCalledWith('bob');
-    expect(workflows.start).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not let the hub go before the proof is given', async () => {
-    const hub = mock<HubPeople>();
-    hub.blockers.mockResolvedValue([]);
-    const { service } = await set({ hub });
-    await service.remove({ ownerId: 'bob', requestedBy: 'bob', confirm: 'bob@example.com' }, asBob, async () => ({ status: 403, error: 'no' }));
-    expect(hub.letGo).not.toHaveBeenCalled();
-  });
 });
 
 describe('the people on root', () => {

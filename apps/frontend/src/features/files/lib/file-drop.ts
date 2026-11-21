@@ -57,7 +57,7 @@ export const attachmentName = (name: string): string => {
 }
 
 export interface AttachmentPlace {
-  scope: Exclude<FileScope, { kind: 'hub' | 'mine' }>
+  scope: Exclude<FileScope, { kind: 'mine' }>
   path: string
 }
 
@@ -75,12 +75,9 @@ export const attachmentPlace = (conversationId: string, projectId: string | unde
 export const sentAttachmentPlace = (
   attachment: Pick<MessageAttachment, 'fileId' | 'name' | 'project'>,
   conversationId: string | undefined,
-  hubProjectId?: string | undefined,
 ): { scope: FileScope; path: string } | undefined => {
   if (!attachment.fileId || !conversationId) return undefined
-  const place = attachmentPlace(conversationId, attachment.project?.id, attachment.name)
-  if (hubProjectId === undefined) return place
-  return place.scope.kind === 'project' ? { scope: { kind: 'hub', projectId: hubProjectId }, path: place.path } : undefined
+  return attachmentPlace(conversationId, attachment.project?.id, attachment.name)
 }
 
 export interface SentAttachment {

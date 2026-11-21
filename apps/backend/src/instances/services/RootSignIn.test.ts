@@ -23,7 +23,7 @@ const sameWorld = (): ReachFetchers => {
 const after = (): string => new Date(Date.now() + 1000).toISOString();
 
 const world = rootSignInWorld<Answering>({
-  databases: { root: async () => memoryDatabase(), instance: async () => memoryDatabase(), hub: async () => memoryDatabase() },
+  databases: { root: async () => memoryDatabase(), instance: async () => memoryDatabase() },
   serve: async (name) => ({ url: `http://${name}.test`, app: express(), up: true }),
   reach: () => new InstanceReach({ open: true }, sameWorld()),
   alias: () => 'http://root-alias.test',
@@ -41,7 +41,6 @@ interceptHttp(
   http.all('http://root.test/*', answerFor(() => world.root)),
   http.all('http://root-alias.test/*', answerFor(() => world.root)),
   http.all('http://instance.test/*', answerFor(() => world.instance)),
-  http.all('http://hub.test/*', answerFor(() => world.hub)),
 );
 
 describe('signing in on an instance through root\'s OpenID provider', () => {
@@ -136,8 +135,8 @@ describe('what an instance does when the sign-in does not go through', () => {
   });
 
   it('says what root answered when it refuses the key', async () => {
-    world.root.app.put('/api/hub-link/sign-in-key', (_req, res) => { res.status(401).json({ error: 'no' }); });
-    await expect(world.hubSignIn.announce()).rejects.toThrow('root answered 401 to this hub\'s sign-in key');
+    await world.rootDb.instances.deleteInstance('inst-u1');
+    await expect(world.signIn.announce()).rejects.toThrow(/^root answered 4\d\d to this instance's sign-in key/);
   });
 });
 
@@ -151,7 +150,6 @@ describe('an instance keeping its session with root', () => {
     world.root.up = true;
     expect(await world.signIn.renew({ ...session, sid: 'unknown' })).toBe('ended');
     expect(await world.signIn.renew({ ...session, userId: 'u2' })).toBe('ended');
-    expect(await world.signIn.personToken(undefined)).toBeUndefined();
   });
 
   it("takes a session the instance made for one of its own processes, with the instance's claims, never renews it through root, and ends it when root revokes the person", async () => {
@@ -177,14 +175,13 @@ describe('an instance keeping its session with root', () => {
     expect(first).toMatchObject({ token: anyText() });
   });
 
-  it('ends the session when root refuses the refresh token, and holds the access token it was given', async () => {
+  it('ends the session when root refuses the refresh token', async () => {
     await world.signIn.announce();
     const { instanceJar } = await world.signInAs('u1');
     const session = world.signIn.verified(instanceJar.get('session'))!;
-    expect(await world.signIn.personToken(session)).toBeTruthy();
     await world.rootDb.instances.oidcForgetAccount('u1');
     world.offset = 10 * 60 * 60 * 1000;
-    expect(await world.signIn.personToken(session)).toBeUndefined();
+    expect(await world.signIn.renew(session)).toBe('ended');
     expect(await world.instanceDb.instances.getClientSession(session.sid)).toBeUndefined();
   });
 
@@ -197,32 +194,17 @@ describe('an instance keeping its session with root', () => {
   });
 });
 
-describe('root sending a logout to the hub', () => {
-  it('reaches the hub\'s own address and ends the person\'s sessions there', async () => {
-    await world.signIn.announce();
-    world.hub.app.post('/api/auth/oidc/backchannel-logout', express.urlencoded({ extended: false }), async (req, res) => {
-      const outcome = await world.hubSignIn.backchannel((req.body as { logout_token?: string }).logout_token);
-      res.status(outcome.ok ? 200 : 400).json(outcome);
-    });
-    const atHub = (await world.signInAs('u2', world.hub)).instanceJar;
-    expect(world.hubSignIn.verified(atHub.get('session'))?.userId).toBe('u2');
-    await world.provider.revoke({ personId: 'u2', at: after(), because: 'signed-out-everywhere' });
-    await world.provider.deliverLogouts();
-    expect(await world.rootDb.instances.pendingLogouts()).toEqual([]);
-    expect(world.hubSignIn.verified(atHub.get('session'))).toBeUndefined();
-  });
+describe('root sending logouts', () => {
 
-  it('ignores a revocation that does not end sessions, and sends nothing for someone who signed in nowhere', async () => {
-    await world.provider.revoke({ personId: 'u2', at: after(), because: 'member-removed', sharedProjectId: 'p1' } as never);
-    expect(await world.rootDb.instances.pendingLogouts()).toEqual([]);
+  it('sends nothing for someone who signed in nowhere', async () => {
     await world.rootDb.accounts.saveUser({ id: 'u3', email: 'u3@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: 'x' });
     await world.provider.revoke({ personId: 'u3', at: after(), because: 'signed-out-everywhere' });
-    expect((await world.rootDb.instances.pendingLogouts()).map((delivery) => delivery.clientId)).toEqual(['hub']);
+    expect(await world.rootDb.instances.pendingLogouts()).toEqual([]);
   });
 
-  it('knows its clients: the hub, an instance it registered, and nobody else', async () => {
+  it('knows its clients: an instance it registered, and nobody else', async () => {
     await world.signIn.announce();
-    expect(await world.provider.registration('hub')).toMatchObject({ clientId: 'hub' });
+    expect(await world.provider.registration('hub')).toBeUndefined();
     expect(await world.provider.registration('inst-u1')).toMatchObject({ clientId: 'inst-u1' });
     expect(await world.provider.registration('inst-nobody')).toBeUndefined();
     expect(world.provider.issuer).toBe(`${world.root.url}/oidc`);

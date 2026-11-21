@@ -12,7 +12,7 @@ const MINUTES = 60_000;
 
 export const JSON_LIMITS = { signedIn: '20mb', signedOut: '256kb' } as const;
 
-const LARGE_WITHOUT_A_SESSION = ['/api/checks/scripted/', '/api/hub-instance/'];
+const LARGE_WITHOUT_A_SESSION = ['/api/checks/scripted/'];
 
 export function jsonLimitFor(path: string, signedIn: boolean): keyof typeof JSON_LIMITS {
   return signedIn || LARGE_WITHOUT_A_SESSION.some((prefix) => path.startsWith(prefix)) ? 'signedIn' : 'signedOut';
@@ -39,8 +39,8 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
   },
   {
     name: 'joining',
-    paths: ['/hub-link/invite', '/hub-link/invitation', '/machines/join', '/instances/hub-token'],
-    prefixes: ['/hub/invitations/'],
+    paths: ['/machines/join'],
+    prefixes: [],
     windowMs: 15 * MINUTES,
     max: 60,
     said: 'Too many requests from this address; wait a few minutes and try again.',

@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sessionFrom } from './testing/handoff.js';
 import { startThreeRoles, type ThreeRoles } from './testing/three-roles.js';
 
-type Role = 'root' | 'instance' | 'hub';
+type Role = 'root' | 'instance';
 interface Probe { method?: 'post'; path: string; body?: unknown; on: Role[] }
 
 const TENANT: Role[] = ['instance'];
 const ACCOUNTS: Role[] = ['root'];
-const EVERY: Role[] = ['root', 'instance', 'hub'];
+const EVERY: Role[] = ['root', 'instance'];
 
 const ROUTERS: Probe[] = [
   { path: '/api/account/removal', on: ACCOUNTS },
@@ -33,7 +33,6 @@ const ROUTERS: Probe[] = [
   { path: '/api/engine-tools', on: TENANT },
   { path: '/api/evals/level2/bench', on: TENANT },
   { path: '/api/files/shares', on: TENANT },
-  { path: '/api/hub/projects', on: ['hub'] },
   { path: '/api/identity/keys', on: ACCOUNTS },
   { path: '/api/infrastructure', on: TENANT },
   { path: '/api/instance-addresses', on: TENANT },
@@ -53,7 +52,6 @@ const ROUTERS: Probe[] = [
   { path: '/api/plans', on: TENANT },
   { path: '/api/procedures', on: TENANT },
   { path: '/api/projects', on: TENANT },
-  { path: '/api/project-sharing/no-such-project', on: TENANT },
   { path: '/api/registry/search?q=routes', on: TENANT },
   { path: '/api/release-settings/options', on: TENANT },
   { path: '/api/running', on: TENANT },
@@ -95,7 +93,7 @@ const sessions = {} as Record<Role, string>;
 
 beforeAll(async () => {
   roles = await startThreeRoles('routes');
-  Object.assign(urls, { root: roles.root.url, instance: roles.instance.url, hub: roles.hub.url });
+  Object.assign(urls, { root: roles.root.url, instance: roles.instance.url });
 });
 
 afterAll(async () => {
@@ -145,7 +143,7 @@ describe('every router answers where it is mounted, and what is public answers b
     }
   });
 
-  it('a throwaway account signs up on root with the operator\'s invite, and the owner is signed in on root, the instance and the hub', async () => {
+  it('a throwaway account signs up on root with the operator\'s invite, and the owner is signed in on root and the instance', async () => {
     const invite = await call(`${roles.root.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: roles.operator.cookie });
     expect(invite.status, invite.text).toBe(201);
     const throwaway = await roles.signUp(`throwaway-${stamp}@routes.test`, (invite.body as { code: string }).code);
@@ -153,7 +151,7 @@ describe('every router answers where it is mounted, and what is public answers b
     const cookie = sessionFrom(login.headers.getSetCookie());
     expect(login.status === 200 && cookie, await login.clone().text()).toBeTruthy();
     expect(((await call(`${roles.root.url}/api/auth/me`, { cookie })).body as { email?: string }).email).toBe(throwaway.email);
-    Object.assign(sessions, { root: roles.owner.cookie, instance: await roles.ownerOnInstance(), hub: await roles.ownerOnHub() });
+    Object.assign(sessions, { root: roles.owner.cookie, instance: await roles.ownerOnInstance() });
   });
 
   it(`every router is mounted where its role serves it: ${ROUTERS.length} routes each answer with their own response, none with Express's "Cannot GET"`, async () => {

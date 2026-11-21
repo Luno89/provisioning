@@ -531,3 +531,14 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
     });
   });
 }
+
+export function projectGroupContract(make: () => Promise<{ store: Pick<ProjectsStore, 'getProjectGroup'>; leftover(projectId: string, group: string): Promise<void> }>): void {
+  describe('the group address a project kept from when it was shared', () => {
+    it('is the group its leftover share named, and none for a project never shared', async () => {
+      const { store, leftover } = await make();
+      await leftover('shop', 'acme');
+      expect(await store.getProjectGroup('shop')).toBe('acme');
+      expect(await store.getProjectGroup('books')).toBeUndefined();
+    });
+  });
+}

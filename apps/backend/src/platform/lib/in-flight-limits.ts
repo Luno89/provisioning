@@ -12,11 +12,8 @@ export interface InFlightSettings {
 
 export const IN_FLIGHT: InFlightSettings = { initial: 50, floor: 10, ceiling: 200, tolerance: 2, shortWindow: 10, longWindow: 500, smoothing: 0.2 };
 
-const HELD_BY_DESIGN = /^\/api\/hub-instance\/projects\/[^/]+\/relay\/?$/;
-
 export const limitedAddress = (address: string): boolean => Boolean(address) && addressProblem(address) === undefined;
 
-export const limitedPath = (path: string): boolean => !HELD_BY_DESIGN.test(path);
 
 const average = (previous: number | undefined, next: number, window: number): number =>
   previous === undefined ? next : previous + (next - previous) * (2 / (window + 1));

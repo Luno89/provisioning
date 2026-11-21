@@ -32,7 +32,6 @@ export const HOST_WORKER_ACTIVITIES = {
 };
 
 export function hostActivitiesFor(role: HostWorkerSettings['role']['role']): Partial<typeof HOST_WORKER_ACTIVITIES> {
-  if (role === 'hub') throw new Error('the hub runs no host worker: no work of the hub\'s runs on the host queue');
   const names = HOST_ACTIVITIES[role];
   return Object.fromEntries(Object.entries(HOST_WORKER_ACTIVITIES).filter(([name]) => names.includes(name)));
 }

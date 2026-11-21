@@ -583,9 +583,6 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       if (!resolved.found || !resolved.procedure) {
         return { runId: childRunId, agentId: agent, outcome: 'failed', reason: `there is no agent called "${agent}"`, outputs: {} };
       }
-      if (ticket.actingFor && (resolved.machine || machineChoice(childModel))) {
-        return { runId: childRunId, agentId: agent, outcome: 'failed', reason: `${agent} runs on the owner's machine, and work done for ${ticket.actingFor.email}, a member of a shared project, never goes there`, outputs: {} };
-      }
 
       if (cancelled) return { runId: childRunId, agentId: agent, outcome: 'interrupted', reason: 'the run was cancelled', outputs: {} };
 
@@ -631,16 +628,16 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
     async approve({ nodeId, call, environment, on }) {
       if (approvedForRun) return true;
-      if (patched(AUTO_MODE) && !ticket.actingFor) {
+      if (patched(AUTO_MODE)) {
         const workspaceRunId = environment?.kind === 'sandbox' ? environment.workspace.runId : undefined;
         if (await EngineAutoModeActivity({
           ownerId: ticket.ownerId,
           agentSlug: ticket.agentSlug,
-          ...(ticket.conversationId && !ticket.actingFor ? { conversationId: ticket.conversationId } : {}),
+          ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),
           ...(workspaceRunId ? { workspaceRunId } : {}),
         })) return true;
       }
-      if (ticket.conversationId && !ticket.actingFor && patched(CONVERSATION_APPROVALS)) {
+      if (ticket.conversationId && patched(CONVERSATION_APPROVALS)) {
         if (await EngineToolAllowedActivity({ ownerId: ticket.ownerId, conversationId: ticket.conversationId, tool: call.name })) return true;
       }
 
@@ -651,7 +648,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         nodeId,
         callId: call.id,
         tool: call.name,
-        message: `${ticket.agentSlug} wants to run ${call.name} on ${where}${ticket.actingFor ? `, asked by ${ticket.actingFor.email}` : ''}: ${call.arguments}`,
+        message: `${ticket.agentSlug} wants to run ${call.name} on ${where}: ${call.arguments}`,
       } as never);
 
       asking.add(call.id);

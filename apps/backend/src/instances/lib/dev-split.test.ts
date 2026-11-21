@@ -15,7 +15,7 @@ const TEMPORAL = { address: '127.0.0.1:7233', namespace: 'koala-split', ca: '/et
 const RELEASE = { imageTag: 'dev', registry: '127.0.0.1:5001' };
 
 const plan = (name = 'dev', existing?: Parameters<typeof devSplitPlan>[0]['existing']) => devSplitPlan({
-  name, owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', hubCredential: 'hub-cred', hubCredentialHash: 'hub-hashed', rootPublicKeys: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n',
+  name, owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', rootPublicKeys: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n',
   mongoUri: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin', now: '2026-10-17T22:00:00Z', existing, temporal: TEMPORAL, release: RELEASE, dataDir: '/repo/apps/backend/data',
 });
 
@@ -24,17 +24,10 @@ describe('root and an instance on one machine', () => {
     const { rootEnv, instanceEnv, rootUrl, instanceUrl } = plan();
     expect(rootUrl).toBe('http://koala.localhost:5175');
     expect(instanceUrl).toBe('http://dev.localhost:5173');
-    expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl, TRUST_PROXY: 'loopback', HUB_URL: 'http://hub.localhost:5176', HUB_CREDENTIAL_HASH: 'hub-hashed', INSTANCE_IMAGE_TAG: 'dev', INSTANCE_REGISTRY: '127.0.0.1:5001', TERRAFORM_STATE: 'local', TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:7233', TEMPORAL_NAMESPACE: 'koala-split', TEMPORAL_TLS_CA: '/etc/koala/temporal-tls/ca.crt', DATA_DIR: '/repo/apps/backend/data' });
+    expect(rootEnv).toEqual({ ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_root?authSource=admin', PUBLIC_URL: rootUrl, APP_URL: rootUrl, TRUST_PROXY: 'loopback', INSTANCE_IMAGE_TAG: 'dev', INSTANCE_REGISTRY: '127.0.0.1:5001', TERRAFORM_STATE: 'local', TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:7233', TEMPORAL_NAMESPACE: 'koala-split', TEMPORAL_TLS_CA: '/etc/koala/temporal-tls/ca.crt', DATA_DIR: '/repo/apps/backend/data' });
     expect(instanceEnv).toMatchObject({ ROLE: 'instance', PORT: '3001', PUBLIC_URL: instanceUrl, INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u-1', INSTANCE_CREDENTIAL: 'cred', ROOT_URL: rootUrl, KOALA_RELEASE_REVISION: '1' });
     expect(instanceEnv.MONGO_URI).toBeUndefined();
     expect(Buffer.from(instanceEnv.ROOT_PUBLIC_KEYS!, 'base64').toString()).toContain('BEGIN PUBLIC KEY');
-  });
-
-  it('runs the hub on its own database and address, trusting root and holding the credential root knows it by', () => {
-    const { hubEnv, hubUrl, rootUrl, instanceEnv } = plan();
-    expect(hubUrl).toBe('http://hub.localhost:5176');
-    expect(hubEnv).toMatchObject({ ROLE: 'hub', PORT: '3003', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_hub?authSource=admin', HUB_DATABASE: 'koala_hub', PUBLIC_URL: hubUrl, ROOT_URL: rootUrl, HUB_CREDENTIAL: 'hub-cred', ROOT_PUBLIC_KEYS: instanceEnv.ROOT_PUBLIC_KEYS });
-    expect(() => plan('hub')).toThrow(/kept for the platform/);
   });
 
   it('registers the instance as ready at its address, keeping when it was first made', () => {
@@ -75,33 +68,31 @@ describe('root and an instance on one machine', () => {
 
 describe('the same split somewhere else, as a suite starts it', () => {
   const place: SplitPlace = {
-    rootUrl: 'http://localhost:41001', instanceUrl: 'http://localhost:41002', hubUrl: 'http://localhost:41003',
-    rootApiPort: 41001, instanceApiPort: 41002, hubApiPort: 41003,
-    rootDatabase: 'koala_split_root_x', hubDatabase: 'koala_split_hub_x', instanceDatabase: 'koala_split_instance_x',
+    rootUrl: 'http://localhost:41001', instanceUrl: 'http://localhost:41002',
+    rootApiPort: 41001, instanceApiPort: 41002,
+    rootDatabase: 'koala_split_root_x', instanceDatabase: 'koala_split_instance_x',
   };
   const elsewhere = devSplitPlan({
-    name: 'dev', owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', hubCredential: 'hub-cred', hubCredentialHash: 'hub-hashed', rootPublicKeys: 'k',
+    name: 'dev', owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', rootPublicKeys: 'k',
     mongoUri: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin', now: '2026-10-29T00:00:00Z', place, temporal: TEMPORAL, release: RELEASE, dataDir: '/repo/apps/backend/data',
   });
 
   it('puts each side at the place it is given, the instance on a database of its own', () => {
-    expect(elsewhere.rootEnv).toMatchObject({ PORT: '41001', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_split_root_x?authSource=admin', PUBLIC_URL: 'http://localhost:41001', HUB_URL: 'http://localhost:41003' });
+    expect(elsewhere.rootEnv).toMatchObject({ PORT: '41001', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_split_root_x?authSource=admin', PUBLIC_URL: 'http://localhost:41001' });
     expect(elsewhere.instanceEnv).toMatchObject({ PORT: '41002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_split_instance_x?authSource=admin', PUBLIC_URL: 'http://localhost:41002', ROOT_URL: 'http://localhost:41001' });
-    expect(elsewhere.hubEnv).toMatchObject({ PORT: '41003', HUB_DATABASE: 'koala_split_hub_x', ROOT_URL: 'http://localhost:41001' });
     expect(elsewhere.instance.url).toBe('http://localhost:41002');
   });
 
-  it('gives root, the instance and the hub every setting their readers require, beside the services a test stack stands up', () => {
+  it('gives root and the instance every setting their readers require, beside the services a test stack stands up', () => {
     const rootKey = String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }));
     const roles = devSplitPlan({
-      name: 'dev', owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', hubCredential: 'hub-cred', hubCredentialHash: 'hub-hashed', rootPublicKeys: rootKey,
+      name: 'dev', owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', rootPublicKeys: rootKey,
       mongoUri: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin', now: '2026-10-29T00:00:00Z', place, temporal: TEMPORAL, release: RELEASE, dataDir: '/repo/apps/backend/data',
     });
     const keys = { ...testKeyEnv('dev-split'), ROOT_IDENTITY_KEY: testIdentityKey() };
     const minio = { MINIO_ENDPOINT: '127.0.0.1:9000', MINIO_ROOT_USER: 'koala', MINIO_ROOT_PASSWORD: 'koala-minio-secret', MINIO_BUCKET: 'koala' };
     expect(backendSettingsFrom({ ...keys, ...roles.rootEnv })).toMatchObject({ port: 41001, trustProxy: 'loopback', temporal: { namespace: 'koala-split' }, root: { imageTag: 'dev' } });
     expect(backendSettingsFrom({ ...keys, ...roles.instanceEnv, ...minio, ...unreachedPlatformServices(roles.instanceUrl), MACHINE_GATEWAY_PORT: '0' })).toMatchObject({ port: 41002, trustProxy: 'loopback', instance: { credential: 'cred' }, clusters: { here: { root: false } } });
-    expect(backendSettingsFrom({ ...keys, ...roles.hubEnv, ...unreachedPlatformServices(roles.hubUrl) })).toMatchObject({ port: 41003, trustProxy: 'loopback', hubDatabase: 'koala_split_hub_x' });
     expect(() => backendSettingsFrom({ ...keys, ...roles.instanceEnv, ...minio, ...unreachedPlatformServices(roles.instanceUrl) })).toThrow('MACHINE_GATEWAY_PORT is not set');
   });
 });

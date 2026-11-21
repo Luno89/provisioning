@@ -8,7 +8,6 @@ import { TreeModels } from '../Workspace/TreeModels'
 import { ProjectRelease } from '../../../releases'
 import { LiveCustomizations } from '../../../releases'
 import { ClientImport } from '../../../releases'
-import { ShareProject } from '../../../hub'
 import { useClientImport } from '../../../releases'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
 import { ProjectDeletePanel } from '../Workspace/ProjectDeletePanel'
@@ -67,11 +66,6 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {tree && (
           <Section title="Sandbox">
             <TreeSandboxPanel treeId={tree.id} />
-          </Section>
-        )}
-        {project && (
-          <Section title="People">
-            <ShareProject project={{ id: project.id, name: project.name }} />
           </Section>
         )}
         {project && (

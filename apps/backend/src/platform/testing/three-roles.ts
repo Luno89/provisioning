@@ -30,7 +30,6 @@ export interface Person { id: string; email: string; password: string; cookie: s
 export interface ThreeRoles {
   root: LoopbackRole;
   instance: LoopbackRole;
-  hub: LoopbackRole;
   mail: SmtpSink;
   owner: Person;
   operator: Person;
@@ -39,13 +38,11 @@ export interface ThreeRoles {
   workers: Record<string, LoopbackRole>;
   instanceId: string;
   instanceCredential: string;
-  databases: { root: string; instance: string; hub: string };
+  databases: { root: string; instance: string };
   mongoUri: string;
   keys: Record<string, string>;
   ownerOnInstance(): Promise<string>;
-  ownerOnHub(): Promise<string>;
   signUp(email: string, inviteCode: string): Promise<Person>;
-  onHub(rootCookie: string, next?: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -117,23 +114,23 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const secret = `three-roles-${stamp}`;
   const setupCode = randomBytes(12).toString('base64url');
   const instanceCredential = randomBytes(32).toString('base64url');
-  const hubCredential = randomBytes(32).toString('base64url');
-  const databases = { root: `${stamp}_root`, instance: `${stamp}_instance`, hub: `${stamp}_hub` };
+  const databases = { root: `${stamp}_root`, instance: `${stamp}_instance` };
   const mongoUri = inject('mongoUri');
   const mail = await smtpSink();
   const temporalNamespace = await freshNamespace();
-  const ports = { root: await portToHandOn(), instance: await portToHandOn(), hub: await portToHandOn() };
+  const ports = { root: await portToHandOn(), instance: await portToHandOn() };
   const place: SplitPlace = {
-    rootUrl: `http://localhost:${ports.root}`, instanceUrl: `http://localhost:${ports.instance}`, hubUrl: `http://localhost:${ports.hub}`,
-    rootApiPort: ports.root, instanceApiPort: ports.instance, hubApiPort: ports.hub,
-    rootDatabase: databases.root, hubDatabase: databases.hub, instanceDatabase: databases.instance,
+    rootUrl: `http://localhost:${ports.root}`, instanceUrl: `http://localhost:${ports.instance}`,
+    rootApiPort: ports.root, instanceApiPort: ports.instance,
+    rootDatabase: databases.root, instanceDatabase: databases.instance,
   };
   const identityKey = testIdentityKey();
   const signing = roleFromEnv({ ROOT_IDENTITY_KEY: identityKey, ROLE: 'root' }).signing!;
+  const rootPublicKeys = publicKeyPem(signing.publicKey);
   const draft = (person: { id: string; email: string }) => devSplitPlan({
     name: label.replace(/[^a-z0-9]/g, '').slice(0, 12) || 'three', owner: { id: person.id, email: person.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
     instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
-    hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
+    rootPublicKeys,
     mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
     temporal: { address: inject('temporalTlsAddress'), namespace: temporalNamespace.namespace, ca: inject('temporalCa') }, release: TEST_RELEASE, dataDir: rootData,
   });
@@ -149,13 +146,12 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     ...(options.extra ?? {}),
   };
   const rootSide: LoopbackRole[] = [];
-  const hubSide: LoopbackRole[] = [];
   const instanceSide: LoopbackRole[] = [];
   const gitea: TestGitea | undefined = options.gitea ? await startRealGitea() : undefined;
   const headscale = await startHeadscaleStandIn();
   const dependencySources = await startDependencySourcesStandIn();
   const close = async () => {
-    for (const side of [instanceSide, hubSide, rootSide]) {
+    for (const side of [instanceSide, rootSide]) {
       for (const role of [...side].reverse()) await role.close();
     }
     await mail.close();
@@ -165,7 +161,6 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await temporalNamespace.drop();
     await rm(rootData, { recursive: true, force: true });
     await rm(instanceData, { recursive: true, force: true });
-    await rm(hubData, { recursive: true, force: true });
     const { client, release } = await leaseMongo(mongoUri);
     for (const database of Object.values(databases)) await client.db(database).dropDatabase();
     await release();
@@ -173,8 +168,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const giteaFor = (url: string) => (gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: url } : {});
   const rootData = await mkdtemp(join(tmpdir(), `koala-${label}-root-data-`));
   const instanceData = await mkdtemp(join(tmpdir(), `koala-${label}-instance-data-`));
-  const hubData = await mkdtemp(join(tmpdir(), `koala-${label}-hub-data-`));
-  for (const folder of gitea ? [instanceData, hubData] : []) await writeFile(join(folder, '.gitea-admin-password'), gitea!.adminPassword, { mode: 0o600 });
+  for (const folder of gitea ? [instanceData] : []) await writeFile(join(folder, '.gitea-admin-password'), gitea!.adminPassword, { mode: 0o600 });
   try {
     const rootEnv = {
       ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode, DATA_DIR: rootData, DEPENDENCY_SOURCES: dependencySources.url,
@@ -207,12 +201,8 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     const temporalTls = dirname(inject('temporalCa'));
     const machineGateway = { MACHINE_GATEWAY_PORT: String(gatewayPort), MACHINE_TEMPORAL_ADDRESS: `127.0.0.1:${gatewayPort}`, MACHINE_GATEWAY_TLS_CERT: join(temporalTls, 'server.crt'), MACHINE_GATEWAY_TLS_KEY: join(temporalTls, 'server.key') };
     const instanceEnv = { ...plan.instanceEnv, ...shared, ...machineGateway, DATA_DIR: instanceData, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
-    const [instance, hub] = await Promise.all([
-      startRole('instance', instanceEnv, ports.instance),
-      startRole('hub', { ...plan.hubEnv, ...shared, DATA_DIR: hubData, ...giteaFor(place.hubUrl) }, ports.hub),
-    ]);
+    const instance = await startRole('instance', instanceEnv, ports.instance);
     instanceSide.push(instance);
-    hubSide.push(hub);
     for (const name of options.instanceWorkers ?? []) {
       const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name] });
       instanceSide.push(worker);
@@ -223,14 +213,11 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
       const location = answer.headers.get('location');
       return location === to ? true : waiting(`root answered ${answer.status} with location ${location}`);
     };
-    await until('root to send the owner on to the hub', () => goes('?to=hub', `${hub.url}/api/auth/oidc/start`));
     await until('root to send the owner on to the instance', () => goes('', `${instance.url}/api/auth/oidc/start`));
     return {
-      root, instance, hub, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri, keys: testKeyEnv(secret),
+      root, instance, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri, keys: testKeyEnv(secret),
       ownerOnInstance: () => signedIn(root.url, cookie, instance.url, '/api/identity/go'),
-      ownerOnHub: () => signedIn(root.url, cookie, hub.url, '/api/identity/go?to=hub'),
       signUp: (email, inviteCode) => signUpWith(root.url, mail, email, inviteCode),
-      onHub: (rootCookie, next) => signedIn(root.url, rootCookie, hub.url, `/api/identity/go?to=hub${next ? `&next=${encodeURIComponent(next)}` : ''}`),
       close,
     };
   } catch (err) {

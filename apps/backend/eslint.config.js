@@ -14,19 +14,16 @@ const LAYERS = [
 
 const upward = (folders) => folders.flatMap((folder) => [`**/${folder}/*`, `**/${folder}/**`, `../${folder}`, `../../${folder}`])
 
-const AREAS = ['platform', 'accounts', 'instances', 'hub', 'projects', 'releases', 'files', 'machines', 'monitoring', 'models', 'memory', 'checks', 'infrastructure', 'engine']
+const AREAS = ['platform', 'accounts', 'instances', 'projects', 'releases', 'files', 'machines', 'monitoring', 'models', 'memory', 'checks', 'infrastructure', 'engine']
 
 
 const BELOW_SERVICES = ['workflows', 'engine-host', 'extensions', 'eval']
 
 const DIRECT_TO_STAY_ACYCLIC = [
-  ['hub/wiring/hub.ts', 'engine/routes/engine.ts'],
   ['index.ts', 'infrastructure/services/TemporalBridge.ts'],
-  ['instances/services/IdentityService.ts', 'hub/lib/hub.ts'],
   ['models/routes/models.ts', 'infrastructure/lib/huggingface.ts'],
   ['models/services/ModelService.ts', 'checks/lib/check-space.ts'],
   ['projects/services/ProjectChannelService.ts', 'engine/lib/conversations.ts'],
-  ['projects/services/ProjectSharingService.ts', 'hub/lib/hub-sync.ts'],
   ['worker-engine.ts', 'releases/services/CustomizationsService.ts'],
 ].map(([from, to]) => `${from} -> ${to}`)
 
@@ -147,7 +144,7 @@ const UNAWAITED_HANDLER = { selector: "CallExpression[callee.property.name=/^(ge
 const ACCESS = [
   { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; there is no isAdmin' },
   { selector: "MemberExpression[property.name='roles']", message: 'a person\'s stored roles become claims in claimsOf (platform/lib/permissions.ts) and are read nowhere else; ask authorize' },
-  { selector: "CallExpression[callee.name='can']", message: 'a shared project\'s roles are decided by authorize in platform/lib/permissions.ts' },
+  { selector: "CallExpression[callee.name='can']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts' },
 ]
 
 

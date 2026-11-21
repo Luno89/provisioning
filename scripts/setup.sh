@@ -200,4 +200,4 @@ echo "Writing the platform keys apps/backend/.env lacks"
 npm run -s keys -w apps/backend -- --write-env
 
 echo ""
-echo "Setup is done. npm run dev starts root and the hub, signs you up, joins this computer as your machine and puts Koala on it."
+echo "Setup is done. npm run dev starts root, signs you up, joins this computer as your machine and puts Koala on it."

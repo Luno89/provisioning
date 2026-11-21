@@ -9,7 +9,6 @@ export interface SessionUser {
   permissions?: SessionPermissions
   confirmWith?: ConfirmWith
   hasPassword?: boolean
-  onHub?: boolean
   twoFactorEnabled?: boolean
   twoFactorPhone?: string
   twoFactorPreferredMethod?: string
@@ -74,7 +73,7 @@ export interface SignInProvider {
 
 export type SignInPlace =
   | { url: null; providers: SignInProvider[] }
-  | { url: string; hub: string | null }
+  | { url: string }
 
 export const signInKeys = {
   place: () => ['auth', 'sign-in'] as const,

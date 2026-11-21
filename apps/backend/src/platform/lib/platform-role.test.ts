@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { RoleConfigError, holdsAccounts, roleFromEnv, servesHub, servesTenants, signsInThroughRoot } from './platform-role.js';
+import { RoleConfigError, holdsAccounts, roleFromEnv, servesTenants, signsInThroughRoot } from './platform-role.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem } from '../../instances/lib/identity-token.js';
 
 const rootKey = generateIdentityKey();
 const rootPublic = publicKeyPem(identityKeysFrom(rootKey).publicKey);
 
 describe('what this server is', () => {
-  it('refuses to start without being told which of root, instance or hub it is', () => {
+  it('refuses to start without being told which of root or instance it is', () => {
     expect(() => roleFromEnv({})).toThrow(RoleConfigError);
-    expect(() => roleFromEnv({ ROLE: '  ' })).toThrow('ROLE is not set; it has to be one of root, instance, hub');
-    expect(() => roleFromEnv({ ROLE: 'combined' })).toThrow('ROLE is "combined"; it has to be one of root, instance, hub');
+    expect(() => roleFromEnv({ ROLE: '  ' })).toThrow('ROLE is not set; it has to be one of root, instance');
+    expect(() => roleFromEnv({ ROLE: 'combined' })).toThrow('ROLE is "combined"; it has to be one of root, instance');
+  });
+
+  it('refuses to start as the hub, which is archived, naming the roles there are', () => {
+    expect(() => roleFromEnv({ ROLE: 'hub', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: rootPublic, HUB_CREDENTIAL: 'secret' })).toThrow('ROLE is "hub"; it has to be one of root, instance');
   });
 
   it('as root holds the accounts and the signing key, and serves no tenant', () => {
@@ -17,7 +21,6 @@ describe('what this server is', () => {
     expect(config.signing?.kid).toBe(identityKeysFrom(rootKey).kid);
     expect(servesTenants(config)).toBe(false);
     expect(holdsAccounts(config)).toBe(true);
-    expect(servesHub(config)).toBe(false);
     expect(config.trusted).toBeUndefined();
   });
 
@@ -31,7 +34,6 @@ describe('what this server is', () => {
     const instance = { ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u1', ROOT_PUBLIC_KEYS: rootPublic, NODE_ENV: 'production' };
     expect(() => roleFromEnv({ ...instance, ROOT_URL: 'http://app.nowrinkles.dev' })).toThrow(RoleConfigError);
     expect(() => roleFromEnv({ ...instance, ROOT_URL: 'http://app.nowrinkles.dev' })).toThrow(/plain http to an address on the open internet/);
-    expect(() => roleFromEnv({ ROLE: 'hub', ROOT_PUBLIC_KEYS: rootPublic, HUB_CREDENTIAL: 'c', NODE_ENV: 'production', ROOT_URL: 'http://app.nowrinkles.dev' })).toThrow(/plain http/);
     expect(roleFromEnv({ ...instance, ROOT_URL: 'https://app.nowrinkles.dev' }).instance?.rootUrl).toBe('https://app.nowrinkles.dev');
     expect(roleFromEnv({ ...instance, ROOT_URL: 'http://app.koala.internal:3001' }).instance?.rootUrl).toBe('http://app.koala.internal:3001');
     expect(roleFromEnv({ ...instance, ROOT_URL: 'http://localhost:3002' }).instance?.rootUrl).toBe('http://localhost:3002');
@@ -44,19 +46,7 @@ describe('what this server is', () => {
     expect(config.trusted?.has(identityKeysFrom(rootKey).kid)).toBe(true);
     expect(config.signing).toBeUndefined();
     expect(holdsAccounts(config)).toBe(false);
-  });
-
-  it('as the hub holds shared projects only, signs people in through root, and needs root\'s keys and its credential', () => {
-    expect(() => roleFromEnv({ ROLE: 'hub', ROOT_URL: 'https://app.example.com' })).toThrow('a hub needs ROOT_PUBLIC_KEYS, HUB_CREDENTIAL');
-    const config = roleFromEnv({ ROLE: 'hub', ROOT_URL: 'https://app.example.com/', ROOT_PUBLIC_KEYS: rootPublic, HUB_CREDENTIAL: 'secret' });
-    expect(config.hub).toEqual({ rootUrl: 'https://app.example.com', credential: 'secret' });
-    expect([servesHub(config), servesTenants(config), holdsAccounts(config), signsInThroughRoot(config.role), config.signing === undefined]).toEqual([true, false, false, true, true]);
-  });
-
-  it('as root knows its hub only when told where it is and the hash of its credential', () => {
-    const key = Buffer.from(rootKey).toString('base64');
-    expect(roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: key }).hubLink).toBeUndefined();
-    expect(roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: key, HUB_URL: 'http://hub.localhost:5176/', HUB_CREDENTIAL_HASH: 'ab' }).hubLink).toEqual({ url: 'http://hub.localhost:5176', credentialHash: 'ab' });
+    expect(signsInThroughRoot(config.role)).toBe(true);
   });
 
     it('refuses a role it does not know', () => {

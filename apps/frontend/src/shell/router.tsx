@@ -26,7 +26,6 @@ import { ModelsView } from '../features/models';
 import { StudioFrame } from '../features/engine';
 import { TreeTypes } from '../features/projects';
 import SettingsView from './SettingsView';
-import { HubJoinRoute, SharedProjectRoute, SharedProjectsRoute } from '../features/hub';
 
 export const rootRoute = createRootRoute({
   component: RootLayout,
@@ -364,39 +363,7 @@ export const boardRedirect = createRoute({
   component: () => <Navigate to="/projects" replace />,
 });
 
-export const sharedProjectsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/shared',
-  component: SharedProjectsRoute,
-});
-
-export const sharedProjectRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/shared/$id',
-  component: SharedProjectRoute,
-});
-
-export const hubJoinRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/hub/join/$token',
-  component: HubJoinRoute,
-});
-
-export const joinRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/join',
-  validateSearch: (search: Record<string, unknown>) => ({
-    ...(typeof search.code === 'string' ? { code: search.code } : {}),
-    ...(typeof search.project === 'string' ? { project: search.project } : {}),
-  }),
-  component: () => null,
-});
-
 export const routeTree = rootRoute.addChildren([
-  joinRoute,
-  sharedProjectsRoute,
-  sharedProjectRoute,
-  hubJoinRoute,
   adminRoute,
   removeAccountRoute,
   indexRoute,

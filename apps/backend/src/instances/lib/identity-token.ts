@@ -1,15 +1,10 @@
 import crypto from 'crypto';
 
-const ALG = 'EdDSA';
-
 export interface IdentityKeyPair {
   kid: string;
   privateKey: crypto.KeyObject;
   publicKey: crypto.KeyObject;
 }
-
-const b64 = (value: Buffer | string): string => Buffer.from(value).toString('base64url');
-const fromB64 = (value: string): Buffer => Buffer.from(value, 'base64url');
 
 export const publicKeyPem = (key: crypto.KeyObject): string => key.export({ type: 'spki', format: 'pem' }).toString();
 
@@ -43,80 +38,4 @@ export function trustedKeys(publicKeyPems: readonly string[]): Map<string, crypt
     if (key.asymmetricKeyType !== 'ed25519') throw new Error('a trusted identity key has to be an Ed25519 public key');
     return [kidOf(key), key] as const;
   }));
-}
-
-export const MOVE_TOKEN_TTL_SECONDS = 60;
-const MOVE_TYP = 'nowrinkles-move';
-
-export interface MoveClaims {
-  aud: string;
-  part: string;
-  iat: number;
-  exp: number;
-  jti: string;
-}
-
-export const MOVE_TOKEN_HEADER = 'x-koala-move-token';
-
-export type MoveCheck =
-  | { ok: true; claims: MoveClaims }
-  | { ok: false; reason: 'malformed' | 'unknown-key' | 'bad-signature' | 'wrong-audience' | 'expired' | 'not-yet-valid' };
-
-export function issueMoveToken(keys: IdentityKeyPair, instanceId: string, part: string, now: number = Math.floor(Date.now() / 1000)): string {
-  const header = { alg: ALG, typ: MOVE_TYP, kid: keys.kid };
-  const claims: MoveClaims = { aud: instanceId, part, iat: now, exp: now + MOVE_TOKEN_TTL_SECONDS, jti: crypto.randomUUID() };
-  const signed = `${b64(JSON.stringify(header))}.${b64(JSON.stringify(claims))}`;
-  return `${signed}.${b64(crypto.sign(null, Buffer.from(signed), keys.privateKey))}`;
-}
-
-const jsonRecord = (text: string): Record<string, unknown> | undefined => {
-  const value: unknown = JSON.parse(text);
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-};
-
-export function checkMoveToken(
-  token: string,
-  trusted: ReadonlyMap<string, crypto.KeyObject>,
-  instanceId: string,
-  part: string,
-  now: number = Math.floor(Date.now() / 1000),
-): MoveCheck {
-  const parts = typeof token === 'string' ? token.split('.') : [];
-  if (parts.length !== 3) return { ok: false, reason: 'malformed' };
-  const [head, body, signature] = parts as [string, string, string];
-  let header: Record<string, unknown> | undefined;
-  let claims: Record<string, unknown> | undefined;
-  try {
-    header = jsonRecord(fromB64(head).toString('utf8'));
-    claims = jsonRecord(fromB64(body).toString('utf8'));
-  } catch {
-    return { ok: false, reason: 'malformed' };
-  }
-  if (!header || !claims) return { ok: false, reason: 'malformed' };
-  const { alg, typ, kid } = header;
-  if (alg !== ALG || typ !== MOVE_TYP || typeof kid !== 'string') return { ok: false, reason: 'malformed' };
-  const key = trusted.get(kid);
-  if (!key) return { ok: false, reason: 'unknown-key' };
-  if (!crypto.verify(null, Buffer.from(`${head}.${body}`), key, fromB64(signature))) return { ok: false, reason: 'bad-signature' };
-  const { aud, part: forPart, iat, exp, jti } = claims;
-  if (typeof aud !== 'string' || typeof forPart !== 'string' || typeof iat !== 'number' || typeof exp !== 'number' || typeof jti !== 'string' || !jti) return { ok: false, reason: 'malformed' };
-  if (aud !== instanceId || forPart !== part) return { ok: false, reason: 'wrong-audience' };
-  if (exp <= now) return { ok: false, reason: 'expired' };
-  if (iat > now + 30) return { ok: false, reason: 'not-yet-valid' };
-  return { ok: true, claims: { aud, part: forPart, iat, exp, jti } };
-}
-
-export type UsedTokenClaim = (jti: string, expiresAt: string) => Promise<boolean>;
-
-export async function moveTokenOnce(
-  token: string,
-  trusted: ReadonlyMap<string, crypto.KeyObject>,
-  audience: string,
-  part: string,
-  claim: UsedTokenClaim,
-  now: number = Math.floor(Date.now() / 1000),
-): Promise<MoveCheck | { ok: false; reason: 'used' }> {
-  const checked = checkMoveToken(token, trusted, audience, part, now);
-  if (!checked.ok) return checked;
-  return await claim(checked.claims.jti, new Date(checked.claims.exp * 1000).toISOString()) ? checked : { ok: false, reason: 'used' };
 }

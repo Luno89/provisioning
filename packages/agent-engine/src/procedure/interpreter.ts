@@ -17,20 +17,10 @@ export interface UsageDelta {
   cappedAt?: number | undefined;
 }
 
-export interface ActingFor {
-  personId: string;
-  email: string;
-  role: string;
-  projectId: string;
-  hubProjectId: string;
-}
-
 export interface RunLaunch {
   ownerId: string;
   principal?: unknown;
   grantId?: string | undefined;
-  actingFor?: ActingFor | undefined;
-  keptTo?: string | undefined;
   turnId?: string | undefined;
   projectId?: string | undefined;
   conversationId?: string | undefined;
