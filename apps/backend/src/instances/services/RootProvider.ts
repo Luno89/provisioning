@@ -2,12 +2,12 @@ import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { errors, type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
 import { SignJWT } from 'jose';
-import { reopening, type AccessRevoked, type Database, type Reopening } from '../../platform/index.js';
+import { reopening, type AccessRevoked, type Database, type Reopening, type Watching } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
+  ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
-  type ClientKind, type ClientRegistration,
+  type ClientAt, type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceReach } from './InstanceReach.js';
@@ -130,6 +130,32 @@ export class RootProvider {
     return instance ? instanceClient(instance) : undefined;
   }
 
+  private async addressedClient(clientId: string): Promise<ClientRegistration | undefined> {
+    const instances = this.store.instances;
+    const read = async (): Promise<ClientAt> => clientAt((await instances.getInstances()).find((candidate) => candidate.id === clientId));
+    const first = await read();
+    if (!first || 'client' in first) return first?.client;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let watching: Watching | undefined;
+      const end = (): void => {
+        settled = true;
+        void watching?.close().catch((err: Error) => console.warn(`[sign-in] following ${clientId} for its address could not stop: ${err.message}`));
+      };
+      const settle = (at: ClientAt): void => {
+        if (settled || (at && 'waiting' in at)) return;
+        end();
+        resolve(at?.client);
+      };
+      watching = instances.followInstance(clientId, (written) => settle(clientAt(written)));
+      watching.ready.then(read).then(settle, (err: unknown) => {
+        if (settled) return;
+        end();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      });
+    });
+  }
+
   private adapterFor(name: string): Adapter {
     const instances = this.store.instances;
     if (name === 'Client') {
@@ -141,7 +167,7 @@ export class RootProvider {
           await instances.saveSignInKey(id, { jwk: key, since: held?.jwk.kid === key.kid ? held.since : new Date(this.now()).toISOString() });
         },
         find: async (id) => {
-          const client = await this.registration(id);
+          const client = await this.addressedClient(id);
           return client ? clientMetadata(client) as AdapterPayload : undefined;
         },
         findByUserCode: async () => undefined,

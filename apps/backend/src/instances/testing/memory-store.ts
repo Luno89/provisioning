@@ -39,6 +39,7 @@ export class MemoryInstancesStore implements InstancesStore {
   private check: DependencyCheck | undefined;
   private readonly withdrawalNotices: Map<string, { ownerId: string; at: string }>;
   private readonly installWatchers = new Set<(instance: InstanceRecord) => void>();
+  private readonly followers = new Map<string, Set<(instance: InstanceRecord | undefined) => void>>();
 
   constructor(collections: Collections = new Map()) {
     this.instances = collectionIn<InstanceRecord>(collections, 'instances');
@@ -65,6 +66,19 @@ export class MemoryInstancesStore implements InstancesStore {
     const stored = asStored(copied(stampServed(instance)));
     this.instances.set(instance.id, stored);
     if (stored.install) for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+    this.written(instance.id);
+  }
+
+  private written(instanceId: string): void {
+    const now = this.instances.get(instanceId);
+    for (const follower of this.followers.get(instanceId) ?? []) queueMicrotask(() => follower(now ? copied(now) : undefined));
+  }
+
+  followInstance(instanceId: string, on: (instance: InstanceRecord | undefined) => void): Watching {
+    const following = this.followers.get(instanceId) ?? new Set();
+    following.add(on);
+    this.followers.set(instanceId, following);
+    return { ready: Promise.resolve(), close: async () => { following.delete(on); } };
   }
 
   async updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean> {
@@ -82,6 +96,7 @@ export class MemoryInstancesStore implements InstancesStore {
     const stored = asStored(next as unknown as InstanceRecord);
     this.instances.set(instanceId, stored);
     for (const watcher of this.installWatchers) queueMicrotask(() => watcher(copied(stored)));
+    this.written(instanceId);
     return true;
   }
 
@@ -92,6 +107,7 @@ export class MemoryInstancesStore implements InstancesStore {
 
   async deleteInstance(id: string): Promise<void> {
     this.instances.delete(id);
+    this.written(id);
     await this.deleteWatch(id);
   }
 
@@ -162,6 +178,7 @@ export class MemoryInstancesStore implements InstancesStore {
     const instance = this.instances.get(instanceId);
     if (!instance) return false;
     instance.signIn = asStored(copied(key));
+    this.written(instanceId);
     return true;
   }
 
