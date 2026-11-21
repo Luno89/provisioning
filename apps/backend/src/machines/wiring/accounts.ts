@@ -1,7 +1,7 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { Database } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { deviceTokenHash, TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
+import { deviceTokenHash, TOKEN_EXPIRED_SAID, tokenUntil, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
 import { PLACE_KOALA, STOP_KOALA, type KoalaStop, type PlacedKoala } from '@koala/engine-core/koala-install';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
@@ -26,16 +26,17 @@ export function wireMachineAccounts(deps: {
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
   const connected = new Map<string, Set<Socket>>();
-  const admitted = new WeakMap<object, { deviceId: string; via: TokenVia; tokenHash: string }>();
+  const admitted = new WeakMap<object, { deviceId: string; via: TokenVia; tokenHash: string; until: number }>();
+  const now = deps.now ?? (() => new Date());
 
   namespace.use((socket, next) => {
     const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
     if (!token) return next(new Error('Missing device token'));
     deps.db.machines.getLocalAgentDevices().then((devices) => {
-      const match = matchDeviceToken(devices, token, (deps.now ?? (() => new Date()))());
+      const match = matchDeviceToken(devices, token, now());
       if (!match) return next(new Error('Unauthorized'));
       if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
-      admitted.set(socket, { deviceId: match.device.id, via: match.via, tokenHash: deviceTokenHash(token) });
+      admitted.set(socket, { deviceId: match.device.id, via: match.via, tokenHash: deviceTokenHash(token), until: tokenUntil(match.via === 'current' ? match.device.expiresAt : match.device.nextExpiresAt) });
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
@@ -47,6 +48,11 @@ export function wireMachineAccounts(deps: {
       return;
     }
     const { deviceId, via, tokenHash } = machine;
+    let { until } = machine;
+    socket.use((_packet, next) => {
+      if (now().getTime() < until) return next();
+      socket.disconnect(true);
+    });
     const accounts = deps.accounts();
     const sockets = connected.get(deviceId) ?? new Set<Socket>();
     sockets.add(socket);
@@ -54,8 +60,12 @@ export function wireMachineAccounts(deps: {
     accounts.seen(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: when it was last seen could not be recorded: ${err.message}`));
     accounts.joinFinished(deviceId, tokenHash).catch((err: Error) => console.warn(`[machines] ${deviceId}: its join could not be marked finished: ${err.message}`));
     deps.installs().connected(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: the install of Koala it was asked for could not be asked again: ${err.message}`));
+    const renewed = async (): Promise<void> => {
+      const held = (await deps.db.machines.getLocalAgentDevices()).find((device) => device.id === deviceId);
+      until = tokenUntil(held?.expiresAt);
+    };
     void rotateDeviceToken(socket, deviceId, via, accounts)
-      .then((renewal) => (renewal === 'refused' ? accounts.renewalFailed(deviceId, 'the machine did not keep its new token') : undefined), (err: Error) => accounts.renewalFailed(deviceId, err.message))
+      .then((renewal) => (renewal === 'refused' ? accounts.renewalFailed(deviceId, 'the machine did not keep its new token') : renewal === 'renewed' ? renewed() : undefined), (err: Error) => accounts.renewalFailed(deviceId, err.message))
       .catch((err: Error) => console.warn(`[machines] ${deviceId}: its token renewal could not be recorded: ${err.message}`));
     const tellKoala = () => accounts.koalaFor(deviceId).then(
       (koala) => { if (socket.connected) socket.emit('machine:koala', koala ?? null); },

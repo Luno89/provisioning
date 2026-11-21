@@ -32,7 +32,9 @@ export const tokenLifetime = (now: Date): { issuedAt: string; expiresAt: string 
 
 const passed = (at: string | undefined, now: Date): boolean => at !== undefined && Date.parse(at) <= now.getTime();
 
-export const tokenExpired = (device: DeviceTokenState, now: Date): boolean => passed(device.expiresAt, now);
+export const tokenUntil = (expiresAt: string | undefined): number => (expiresAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(expiresAt));
+
+export const tokenExpired =(device: DeviceTokenState, now: Date): boolean => passed(device.expiresAt, now);
 
 export const rotationDue = (device: DeviceTokenState, now: Date): boolean =>
   device.nextTokenHash === undefined
