@@ -99,6 +99,7 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       INSTANCE_CLIENT_KEY: input.clientKey,
       INSTANCE_REGISTRATION_TOKEN: input.registrationCode,
       KOALA_RELEASE_REVISION: '1',
+      POD_NAME: `${input.name}-backend`,
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
       TERRAFORM_STATE: 'local',

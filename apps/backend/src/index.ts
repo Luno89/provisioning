@@ -181,7 +181,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     webTools: tenantServices?.webTools,
     memoryIndex: tenantServices?.memoryIndex,
   });
-  const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
+  const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService, podName: settings.instance?.podName });
   const { projectRepoService, channels, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, settings.mesh, settings.dataDir);
   const machineTemporalAddress = settings.instance?.machineTemporalAddress;

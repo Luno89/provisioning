@@ -446,7 +446,8 @@ describe('the instance chart', () => {
     expect(backend.instance).toMatchObject({ client: { registrationCode: 'c' }, gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322', revision: 1, gatewayTls: { certPath: '/etc/koala/machine-gateway-tls/tls.crt', keyPath: '/etc/koala/machine-gateway-tls/tls.key' } });
     expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
     expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, client: { registrationCode: 'c' }, pod: given.POD_NAME });
-    for (const worker of ['worker-engine', 'worker-cluster', 'worker-host']) {
+    expect(backend.instance?.podName).toBe(given.POD_NAME);
+    for (const worker of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       expect(podOf(find(docs, 'Deployment', `luno-${worker}`)).containers[0]!.env, `${worker} is told its own pod's name`).toContainEqual({ name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } });
     }
     expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, qdrantApiKey: fromSecrets.QDRANT_API_KEY, koala: { ownerId: 'u1', revision: 1 }, pod: given.POD_NAME });

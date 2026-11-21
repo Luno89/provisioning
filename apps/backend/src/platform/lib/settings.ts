@@ -144,6 +144,7 @@ export interface InstanceSettings {
   gatewayTls: { certPath: string; keyPath: string } | Off;
   gatewayPort: number;
   revision: number;
+  podName: string;
 }
 
 export interface TenantServices {
@@ -492,9 +493,11 @@ function instanceSettings(read: Reading): InstanceSettings | undefined {
   if (gatewayParts > 0 && gatewayParts < 3) read.problems.push('MACHINE_TEMPORAL_ADDRESS, MACHINE_GATEWAY_TLS_CERT and MACHINE_GATEWAY_TLS_KEY go together: a machine reaches Temporal only over TLS, through a gateway that holds a certificate the install\'s own authority signed');
   const gatewayPort = portSetting(read, 'MACHINE_GATEWAY_PORT', 'it is the port the machine gateway listens on (0 for any free port)', true);
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which Koala sets itself up for once; the instance chart sets it');
-  if (!client || !edge || gatewayPort === undefined || revision === undefined) return undefined;
+  const podName = required(read, 'POD_NAME', 'it is the name of this backend\'s own pod, which the Gitea tokens it makes carry, so they are revoked when Kubernetes says the pod is gone; the instance chart sets it');
+  if (!client || !edge || gatewayPort === undefined || revision === undefined || !podName) return undefined;
   return {
     client,
+    podName,
     edge,
     selfUpgrade: cronJob && namespace ? { cronJob, namespace } : { off: 'SELF_UPGRADE_CRONJOB is not set, so this instance is updated only by its installer' },
     machineTemporalAddress: machineTemporal

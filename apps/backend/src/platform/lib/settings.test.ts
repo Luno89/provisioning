@@ -130,6 +130,11 @@ describe('the settings a backend reads once, at start', () => {
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, INSTANCE_CLIENT_KEY: 'not a key' }))).toContain('INSTANCE_CLIENT_KEY is not the Ed25519 private key the instance chart makes for this instance to sign in to root with');
   });
 
+  it('takes the name of an instance backend\'s own pod, which the Gitea tokens it makes carry so they go when Kubernetes says the pod is gone, and stops without one', () => {
+    expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, POD_NAME: '' })).some((problem) => problem.startsWith('POD_NAME is not set'))).toBe(true);
+    expect(backendSettingsFrom({ ...INSTANCE, POD_NAME: 'luno-backend-5c8d-xyz12' }).instance?.podName).toBe('luno-backend-5c8d-xyz12');
+  });
+
   it('takes the chart revision an instance runs, a whole number from 1, and stops without one', () => {
     expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, KOALA_RELEASE_REVISION: '' })).some((problem) => problem.startsWith('KOALA_RELEASE_REVISION is not set'))).toBe(true);
     for (const wrong of ['0', '-2', '1.5', 'seven']) expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, KOALA_RELEASE_REVISION: wrong })), wrong).toContain(`KOALA_RELEASE_REVISION is not a chart revision, a whole number from 1: ${wrong}`);

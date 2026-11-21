@@ -23,7 +23,7 @@ beforeAll(async () => {
   const { uri, dbName } = await testDatabaseAt();
   const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
   Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), testKeyEnv('instance-boot'), {
-    ROLE: 'instance', INSTANCE_ID: 'inst-boot', INSTANCE_OWNER_ID: 'owner-boot', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CLIENT_KEY: testIdentityKey(), INSTANCE_REGISTRATION_TOKEN: 'code', KOALA_RELEASE_REVISION: '1',
+    ROLE: 'instance', INSTANCE_ID: 'inst-boot', INSTANCE_OWNER_ID: 'owner-boot', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, INSTANCE_CLIENT_KEY: testIdentityKey(), INSTANCE_REGISTRATION_TOKEN: 'code', KOALA_RELEASE_REVISION: '1', POD_NAME: 'luno-backend-7d9f-abcde',
     PORT: '0', MACHINE_GATEWAY_PORT: '0', PUBLIC_URL: 'http://127.0.0.1:1', APP_URL: 'http://127.0.0.1:1', TRUST_PROXY: 'loopback', TERRAFORM_STATE: 'local',
     MONGO_URI: uri.replace(/\/[^/?]*(\?|$)/, `/${dbName}$1`),
     TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: env.namespace ?? 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
-import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening, keepTrying, theFence, type Reopening } from '../../platform/index.js';
-import { leftOver, type TokenToRevoke } from '../lib/gitea-tokens.js';
+import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening, keepTrying, type Reopening } from '../../platform/index.js';
+import { leftOver, type GiteaTokenPods, type TokenToRevoke } from '../lib/gitea-tokens.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import { ignore } from '@koala/engine-core/failures';
 import {
@@ -33,7 +33,7 @@ export class ProjectRepoService {
     private gitea: GiteaService,
     private masterKey: SecretKey,
     private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
-    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined } = {},
+    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined; process?: string | undefined } = {},
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -357,7 +357,7 @@ export class ProjectRepoService {
 
   private async withToken<T>(ownerId: string, username: string, password: string, mint: () => Promise<{ name: string; token: string }>, use: (token: string) => Promise<T>): Promise<T> {
     const { name, token } = await mint();
-    const kept: TokenToRevoke = { name, ownerId, username, process: theFence().heldBy?.id, at: new Date().toISOString() };
+    const kept: TokenToRevoke = { name, ownerId, username, process: this.options.process, at: new Date().toISOString() };
     try {
       await this.db.projects.saveTokenToRevoke(kept);
     } catch (err) {
@@ -388,20 +388,33 @@ export class ProjectRepoService {
     }
   }
 
-  keepRevokingLeftovers(live: () => Promise<readonly string[]>): Promise<boolean> {
-    return keepTrying('[ProjectRepoService] the Gitea tokens a stopped process left are not revoked yet',
-      async () => { await this.revokeLeftoverTokens(await live()); },
+  keepRevokingLeftovers(pods: GiteaTokenPods): Promise<boolean> {
+    return keepTrying('[ProjectRepoService] the Gitea tokens a gone pod left are not revoked yet',
+      async () => {
+        const watch = await pods.whenGone((pod) => { void this.revokeTokensOf(pod); });
+        await this.revokeLeftoverTokens(await pods.live());
+        const ended = await watch.ended;
+        throw new Error(`the watch on Koala's pods ended: ${ended.stderr.trim() || `exit ${ended.code}`}`);
+      },
       this.options.log ?? ((message: string) => console.warn(message)), this.options.again?.());
   }
 
   async revokeLeftoverTokens(live: readonly string[]): Promise<number> {
     const left = leftOver(await this.db.projects.getTokensToRevoke(), live);
+    await this.revokeEach(left);
+    return left.length;
+  }
+
+  private async revokeTokensOf(pod: string): Promise<void> {
+    await this.revokeEach((await this.db.projects.getTokensToRevoke()).filter((kept) => kept.process === pod));
+  }
+
+  private async revokeEach(left: readonly TokenToRevoke[]): Promise<void> {
     for (const kept of left) {
       const account = await this.db.projects.getGiteaAccount(kept.ownerId);
       if (account) await this.gitea.revokeUserToken(kept.username, decryptValue(account.passwordEnc, this.masterKey), kept.name);
       await this.db.projects.dropTokenToRevoke(kept);
     }
-    return left.length;
   }
 
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {
