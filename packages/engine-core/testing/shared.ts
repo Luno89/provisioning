@@ -1,15 +1,29 @@
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const SHARED_VARIABLE = 'KOALA_TEST_SHARED';
 
 export const sharedTmp = (): string => process.env[SHARED_VARIABLE] ?? tmpdir();
 
-export function testDownloads(): string {
-  const dir = process.env[SHARED_VARIABLE];
-  if (!dir) throw new Error(`${SHARED_VARIABLE} is not set: the test world sets it to the folder runs share, downloads included, so this is not running under a test tier`);
-  return dir;
+const CHECKOUT_BIN = fileURLToPath(new URL('../../../bin', import.meta.url));
+
+export interface PinnedBinary {
+  type: 'existing-path';
+  path: string;
 }
 
-export const temporalServerExecutable = (): { type: 'cached-download'; downloadDir: string; version: string } => ({ type: 'cached-download', downloadDir: testDownloads(), version: 'v1.10.1' });
+export function pinnedBinary(name: string, version: string, bin: string = CHECKOUT_BIN): PinnedBinary {
+  const path = join(bin, `${name}-${version}`);
+  if (!existsSync(path)) throw new Error(`${path} is not there: run npm run setup, which fetches ${name} ${version} as the pins file names it and checks its sha256`);
+  return { type: 'existing-path', path };
+}
 
-export const temporalTestServerExecutable = (): { type: 'cached-download'; downloadDir: string; version: string } => ({ type: 'cached-download', downloadDir: testDownloads(), version: 'v1.41.1' });
+export const TEMPORAL_CLI_VERSION = '1.10.1';
+
+export const TEMPORAL_TEST_SERVER_VERSION = '1.41.1';
+
+export const temporalServerExecutable = (): PinnedBinary => pinnedBinary('temporal', TEMPORAL_CLI_VERSION);
+
+export const temporalTestServerExecutable = (): PinnedBinary => pinnedBinary('temporal-test-server', TEMPORAL_TEST_SERVER_VERSION);

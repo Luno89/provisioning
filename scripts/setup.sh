@@ -71,6 +71,16 @@ COMPOSE_SHA256_LINUX_AMD64=5ea89dd65d33912a83737d8a4bf070d5de534a32b8493a21fbefc
 COMPOSE_SHA256_LINUX_ARM64=7f0023ba726b90347e4ebc1d94ec5970390b8bddb86402c0429f163dca70d745
 COMPOSE_SHA256_DARWIN_AMD64=170acf9a5754ec244904fb63494c50249ba4aea22d84c1fad9a9eeadc8c87c66
 COMPOSE_SHA256_DARWIN_ARM64=b4a5b264ecddeeced9c14116e1b726c6529f286bea0a14325fb6436a4b35d7ec
+TEMPORAL_CLI_VERSION=1.10.1
+TEMPORAL_TEST_SERVER_VERSION=1.41.1
+TEMPORAL_CLI_SHA256_LINUX_AMD64=4c1500e2ce2d4de136e5fe8852d9b7f82eb62f19b6b383b3e0c040519a9d20b1
+TEMPORAL_CLI_SHA256_LINUX_ARM64=2f748e9411b37c9cabb57f1f08e37765388c12b5534432c7aea28b593df9145d
+TEMPORAL_CLI_SHA256_DARWIN_AMD64=8ec6c513ad2177de4eb15d2cb17a4fe5070e6078afd7f80bdfcc37fae459d3c4
+TEMPORAL_CLI_SHA256_DARWIN_ARM64=94f7f982b26438e8abbde6000ba471b694be6a2413b31f6162f87a9f9c48c738
+TEMPORAL_TEST_SERVER_SHA256_LINUX_AMD64=f577ffaa80e775a854a68ef47768f97337ecdf4a3f16dfd8d51cb3aa73bd9056
+TEMPORAL_TEST_SERVER_SHA256_LINUX_ARM64=8b9813a69405869953c7f2e7d9df013f4460a073b4f6b0efeb2b8b643cd71c7c
+TEMPORAL_TEST_SERVER_SHA256_DARWIN_AMD64=0feca672941379cd92265e1b6ef99384915bbff7f3384fa0ce8ef9d4e5279778
+TEMPORAL_TEST_SERVER_SHA256_DARWIN_ARM64=ab048e92e846e062adbebbb8e7c825f17bef1fa8d89c2bc2d1c419e775b68a22
 PLATFORM_KEY="$(echo "${OS}_${ARCH}" | tr '[:lower:]' '[:upper:]')"
 
 fetch_checked() {
@@ -178,6 +188,31 @@ if [ ! -f "bin/rclone" ]; then
     mv rclone-tmp/rclone-*/rclone bin/rclone
     chmod +x bin/rclone
     rm -rf rclone.zip rclone-tmp
+fi
+
+# Temporal: the dev server and the time-skipping test server the tests run, each named by its version so a new pin fetches anew
+if [ ! -f "bin/temporal-${TEMPORAL_CLI_VERSION}" ]; then
+    echo "📥 Downloading the Temporal dev server..."
+    TEMPORAL_CLI_SHA="TEMPORAL_CLI_SHA256_${PLATFORM_KEY}"
+    fetch_checked "https://github.com/temporalio/cli/releases/download/v${TEMPORAL_CLI_VERSION}/temporal_cli_${TEMPORAL_CLI_VERSION}_${OS}_${ARCH}.tar.gz" "${!TEMPORAL_CLI_SHA}" temporal-cli.tar.gz
+    mkdir -p temporal-cli-tmp
+    tar -xzf temporal-cli.tar.gz -C temporal-cli-tmp temporal
+    mv temporal-cli-tmp/temporal "bin/temporal-${TEMPORAL_CLI_VERSION}"
+    chmod +x "bin/temporal-${TEMPORAL_CLI_VERSION}"
+    rm -rf temporal-cli.tar.gz temporal-cli-tmp
+fi
+if [ ! -f "bin/temporal-test-server-${TEMPORAL_TEST_SERVER_VERSION}" ]; then
+    echo "📥 Downloading the Temporal test server..."
+    TEST_SERVER_OS="$OS"
+    if [ "$OS" = "darwin" ]; then TEST_SERVER_OS="macOS"; fi
+    TEMPORAL_TEST_SERVER_SHA="TEMPORAL_TEST_SERVER_SHA256_${PLATFORM_KEY}"
+    TEST_SERVER_NAME="temporal-test-server_${TEMPORAL_TEST_SERVER_VERSION}_${TEST_SERVER_OS}_${ARCH}"
+    fetch_checked "https://github.com/temporalio/sdk-java/releases/download/v${TEMPORAL_TEST_SERVER_VERSION}/${TEST_SERVER_NAME}.tar.gz" "${!TEMPORAL_TEST_SERVER_SHA}" temporal-test-server.tar.gz
+    mkdir -p temporal-test-server-tmp
+    tar -xzf temporal-test-server.tar.gz -C temporal-test-server-tmp "${TEST_SERVER_NAME}/temporal-test-server"
+    mv "temporal-test-server-tmp/${TEST_SERVER_NAME}/temporal-test-server" "bin/temporal-test-server-${TEMPORAL_TEST_SERVER_VERSION}"
+    chmod +x "bin/temporal-test-server-${TEMPORAL_TEST_SERVER_VERSION}"
+    rm -rf temporal-test-server.tar.gz temporal-test-server-tmp
 fi
 
 echo "📥 Terraform's providers, pinned, into a mirror every stack installs from..."

@@ -21,6 +21,7 @@ cdktf.out/
 
 # Terraform's providers, unpacked from their pinned downloads by scripts/terraform-providers.sh
 /bin/terraform-providers/
+/bin/temporal-*
 
 # Logs, wherever a process writes one
 *.log
