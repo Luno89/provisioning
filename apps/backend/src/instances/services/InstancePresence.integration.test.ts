@@ -8,7 +8,7 @@ import type { InstanceRecord } from '../lib/instances.js';
 import type { Watching } from '../../platform/index.js';
 import { InstancePresence } from './InstancePresence.js';
 import { RootPresence } from './RootPresence.js';
-import { wireInstancePresence } from '../wiring/instances.js';
+import { instanceRoom, wireInstancePresence } from '../wiring/instances.js';
 
 const fresh = await emptiedEachTime();
 
@@ -40,6 +40,7 @@ let checked: string[] = [];
 let clock = 1_000_000;
 const runsOutAt = new Map<string, number>();
 let removalsWatched: Watching | undefined;
+let removalsHeard: string[] = [];
 
 async function startRoot(onPort = 0): Promise<void> {
   server = http.createServer();
@@ -60,7 +61,13 @@ async function startRoot(onPort = 0): Promise<void> {
       return instance && (token === `good-${instanceId}` || token === `fresh-${instanceId}`) ? { instance, until: runsOutAt.get(token) ?? Number.MAX_SAFE_INTEGER } : undefined;
     },
     arrived: (instance) => { arrivals.push(instance.id); },
-    removals: (on) => { removalsWatched = db.instances.watchInstanceRemovals(on); return removalsWatched; },
+    removals: (on) => {
+      removalsWatched = db.instances.watchInstanceRemovals((instanceId) => {
+        on(instanceId);
+        removalsHeard.push(instanceId);
+      });
+      return removalsWatched;
+    },
     now: () => clock,
   });
   await new Promise<void>((resolve) => server.listen(onPort, '127.0.0.1', resolve));
@@ -103,6 +110,8 @@ beforeEach(async () => {
   mailFails = false;
   arrivals = [];
   checked = [];
+  removalsWatched = undefined;
+  removalsHeard = [];
   clock = 1_000_000;
   runsOutAt.clear();
   await db.instances.saveInstance(own);
@@ -166,7 +175,14 @@ describe('the token an instance holds its connection with', () => {
     const kept = instanceDialing(second);
     await until(() => presence.connected(own.id) && presence.connected(second.id));
     await db.instances.deleteInstance(own.id);
-    await until(() => (removed.client.connected() ? undefined : true));
+    const holds = () => (io.of('/instances').adapter.rooms.get(instanceRoom(own.id))?.size ?? 0) > 0;
+    const ending = await until(() => {
+      if (!removed.client.connected()) return 'cut';
+      if (removalsWatched === undefined) return 'never cut: root does not follow removals, so no close can come';
+      if (removalsHeard.includes(own.id) && holds()) return 'never cut: root heard the removal and still holds the connection, so no close can come';
+      return undefined;
+    });
+    expect(ending).toBe('cut');
     expect(presence.connected(own.id)).toBe(false);
     expect(kept.client.connected()).toBe(true);
   });
