@@ -216,16 +216,12 @@ describe('running a procedure', () => {
     expect(await run(again, spendOnce())).toMatchObject({ outcome: 'exhausted', reason: 'used all 1 rounds', steps: 1 });
   });
 
-  it('stops a procedure that never finishes after the step cap', async () => {
-    const spinning = procedure({
-      start: 'spin',
-      nodes: [node('spin', 'echo'), node('end', 'finish', { outcome: 'ok' })],
-      flow: [flow('spin:done', 'spin')],
-    });
+  it('goes on for as many steps as it takes to finish, with no cap of its own', async () => {
+    let asked = 0;
+    const again = { ...askThenFinish, flow: [flow('ask:yes', 'agreed'), flow('ask:no', 'ask')] };
+    const executor = scriptedExecutor({ ask: () => ({ exit: (asked += 1) > 10_050 ? 'yes' : 'no' }) });
 
-    expect(await run(spinning, scriptedExecutor(), { maxSteps: 25 })).toMatchObject({
-      outcome: 'exhausted', reason: 'stopped after 25 steps without finishing', steps: 25,
-    });
+    expect(await run(again, executor)).toMatchObject({ outcome: 'ok', reason: 'it agreed', steps: 10_052 });
   });
 
   it('stops when asked to', async () => {
@@ -302,6 +298,21 @@ describe('running a procedure', () => {
 
       expect(result.outcome).toBe('interrupted');
       expect(stopped.calls.map((call) => call.node)).toEqual(['release', 'released']);
+    });
+
+    it('goes on for as many steps as cleanup takes, with no cap of its own', async () => {
+      let tries = 0;
+      const subject: Procedure = {
+        ...askThenFinish,
+        cleanup: 'release',
+        nodes: [...askThenFinish.nodes, node('release', 'ask'), node('released', 'finish', { outcome: 'ok' })],
+        wires: [...askThenFinish.wires, wire('greeting:text', 'release:prompt')],
+        flow: [...askThenFinish.flow, flow('release:no', 'release'), flow('release:yes', 'released')],
+      };
+      const executor = scriptedExecutor({ ask: ({ node: at }) => ({ exit: at.id === 'release' && (tries += 1) <= 150 ? 'no' : 'yes' }) });
+
+      expect(await run(subject, executor)).toMatchObject({ outcome: 'ok', reason: 'it agreed' });
+      expect(tries).toBe(151);
     });
 
     it('turns a finished run into a failed one when cleanup fails, and says so', async () => {

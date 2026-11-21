@@ -75,8 +75,6 @@ export {
 } from './effort.js';
 export {
   runProcedure,
-  PROCEDURE_STEP_CAP,
-  CLEANUP_STEP_CAP,
   type UsageDelta,
   type RunContext,
   type RunLaunch,
