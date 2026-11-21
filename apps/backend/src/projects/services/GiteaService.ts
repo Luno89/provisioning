@@ -187,14 +187,21 @@ export class GiteaService {
   }
 
   async replaceWebhook(owner: string, name: string, targetUrl: string, secret: string): Promise<void> {
+    await this.removeWebhook(owner, name, targetUrl);
+    await this.createWebhook(owner, name, targetUrl, secret);
+  }
+
+  async removeWebhook(owner: string, name: string, targetUrl: string): Promise<number> {
     const listed = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks`);
+    if (listed.status === 404) return 0;
     if (!listed.ok) throw new Error(`Failed to list the webhooks of "${owner}/${name}": HTTP ${listed.status}`);
     const hooks = await listed.json() as { id: number; config?: { url?: string } }[];
-    for (const hook of hooks.filter((entry) => sameHookPath(entry.config?.url, targetUrl))) {
+    const at = hooks.filter((entry) => sameHookPath(entry.config?.url, targetUrl));
+    for (const hook of at) {
       const gone = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks/${hook.id}`, { method: 'DELETE' });
-      if (!gone.ok && gone.status !== 404) throw new Error(`Failed to remove an old webhook from "${owner}/${name}": HTTP ${gone.status}`);
+      if (!gone.ok && gone.status !== 404) throw new Error(`Failed to remove a webhook from "${owner}/${name}": HTTP ${gone.status}`);
     }
-    await this.createWebhook(owner, name, targetUrl, secret);
+    return at.length;
   }
 
   async createDeployToken(): Promise<{ name: string; token: string }> {

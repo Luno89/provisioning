@@ -192,6 +192,13 @@ export class ProjectRepoService {
     await this.db.projects.saveProjectInfo({ ...project, webhookSecretEnc: encryptValue(secret, this.masterKey) });
   }
 
+  async unhook(projectId: string): Promise<number> {
+    const project = (await this.db.projects.getProjects()).find((entry) => entry.id === projectId);
+    if (!project?.giteaOwner || !project.giteaRepo) return 0;
+    if (!this.webhookUrl) throw new Error('a deleted project\'s webhook cannot be removed here: nothing says where its pushes are sent');
+    return this.gitea.removeWebhook(project.giteaOwner, project.giteaRepo, await this.webhookUrl(project.id));
+  }
+
   async repointWebhooks(): Promise<{ repointed: number }> {
     if (!this.webhookUrl) return { repointed: 0 };
     let repointed = 0;

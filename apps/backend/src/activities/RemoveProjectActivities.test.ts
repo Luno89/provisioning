@@ -23,6 +23,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
   kube,
   repositories,
   secrets,
+  webhooks: { unhook: async () => 0 },
   files,
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'machine', machineId: 'koala', status: 'running' } as never : undefined),
@@ -70,6 +71,12 @@ describe('the steps that delete a project', () => {
     await db.projects.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: at });
     await db.projects.saveProject({ id: 'p4', name: 'solo', ownerId: 'cy', giteaOwner: 'koala-cy', giteaRepo: 'solo', appType: 'gitapp', createdAt: at });
     expect(await steps().RemoveProjectRepositoriesActivity({ projectId: 'p4' })).toEqual(['koala-cy/solo']);
+  });
+
+  it('removes the project\'s webhook, so a push to its code builds nothing', async () => {
+    const webhooks = { unhook: mockFn<(projectId: string) => Promise<number>>().mockResolvedValue(1) };
+    expect(await steps({ webhooks }).RemoveProjectWebhookActivity({ projectId: 'p1' })).toBe(1);
+    expect(webhooks.unhook).toHaveBeenCalledExactlyOnceWith('p1');
   });
 
   it('removes the project\'s secrets through the secrets service', async () => {

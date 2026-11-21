@@ -78,6 +78,7 @@ export interface ProjectRemovalDeps {
   kube: KubeRunner;
   repositories: { deleteRepo(owner: string, name: string): Promise<void> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
+  webhooks: { unhook(projectId: string): Promise<number> };
   artifacts?: { removeRun(ownerId: string, runId: string): Promise<number> } | undefined;
   files: { removeProjectFiles(ownerId: string, projectId: string): Promise<number> };
 }
@@ -85,6 +86,7 @@ export interface ProjectRemovalDeps {
 export interface ProjectRemovalActivities {
   RemoveProjectAppsActivity(args: RemoveProjectArgs): Promise<AppToDestroy[]>;
   RemoveProjectAppStartedActivity(args: { deploymentId: string; workflowId: string }): Promise<void>;
+  RemoveProjectWebhookActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectWorkspacesActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectSecretsActivity(args: RemoveProjectArgs): Promise<{ workspace: boolean; readers: number }>;
   RemoveProjectRepositoriesActivity(args: RemoveProjectArgs): Promise<string[]>;
@@ -117,6 +119,8 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
     async RemoveProjectAppStartedActivity({ deploymentId, workflowId }) {
       await store.infrastructure.saveDeploymentInfo({ id: deploymentId, temporalWorkflowId: workflowId });
     },
+
+    RemoveProjectWebhookActivity: ({ projectId }) => deps.webhooks.unhook(projectId),
 
     async RemoveProjectWorkspacesActivity({ projectId }) {
       const found = await scopeOf(projectId);

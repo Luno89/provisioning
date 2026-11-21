@@ -62,6 +62,7 @@ async function deletedWhileStepRuns(step: Step): Promise<DeletedWhileRunning> {
     kube: mockFn<KubeRunner>().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
     repositories: { deleteRepo: async () => undefined },
     secrets: { removeProject: async () => ({ workspace: false, readers: 0 }) },
+    webhooks: { unhook: async () => 0 },
     files: { removeProjectFiles: async () => 0 },
   });
   const work = temporalProjectWork(async () => client);

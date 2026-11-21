@@ -117,6 +117,7 @@ export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<Pr
   try {
     await stop(await steps.StopProjectWorkActivity(args));
     done.push('workflows');
+    await steps.RemoveProjectWebhookActivity(args);
     let apps = await destroyApps();
     await tell((current) => partDeleted(current, 'apps', 0));
     done.push('apps');

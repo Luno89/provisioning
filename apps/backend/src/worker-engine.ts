@@ -456,6 +456,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     kube: sandboxKube,
     repositories: gitea,
     secrets: infisical,
+    webhooks: projectRepos,
     artifacts: instanceFiles.artifacts,
     files: instanceFiles.fileService,
   });
