@@ -319,6 +319,22 @@ export const DECISIONS: Decision[] = [
     ],
   },
   {
+    id: 'project-removal',
+    subject: 'Deleting a project while its work is running',
+    terms: ['delete a project', 'project removal', 'fence', 'kill at once', 'restore'],
+    words: [
+      { at: '2026-11-20T23:55', text: 'Yeah as a concept we should show whats actually happening, again some indicator that something is working towards the goal' },
+      { at: '2026-11-21T00:05', text: 'Temporal giving up should NOT mark something as done ever, mark the actual state and then make decesions about status' },
+      { at: '2026-11-21T00:35', text: 'simpler is better' },
+      { at: '2026-11-21T00:35', text: 'being able to kill a process seems important' },
+      { at: '2026-11-21T04:48', text: 'Yep kill at once, if we\'re deleting a project there\'s no point in waiting for it to finish, in theory we can follow githubs example and keep the codebase, and work items archived so they could be brought back but we need to be transparent to the user about it' },
+    ],
+    reading: 'Deleting a project marks it deleting at once, refuses new work for it, cancels its workflows and kills at once whatever is still running for it, a frozen worker included, with no waiting for anything to finish. Stopped and deleted are only ever the actual state, never Temporal giving up, and the page shows what is happening as it happens. Like GitHub, the project\'s codebase and work items may be kept archived so they could be brought back, and the person is told plainly what is kept.',
+    replaced: [
+      { words: { at: '2026-11-13T16:35', text: 'C sounds right' }, by: 'the fence goes for mark, stop and sweep on 2026-11-21: "Yep kill at once, if we\'re deleting a project there\'s no point in waiting for it to finish"' },
+    ],
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
