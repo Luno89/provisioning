@@ -11,7 +11,9 @@ export interface Run { test: string; layer: Layer; units: string[]; links: strin
 
 export interface History { changes?: Record<string, number>; failures?: Record<string, number> }
 
-export interface Codebase { units: CodeUnit[]; links: Link[]; runs: Run[]; changed: string[]; versions?: Record<string, string>; history?: History }
+export interface Unchecked { survived: number; examples: string[] }
+
+export interface Codebase { units: CodeUnit[]; links: Link[]; runs: Run[]; changed: string[]; versions?: Record<string, string>; history?: History; unchecked?: Record<string, Unchecked> }
 
 export type Weights = Record<Layer, number>;
 
@@ -31,7 +33,7 @@ export interface JudgedLink extends Link {
 
 export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: number; lentBy?: string; risk: number }
 
-export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[] }
+export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[]; unchecked: Array<CodeUnit & Unchecked> }
 
 const REAL_FROM: Layer = 'contract';
 
@@ -129,6 +131,7 @@ export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKi
     links: riskiestFirst(links),
     untested,
     blocking: untested.filter((unit) => changed.has(unit.id)),
+    unchecked: codebase.units.flatMap((unit) => { const missed = codebase.unchecked?.[unit.id]; return missed ? [{ ...unit, ...missed }] : []; }).sort((a, b) => b.survived - a.survived),
   };
 }
 
@@ -152,6 +155,13 @@ export function reportOf(judged: Judgement, riskiest: number): string {
   if (judged.blocking.length > 0) {
     lines.push('changed code no test runs (blocks):');
     for (const unit of judged.blocking) lines.push(`  ${unit.file}:${unit.line} ${unit.name}`);
+  }
+  if (judged.unchecked.length > 0) {
+    lines.push('tests let planted faults through:');
+    for (const unit of judged.unchecked.slice(0, riskiest)) {
+      lines.push(`  ${unit.survived}  ${unit.file}:${unit.line} ${unit.name}`);
+      for (const example of unit.examples) lines.push(`       ${example}`);
+    }
   }
   return lines.join('\n');
 }

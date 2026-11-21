@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { evidenceFrom, evidenceOf, recordOf, type MutationReport } from './mutation.js';
+import { evidenceFrom, evidenceOf, recordOf, survivorsIn, type MutationReport } from './mutation.js';
+import type { Unit } from './graph.js';
 
 const report: MutationReport = {
   files: {
@@ -65,3 +66,23 @@ describe('the evidence kept across runs', () => {
     ]);
   });
 });
+
+describe('the faults a function\'s tests missed', () => {
+  const unit = (id: string, file: string, line: number, endLine: number): Unit => ({ id, file, name: id, line, column: 1, start: 0, end: 0, ends: { line: endLine, column: 1 }, inTest: false });
+
+  it('names, for each function, the planted faults inside it that a test ran and let pass, by the innermost function around them', () => {
+    const run: MutationReport = { files: { 'src/a.ts': { mutants: [
+      { id: '1', status: 'Survived', coveredBy: ['t1'], location: { start: { line: 3, column: 5 } }, mutatorName: 'EqualityOperator', replacement: 'a !== b' },
+      { id: '2', status: 'Survived', coveredBy: ['t1'], location: { start: { line: 12, column: 2 } }, mutatorName: 'BooleanLiteral', replacement: 'false' },
+      { id: '3', status: 'Killed', coveredBy: ['t1'], killedBy: ['t1'], location: { start: { line: 4, column: 1 } } },
+      { id: '4', status: 'NoCoverage', location: { start: { line: 5, column: 1 } } },
+    ] } } };
+    const units = [unit('outer', 'packages/provision/src/a.ts', 1, 20), unit('inner', 'packages/provision/src/a.ts', 2, 6)];
+
+    expect(survivorsIn(run, 'packages/provision', units)).toEqual({
+      inner: { survived: 1, examples: ['line 3: EqualityOperator → a !== b'] },
+      outer: { survived: 1, examples: ['line 12: BooleanLiteral → false'] },
+    });
+  });
+});
+

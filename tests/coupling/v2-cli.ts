@@ -5,7 +5,7 @@ import { heldTo, judge, learnedWeights, reportOf, untestedList, type UntestedLis
 import { ARTIFACTS, OUT, ROOT, runsIn, runsOf, type Gathered } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
 import { codebaseOf, DEPENDENCIES, SHARING, versionsIn, type Since } from './v2.js';
-import { evidenceFrom, type KeptRun } from './mutation.js';
+import { AREAS, evidenceFrom, survivorsIn, type KeptRun, type MutationReport, type Unchecked } from './mutation.js';
 
 const STARTING: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
 const EVIDENCE = join(ROOT, 'tests', 'coupling', 'evidence.json');
@@ -38,13 +38,20 @@ for (const file of lines(git(['log', `--since=${CHURN_SINCE}`, '--name-only', '-
 const failedAt = JSON.parse(readFileSync(join(ROOT, 'tests', 'test-failures.json'), 'utf8')) as Record<string, string[]>;
 const failures = Object.fromEntries(Object.entries(failedAt).map(([test, times]) => [test, times.length]));
 
-const codebase = codebaseOf(builtGraph(ROOT).graph, runs, {
+const graph = builtGraph(ROOT).graph;
+const unchecked: Record<string, Unchecked> = {};
+for (const { workspace, report } of Object.values(AREAS)) {
+  const at = join(ROOT, report);
+  if (!existsSync(at)) continue;
+  Object.assign(unchecked, survivorsIn(JSON.parse(readFileSync(at, 'utf8')) as MutationReport, workspace, Object.values(graph.units)));
+}
+const codebase = { ...codebaseOf(graph, runs, {
   changed: changedSince(git(['merge-base', 'HEAD', 'main']).trim()),
   since: (test) => sinceByTest.get(test),
   versions: versionsIn(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'), modules),
   churn,
   failures,
-});
+}), unchecked };
 const judged = judge(codebase, WEIGHTS, { dependency: SHARING, composition: { target: 0.5 } });
 const args = process.argv.slice(2);
 const shown = Number(args.find((arg) => /^\d+$/.test(arg)) ?? 25);

@@ -203,6 +203,23 @@ describe('the report', () => {
   });
 });
 
+describe('functions whose tests let planted faults through', () => {
+  it('lists the functions whose tests missed the most planted faults, with what was changed, after the riskiest functions', () => {
+    const judged = judge(codebase({
+      runs: [{ test: 'u', layer: 'unit', units: ['save', 'store', 'orphan'], links: [] }],
+      unchecked: { store: { survived: 4, examples: ['line 3: EqualityOperator → a !== b'] }, save: { survived: 1, examples: ['line 9: BooleanLiteral → false'] } },
+    }), WEIGHTS);
+
+    expect(reportOf(judged, 2).split('\n').slice(-5)).toEqual([
+      'tests let planted faults through:',
+      '  4  b.ts:1 store',
+      '       line 3: EqualityOperator → a !== b',
+      '  1  a.ts:1 save',
+      '       line 9: BooleanLiteral → false',
+    ]);
+  });
+});
+
 describe('the untested list, which only shrinks', () => {
   const unit = (file: string, name: string) => ({ id: `${file}:${name}`, file, name, line: 1 });
 

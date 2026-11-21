@@ -2,15 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './artifacts.js';
-import { evidenceOf, recordOf, type KeptRun, type MutationReport } from './mutation.js';
+import { AREAS, evidenceOf, recordOf, type KeptRun, type MutationReport } from './mutation.js';
 import { layerOf } from './v2.js';
 
 export const EVIDENCE = join(ROOT, 'tests', 'coupling', 'evidence.json');
 
-const AREAS: Record<string, { workspace: string; report: string }> = {
-  provision: { workspace: 'packages/provision', report: 'tests/.coupling/mutation/provision.json' },
-  'infrastructure-lib': { workspace: 'apps/backend', report: 'tests/.coupling/mutation/infrastructure-lib.json' },
-};
 
 const [area] = process.argv.slice(2);
 const where = area ? AREAS[area] : undefined;
