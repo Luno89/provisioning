@@ -9,7 +9,7 @@ import { testDatabase, TEST_DATA_KEY } from '../lib/test-database.js';
 import { answersHttp, collectorAnswers, workerDependencies } from '../wiring/dependencies.js';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { connectTemporalAs } from '../lib/temporal-client.js';
+import { connectTemporalAs, refuseWorkWith } from '../lib/temporal-client.js';
 import { hostWorkerSettingsFrom } from '../lib/settings.js';
 import { leaseMongo } from '../lib/mongo-lease.js';
 import { MongoPlatformStore } from '../store.js';
@@ -146,6 +146,7 @@ describe('the database stopping and starting again', () => {
 
       await server.stop({ doCleanup: false });
       await until('the worker to see Mongo down', async () => (states.stateOf('mongo').state === 'down' ? true : waiting(`Mongo is ${states.stateOf('mongo').state}`)));
+      refuseWorkWith(async () => ({ owner: false, project: false }));
       connectTemporalAs(settings);
       await until('the worker to see Temporal answering', async () => (states.stateOf('temporal').state === 'answering' ? true : waiting(`Temporal is ${states.stateOf('temporal').state}`)));
       await expect(new MongoPlatformStore(() => lateReader.client.db()).dependencyStates()).rejects.toThrow();

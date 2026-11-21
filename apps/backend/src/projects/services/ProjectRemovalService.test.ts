@@ -88,6 +88,18 @@ describe('deleting a project', () => {
     expect(unnamed).toBe(true);
   });
 
+  it('marks the project once: pressed again after it stopped, the deletion starts again under the first mark', async () => {
+    const { db, workflows } = await setUp();
+    let now = at;
+    const service = new ProjectRemovalService({ store: db, workflows, now: () => now });
+    await service.remove('ann', 'p1', 'Shop');
+    now = '2026-10-22T00:00:00Z';
+    workflows.state.mockResolvedValue({ state: 'failed', reason: 'Gitea answered 403' });
+    await service.remove('ann', 'p1', 'Shop');
+    expect(workflows.start).toHaveBeenCalledTimes(2);
+    expect(await db.projects.deletion('p1')).toEqual({ startedAt: at, requestedBy: 'ann' });
+  });
+
   it('starts nothing when a removal is already running', async () => {
     const { workflows, service } = await setUp();
     workflows.state.mockResolvedValue({ state: 'running', done: [] });

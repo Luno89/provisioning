@@ -3,7 +3,7 @@ import { connectTemporal, createClient } from '@koala/engine-core/temporal'
 import protos from '@temporalio/proto'
 import Long from 'long'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
-import { WORK_HEADER, workFor, workHeader, workIsUnnamed } from '@koala/engine-core/work-for'
+import { WORK_HEADER, refuseWhileDeleting, workFor, workFromHeaders, workHeader, workIsUnnamed, type ReadDeletingMarks } from '@koala/engine-core/work-for'
 import type { Payload } from '@temporalio/common'
 import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
@@ -58,27 +58,44 @@ export async function onceOwnerMapped<T>(start: () => Promise<T>, waitMs = 1_000
   }
 }
 
-export const requireOwner: WorkflowClientInterceptor = {
+let deletingMarks: ReadDeletingMarks | undefined
+
+export const refuseWorkWith = (marks: ReadDeletingMarks): void => {
+  deletingMarks = marks
+}
+
+export function givenDeletingMarks(): ReadDeletingMarks {
+  if (!deletingMarks) throw new Error('this process was not given where to read which projects and accounts are being removed: its entry point calls refuseWorkWith first')
+  return deletingMarks
+}
+
+async function startable<T extends Parameters<typeof owned>[0] & { headers: Record<string, Payload> }>(input: T, marks: ReadDeletingMarks): Promise<T> {
+  const ready = await owned(input)
+  await refuseWhileDeleting(workFromHeaders(ready.headers), marks)
+  return ready
+}
+
+export const requireOwner = (marks: ReadDeletingMarks): WorkflowClientInterceptor => ({
   async start(input, next) {
-    const ready = await owned(input)
+    const ready = await startable(input, marks)
     return onceOwnerMapped(() => next(ready))
   },
   async startWithDetails(input, next) {
-    const ready = await owned(input)
+    const ready = await startable(input, marks)
     return onceOwnerMapped(() => next(ready))
   },
   async signalWithStart(input, next) {
-    const ready = await owned(input)
+    const ready = await startable(input, marks)
     return onceOwnerMapped(() => next(ready))
   },
-}
+})
 
 function withItsWork<T extends { headers: Record<string, Payload>; options: { typedSearchAttributes?: Parameters<typeof ownerIn>[0] } }>(input: T): T {
   if (workIsUnnamed()) return input
   const owner = ownerIn(input.options.typedSearchAttributes)
   const project = workFor()?.project
   if (!owner && !project) return input
-  return { ...input, headers: { ...input.headers, [WORK_HEADER]: workHeader({ owner, project }) } }
+  return { ...input, headers: { ...input.headers, [WORK_HEADER]: workHeader({ owner, project, removing: workFor()?.removing }) } }
 }
 
 export const namesItsWork: WorkflowClientInterceptor = {
@@ -122,6 +139,7 @@ export async function readyNamespace(connection: Connection, namespace: string, 
 export async function getTemporalClient(): Promise<Client> {
   if (shared) return shared
   if (!given) throw new Error('this process was not given Temporal\'s settings: its entry point calls connectTemporalAs with them first')
+  const marks = givenDeletingMarks()
   const { temporal, keys } = given
   const connection = await connectTemporal(temporalDial('koala-backend', given), 'client').catch((err: unknown) => {
     throw thrownFor(reporter, 'temporal', err)
@@ -134,7 +152,7 @@ export async function getTemporalClient(): Promise<Client> {
   shared = createClient({
     connection,
     namespace: temporal.namespace,
-    interceptors: { workflow: [namesItsWork, requireOwner, traceWorkflowStarts()] },
+    interceptors: { workflow: [namesItsWork, requireOwner(marks), traceWorkflowStarts()] },
     payloads: { ring: keys.payload, blobs: sharedPayloadBlobs() },
   })
   return shared

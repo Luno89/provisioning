@@ -1,6 +1,6 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { randomUUID } from 'node:crypto';
-import type { PartialInfo, ProjectMetadata } from '../../platform/index.js';
+import type { PartialInfo, ProjectMetadata, ProjectRemoval } from '../../platform/index.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
 import { copied, MemoryRecords, collectionIn, removeWhere, updateWhere, type Collections } from '../../platform/testing/memory-records.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
@@ -81,7 +81,21 @@ export class MemoryProjectsStore implements ProjectsStore {
       const taken = this.projects.all().some((other) => other.id !== project.id && claimedRepository(other) === repository);
       if (taken) throw new Error(`E11000 duplicate key error: giteaOwner_1_giteaRepo_1 dup key: ${repository}`);
     }
-    this.projects.put(stored(project));
+    const kept = this.projects.get(project.id)?.removal;
+    const next: ProjectMetadata = { ...project };
+    delete next.removal;
+    this.projects.put(stored(kept ? { ...next, removal: kept } : next));
+  }
+
+  async markDeleting(projectId: string, mark: ProjectRemoval): Promise<boolean> {
+    const project = this.projects.get(projectId);
+    if (!project || project.removal) return false;
+    this.projects.put(stored({ ...project, removal: { ...mark } }));
+    return true;
+  }
+
+  async deletion(projectId: string): Promise<ProjectRemoval | undefined> {
+    return this.projects.get(projectId)?.removal;
   }
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {

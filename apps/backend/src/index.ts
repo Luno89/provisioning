@@ -16,7 +16,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
-  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
+  getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce,
@@ -106,6 +106,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await db.init();
   const fences = await holdFences('backend', db.platform);
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
+  refuseWorkWith(deletingMarksIn(db));
   const { role } = settings;
   const claimSettings = claimSettingsFrom(role);
   await operatorsFromAdmins(db, new Date().toISOString());

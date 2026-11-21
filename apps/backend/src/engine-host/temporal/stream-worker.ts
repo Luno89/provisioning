@@ -6,6 +6,7 @@ import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
 import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
 import type { PlatformKeys } from '../../platform/index.js';
 import { connectTemporalWorker, type TemporalPlace } from '../../platform/lib/temporal-connection.js';
+import { givenDeletingMarks } from '../../platform/lib/temporal-client.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
 
 export interface SocketLike {
@@ -55,5 +56,6 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
     namespace: options.connection.temporal.namespace,
     activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
+    deletingMarks: givenDeletingMarks(),
   });
 }

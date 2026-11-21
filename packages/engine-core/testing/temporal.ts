@@ -84,7 +84,7 @@ export interface TimeSkippingClientOptions {
 export const timeSkippingClient = (env: TestTemporal, options: TimeSkippingClientOptions = {}): TimeSkippingWorkflowClient =>
   new TimeSkippingWorkflowClient({ connection: env.connection, namespace: options.namespace ?? env.namespace ?? 'default', dataConverter: payloadConverter(env.payloads), ...(options.interceptors ? { interceptors: options.interceptors } : {}) });
 
-export type TestWorkerOptions = Omit<KoalaWorkerOptions, 'connection' | 'namespace' | 'payloads'> & { namespace?: string; payloads?: TemporalPayloads };
+export type TestWorkerOptions = Omit<KoalaWorkerOptions, 'connection' | 'namespace' | 'payloads' | 'deletingMarks'> & { namespace?: string; payloads?: TemporalPayloads; deletingMarks?: KoalaWorkerOptions['deletingMarks'] };
 
 export async function testWorker(env: TestTemporal, options: TestWorkerOptions): Promise<Worker> {
   let refuse!: (why: Error) => void;
@@ -92,6 +92,7 @@ export async function testWorker(env: TestTemporal, options: TestWorkerOptions):
   refused.catch(() => undefined);
   const worker = await createWorker({
     ...options,
+    deletingMarks: options.deletingMarks ?? { unread: 'this test worker reads no deletion marks' },
     connection: env.nativeConnection,
     namespace: options.namespace ?? env.namespace ?? 'default',
     payloads: options.payloads ?? env.payloads,

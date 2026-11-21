@@ -85,6 +85,26 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
       expect(await store.getProjects()).toHaveLength(2);
     });
 
+    it('marks a project deleting once, keeps the mark whatever is saved over the project after, and says whether it was the one that marked it', async () => {
+      const store = await make();
+      await store.saveProject(project('a'));
+      expect(await store.deletion('a')).toBeUndefined();
+      expect(await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1' })).toBe(true);
+      expect(await store.markDeleting('a', { startedAt: at(2), requestedBy: 'owner-2' })).toBe(false);
+      await store.saveProject(project('a', { name: 'saved over' }));
+      await store.saveProjectInfo({ id: 'a', removal: undefined });
+      expect(await store.deletion('a')).toEqual({ startedAt: at(1), requestedBy: 'owner-1' });
+      expect((await store.getProjects()).find((stored) => stored.id === 'a')).toMatchObject({ name: 'saved over', removal: { startedAt: at(1) } });
+      expect(await store.markDeleting('missing', { startedAt: at(1), requestedBy: 'owner-1' })).toBe(false);
+      expect(await store.deletion('missing')).toBeUndefined();
+    });
+
+    it('writes no deletion mark through saving a project', async () => {
+      const store = await make();
+      await store.saveProject(project('a', { removal: { startedAt: at(1), requestedBy: 'owner-1' } }));
+      expect(await store.deletion('a')).toBeUndefined();
+    });
+
     it('hands back a copy, so changing what it read changes nothing stored', async () => {
       const store = await make();
       await store.saveProject(project('a', { needs: [{ service: 'db' }] }));

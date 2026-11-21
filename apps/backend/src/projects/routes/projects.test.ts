@@ -250,7 +250,8 @@ describe('promoting a build', () => {
   it('refuses a project or run that is not there, and a project being deleted', async () => {
     const { db, bridge, routes } = await setUp();
     await db.projects.saveProjectInfo(project);
-    await db.projects.saveProjectInfo({ ...project, id: 'going', giteaRepo: 'going', removal: { startedAt: 't', requestedBy: TEST_USER.id } });
+    await db.projects.saveProjectInfo({ ...project, id: 'going', giteaRepo: 'going' });
+    await db.projects.markDeleting('going', { startedAt: 't', requestedBy: TEST_USER.id });
     await db.releases.savePipelineRunInfo(run());
     await db.releases.savePipelineRunInfo(run({ id: 'run-2', projectId: 'going' }));
     await db.releases.savePipelineRunInfo(run({ id: 'run-3', projectId: 'other' }));

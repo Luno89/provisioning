@@ -7,7 +7,7 @@ import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js
 import { KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
+import { createDatabase, createWorkerLogger, connectTemporalAs, deletingMarksIn, refuseWorkWith, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
@@ -48,6 +48,10 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
+  const db = createDatabase({ mongo: settings.mongo, dataKey: settings.keys.data });
+  db.reportReachTo(dependencies);
+  await db.init();
+  refuseWorkWith(deletingMarksIn(db));
   const fences = await holdFencesIn('worker-host', settings.mongo);
   giveHostActivities(settings, access, dependencies);
   void dependencies.start();

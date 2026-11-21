@@ -30,7 +30,7 @@ const clientThatDoesNotDecrypt = (blobs: BlobReach): Client =>
 async function echoedThrough(blobs: BlobReach, value: unknown): Promise<{ result: unknown; workflowId: string; history: Buffer }> {
   const taskQueue = queueFor('payloads');
   const workflowId = queueFor('echoed');
-  const worker = await createWorker({
+  const worker = await createWorker({ deletingMarks: { unread: 'this test reads no deletion marks' },
     connection: env.nativeConnection,
     namespace: env.namespace ?? 'default',
     taskQueue,

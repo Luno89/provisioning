@@ -163,6 +163,11 @@ export interface ModelEndpointMetadata {
   lastError?: string;
 }
 
+export interface ProjectRemoval {
+  startedAt: string;
+  requestedBy: string;
+}
+
 export interface ProjectMetadata {
   id: string;
   name: string;
@@ -179,7 +184,7 @@ export interface ProjectMetadata {
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
   requiredSecrets?: { key: string; source: string }[];
   infisicalReaderEnc?: string;
-  removal?: { startedAt: string; requestedBy: string } | undefined;
+  removal?: ProjectRemoval | undefined;
   releaseName?: string | undefined;
   release?: import('../../releases/index.js').ReleaseHow | undefined;
   channelId?: string | undefined;

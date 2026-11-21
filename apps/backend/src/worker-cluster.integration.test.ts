@@ -18,7 +18,7 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
 const EXPECTED = ['CheckWorkloadActivity', 'DeployAppActivity', 'DestroyAppActivity', 'DownloadModelActivity', 'ProvisionPieceActivity', 'ResizeDiskActivity', 'RunPipelineActivity', 'SyncConfigActivity', 'VerifyGpuRuntimeActivity'];
 
 describe('the cluster worker, started the way its entry starts it', () => {
-  it('on an instance polls the cluster queue with every cluster activity and the shared interceptors', async () => {
+  it('on an instance polls the cluster queue with every cluster activity, the shared interceptors and the refusal of work being deleted', async () => {
     const { worker, fences } = await startClusterWorker(clusterWorkerSettingsFrom(placeFor('instance')));
     const running = runThenLetGo(worker, fences);
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
@@ -26,7 +26,7 @@ describe('the cluster worker, started the way its entry starts it', () => {
     })).pollers ?? [];
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(EXPECTED);
-    expect(worker.options.interceptors.activity).toHaveLength(4);
+    expect(worker.options.interceptors.activity).toHaveLength(5);
     expect((await live()).map((process) => process.name)).toEqual(['worker-cluster']);
     worker.shutdown();
     await running;

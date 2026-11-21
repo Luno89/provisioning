@@ -5,10 +5,11 @@ export const WORK_HEADER = 'koala-work';
 export interface WorkNamed {
   owner?: string | undefined;
   project?: string | undefined;
+  removing?: 'owner' | 'project' | undefined;
 }
 
 export const namedOnly = (work: WorkNamed): WorkNamed =>
-  Object.fromEntries(Object.entries(work).filter(([, value]) => typeof value === 'string' && value)) as WorkNamed;
+  Object.fromEntries(Object.entries(work).filter(([key, value]) => typeof value === 'string' && value && (key !== 'removing' || value === 'owner' || value === 'project'))) as WorkNamed;
 
 export const workPayload = (work: WorkNamed): Payload => ({
   metadata: { encoding: new TextEncoder().encode('json/plain') },
