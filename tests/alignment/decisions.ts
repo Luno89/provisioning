@@ -357,8 +357,10 @@ export const DECISIONS: Decision[] = [
     words: [
       { at: '2026-10-01T17:27', asked: 'There\'s an older limit in the work loop', text: 'We still need it configurable, jesus, look at the other examples there should be a ton of configurable limits that are currently set open' },
       { at: '2026-11-21T09:18', text: 'Yes sounds alright' },
+      { at: '2026-10-13T23:13', text: 'yeah we dont need approvals in the sandbox, and an auto mode for outside it' },
+      { at: '2026-11-21T09:22', text: 'Yeah the tools should probably implement a common lib that checks like your descibing, those takes make sense' },
     ],
-    reading: 'D1 is replaced by versions-are-images. D2: the procedure step cap and the cleanup step cap go; a step limit, if a person wants one, is one more field of the run budget they already set, off by default; a loop that never waits on anything (no model, tool or person) is refused when the procedure is saved, saying why. The 30-day activity ceiling is Temporal\'s required start-to-close field, not a rule: it becomes the largest value Temporal accepts, named as that, and the heartbeat alone ends a live activity. kubectl waits with a long --timeout become watching for the thing itself.',
+    reading: 'D1 is replaced by versions-are-images. D2: the procedure step cap and the cleanup step cap go; a step limit, if a person wants one, is one more field of the run budget they already set, off by default; a loop that never waits on anything (no model, tool or person) is refused when the procedure is saved, saying why. The 30-day activity ceiling is Temporal\'s required start-to-close field, not a rule: it becomes the largest value Temporal accepts, named as that, and the heartbeat alone ends a live activity. kubectl waits with a long --timeout become watching for the thing itself. D3: whether a call asks is decided by one common check every tool call goes through, whatever the procedure holds: on a person\'s machine every call asks, elsewhere a destructive call asks, calls inside the run\'s sandbox do not, and auto mode turns asking off. The approve node\'s ask setting (always, never) goes, so a procedure\'s author cannot turn asking off for the people who run it.',
   },
   {
     id: 'dev-runs-like-prod',
