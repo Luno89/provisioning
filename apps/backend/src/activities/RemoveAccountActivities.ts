@@ -3,6 +3,7 @@ import type { Client } from '@temporalio/client';
 import { ApplicationFailure } from '@temporalio/common';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { memoryWatermarkKeys, openAccountWork, type AccountIds, type AccountRelated } from '../accounts/index.js';
+import { currentMemory, type MemoryIndexing, type MemoryItem } from '../memory/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
 import { type DeploymentMetadata, type ProjectMetadata, type RoleConfig, type UserMetadata, CLI_CEILING, holdsAccounts, innermostMessage, startedFor } from '../platform/index.js';
@@ -49,6 +50,9 @@ export interface AccountRemovalDeps {
     files: {
       reownRunFiles(from: string, to: string): Promise<number>;
     };
+    memory: {
+      getMemories(ownerId: string): Promise<MemoryItem[]>;
+    };
     infrastructure: {
       getDeployments(): Promise<DeploymentMetadata[]>;
       saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
@@ -62,6 +66,7 @@ export interface AccountRemovalDeps {
   mesh: { removeUser(ownerId: string): Promise<{ devices: number; user: boolean }> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
   files: { removeOwned(ownerId: string): Promise<number> };
+  memoryIndex: Pick<MemoryIndexing, 'unindex'>;
   now?: () => number;
 }
 
@@ -158,6 +163,8 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountRecordsActivity({ ownerId }) {
+      const indexed = (await deps.store.memory.getMemories(ownerId)).filter(currentMemory).map((memory) => memory.id);
+      if (indexed.length) await deps.memoryIndex.unindex(ownerId, indexed);
       const files = await deps.files.removeOwned(ownerId);
       const ids = await deps.store.accounts.accountIds(ownerId);
       const removed = await deps.store.accounts.removeAccountRecords(ownerId, {
