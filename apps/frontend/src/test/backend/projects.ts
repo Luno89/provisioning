@@ -246,7 +246,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
     }),
   })
   const treeWorkspaces = { state: async () => 'none' as const, release: async () => ({ saved: false as const, why: 'a tree with no sandbox has nothing to save', empty: true as const }) }
-  const groveDeletion = new GroveDeletionService({ store: db, workflows: { stop: (workflowId, reason) => bridge.stopIfRunning(workflowId, reason) }, workspaces: treeWorkspaces })
+  const groveDeletion = new GroveDeletionService({ store: db, workflows: { stop: (workflowId) => bridge.cancelIfRunning(workflowId) }, workspaces: treeWorkspaces })
   const groveOrder = new GroveOrderService({ store: db.projects })
   api.use('/trees', treesRouter({ db, order: groveOrder, home: treeHome, workspaces: treeWorkspaces, runs: groveRuns, models: treeModels, deletion: groveDeletion }))
   const plans = new PlanService({

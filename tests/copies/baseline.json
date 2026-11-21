@@ -584,7 +584,6 @@
  "tests apps/backend/src/worker-activities.test.ts <-> apps/backend/src/worker-activities.test.ts #491d42f9e5aa": 1,
  "tests apps/backend/src/worker-engine.integration.test.ts <-> apps/backend/src/worker-engine.integration.test.ts #1099624eef6d": 1,
  "tests apps/backend/src/workflows/AdoptPlanWorkflow.integration.test.ts <-> apps/backend/src/workflows/AdoptPlanWorkflow.integration.test.ts #e20ac47070d2": 1,
- "tests apps/backend/src/workflows/fenced-removal.integration.test.ts <-> apps/backend/src/workflows/fenced-removal.integration.test.ts #c0f7e77fe6ea": 1,
  "tests apps/backend/src/workflows/StoredFilesWorkflow.real-temporal.test.ts <-> apps/backend/src/workflows/StoredFilesWorkflow.real-temporal.test.ts #0ef7af223527": 1,
  "tests apps/backend/src/workflows/StoredFilesWorkflow.real-temporal.test.ts <-> apps/backend/src/workflows/StoredFilesWorkflow.real-temporal.test.ts #6742dbbdc6eb": 1,
  "tests apps/frontend/src/features/accounts/components/DeleteAccount.test.tsx <-> apps/frontend/src/features/accounts/components/RemoveAccountPage.test.tsx #2269e174c4f4": 1,

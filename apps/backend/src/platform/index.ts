@@ -78,7 +78,7 @@ export { missingSettings, notSetProblem, settingHostPort, settingUrl } from './l
 export type { Settings } from './lib/setting-urls.js';
 export { backendSettingsFrom, clusterSettingsFrom, clusterWorkerSettingsFrom, databaseSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, isOff, operatorCredentialsFrom, selfUpgradeSettingsFrom, SettingsError, setupWaitsSettingsFrom, type SetupWaitsSettings } from './lib/settings.js';
 export type { BackendSettings, ClusterSettings, ClusterWorkerSettings, CommonSettings, ConnectionSettings, EngineWorkerSettings, HostWorkerSettings, InstanceSettings, MeshSettings, Off, OperatorCredentials, PodStepSettings, RootSettings, SelfUpgradeSettings, TemporalSettings, TenantServices, WebToolSettings } from './lib/settings.js';
-export { stopIfRunning } from './lib/stop-workflow.js';
+export { cancelIfRunning } from './lib/stop-workflow.js';
 export { carryingTrace, telemetrySettings } from './lib/telemetry.js';
 export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks } from './lib/temporal-auth.js';
 export { connectTemporalAs, getTemporalClient, givenDeletingMarks, refuseWorkWith, resolveOwnersWith } from './lib/temporal-client.js';
