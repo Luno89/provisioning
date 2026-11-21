@@ -253,7 +253,7 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
     store: {
       list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
       save: async (item) => { bank.set(item.id, item); },
-      unindex: unindexerFrom(async () => ({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' } })),
+      unindex: unindexerFrom({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } }),
     },
     now: () => 'now',
     newId: () => `new-${++ids}`,

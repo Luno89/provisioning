@@ -16,6 +16,10 @@ export function unreachedPlatformServices(backend: string = NO_SERVICE): Record<
     SEARXNG_URL: NO_SERVICE,
     CRAWL4AI_URL: NO_SERVICE,
     CRAWL4AI_API_TOKEN: 'no-crawl4ai-here',
+    QDRANT_API_KEY: 'noQdrantHere',
+    QUICKWIT_URL: NO_SERVICE,
+    QDRANT_URL: NO_SERVICE,
+    TEI_URL: NO_SERVICE,
     CHECKS_API_URL: `${backend}/api`,
   };
 }

@@ -1,27 +1,23 @@
-import { createDatabase, failureOf, frontierRow, followsLinks, reportingFetch, type Database, type DependencyReporter, type FrontierClaim, type HostWorkerSettings } from '../platform/index.js';
+import { createDatabase, failureOf, frontierRow, followsLinks, isOff, reportingFetch, type Database, type DependencyReporter, type FrontierClaim, type HostWorkerSettings, type MemoryIndex } from '../platform/index.js';
 import {
-  buildWebTools, corpusEndpoints, type CorpusEndpoints, ensureIndex, indexPages, ensureCollection, embedPages,
-  purgeCorpus, crawlPages, canonical, hostOf, usableLinks, toPage, withStores, CorpusStoresMissing, CorpusStoreDown, SEARCHABLE,
+  buildWebTools, ensureIndex, indexPages, ensureCollection, embedPages,
+  purgeCorpus, crawlPages, canonical, hostOf, usableLinks, toPage,
   type CorpusPage, type Crawler,
 } from '../engine/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { dependencyFetch } from '@koala/engine-core/http';
 import { v4 as uuidv4 } from 'uuid';
 import { messageOf } from './failure-reasons.js';
-import { sharedClusterProxy, type ClusterAccess } from '../infrastructure/index.js';
-import { hostAccess, hostDependencies, hostSettings } from './host-settings.js';
+import { hostDependencies, hostSettings } from './host-settings.js';
 
 export interface CrawlPlace {
   withDatabase<T>(work: (db: Database) => Promise<T>): Promise<T>;
   crawler(): Crawler;
-  endpoints(db: Database, ownerId: string): Promise<CorpusEndpoints>;
+  index(): MemoryIndex;
 }
 
-const CRAWLING = 'crawling a site into your corpus';
-
 function asActivityFailure(err: unknown): unknown {
-  if (err instanceof CorpusStoresMissing) return ApplicationFailure.nonRetryable(err.message, err.name);
-  if (err instanceof CorpusStoreDown || err instanceof ApplicationFailure) return err;
+  if (err instanceof ApplicationFailure) return err;
   const failure = failureOf(err);
   return failure.kind === 'final' ? ApplicationFailure.nonRetryable(messageOf(err), 'CorpusRefused') : err;
 }
@@ -97,7 +93,7 @@ export function crawlActivities(placed: () => CrawlPlace) {
 
     const place = placed();
     return place.withDatabase((db) => failingAsActivity(async () => {
-      const ends = withStores(await place.endpoints(db, args.ownerId), SEARCHABLE, CRAWLING);
+      const ends = place.index();
       const urls = args.batch.map((b) => b.url);
       const fetched = await crawlPages(place.crawler(), urls);
 
@@ -151,7 +147,7 @@ export function crawlActivities(placed: () => CrawlPlace) {
   async function PurgeCorpusActivity(args: { ownerId: string; ingestId: string }): Promise<void> {
     const place = placed();
     await place.withDatabase((db) => failingAsActivity(async () => {
-      await purgeCorpus(await place.endpoints(db, args.ownerId), args.ingestId);
+      await purgeCorpus(place.index(), args.ingestId);
       await db.engine.deleteCorpus(args.ingestId);
     }));
   }
@@ -163,7 +159,7 @@ export function crawlActivities(placed: () => CrawlPlace) {
   return { SeedFrontierActivity, NextBatchActivity, CrawlBatchActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity };
 }
 
-export function crawlPlaceFor(settings: HostWorkerSettings, access: ClusterAccess, dependencies: DependencyReporter): CrawlPlace {
+export function crawlPlaceFor(settings: HostWorkerSettings, dependencies: DependencyReporter): CrawlPlace {
   return {
     withDatabase: async (work) => {
       const db = createDatabase({ mongo: settings.mongo, dataKey: settings.keys.data });
@@ -179,11 +175,15 @@ export function crawlPlaceFor(settings: HostWorkerSettings, access: ClusterAcces
       if (!crawl4aiUrl || !crawl4aiToken) throw ApplicationFailure.nonRetryable('this Koala has no Crawl4AI of its own set (CRAWL4AI_URL and CRAWL4AI_API_TOKEN), so nothing can be crawled', 'NoCrawler');
       return { base: crawl4aiUrl, token: crawl4aiToken, fetch: reportingFetch(dependencies, 'crawl4ai', dependencyFetch) };
     },
-    endpoints: (db, ownerId) => corpusEndpoints({ db, proxy: sharedClusterProxy(access), settings: settings.webTools }, ownerId),
+    index: () => {
+      const index = settings.memoryIndex;
+      if (isOff(index)) throw ApplicationFailure.nonRetryable(`nothing can be crawled here: ${index.off}`, 'NoMemoryIndex');
+      return index;
+    },
   };
 }
 
-const onThisHost = (): CrawlPlace => crawlPlaceFor(hostSettings(), hostAccess(), hostDependencies());
+const onThisHost = (): CrawlPlace => crawlPlaceFor(hostSettings(), hostDependencies());
 
 const onHost = crawlActivities(onThisHost);
 

@@ -8,7 +8,7 @@ const VALUES = { 'gitea-admin': { username: 'provisioning-bot', password: 'pw' }
 describe('the platform services Koala puts on the cluster it runs in', () => {
   it('are applied in the order the stacks say, each named for the person', () => {
     expect(PLATFORM_PLAN.map((service) => service.key)).toEqual([...PLATFORM_SERVICES]);
-    expect(PLATFORM_PLAN.map((service) => service.what)).toEqual(['the egress proxy', 'SearXNG', 'Crawl4AI', 'Gitea', 'the npm registry mirror', 'Infisical']);
+    expect(PLATFORM_PLAN.map((service) => service.what)).toEqual(['the egress proxy', 'SearXNG', 'Crawl4AI', 'Quickwit', 'Qdrant', 'TEI', 'Gitea', 'the npm registry mirror', 'Infisical']);
   });
 
   it('keep each secret in a Secret of its own namespace, made before the stack that reads it by name', () => {
@@ -26,6 +26,7 @@ describe('the platform services Koala puts on the cluster it runs in', () => {
     expect(sources).toEqual({
       'searxng/searxng-secret': { secret_key: { file: '.searxng-secret-key', make: { bytes: 32, as: 'hex' } } },
       'crawl4ai/crawl4ai-secret': { api_token: { setting: 'crawl4aiToken' } },
+      'qdrant/qdrant-secret': { api_key: { setting: 'qdrantApiKey' } },
       'gitea/gitea-admin': { username: { text: 'provisioning-bot' }, password: { file: '.gitea-admin-password', make: { bytes: 24, as: 'base64' } } },
       'infisical/infisical-secrets': {
         ENCRYPTION_KEY: { file: '.infisical-encryption-key', make: { bytes: 16, as: 'hex' } },

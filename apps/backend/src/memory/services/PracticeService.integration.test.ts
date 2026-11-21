@@ -1,14 +1,11 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import { PracticeService } from './PracticeService.js';
-import { unindexerFrom } from '../../memory/lib/memory-index.js';
-import { startCorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
+import { standInUnindexer } from '../testing/memory-index.js';
 
-const memoryIndex = await startCorpusStandIn();
-afterAll(async () => { await memoryIndex.stop(); });
-const unindex = unindexerFrom(async () => memoryIndex.endpoints);
+const unindex = await standInUnindexer();
 
 const fresh = await emptiedEachTime();
 

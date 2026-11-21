@@ -5,17 +5,11 @@ import { memoriesRouter } from './memories.js';
 import type { ConsolidationReport } from '../lib/memory-consolidate.js';
 import { indexMemories, searchMemories, unindexerFrom } from '../lib/memory-index.js';
 import { MEMORY_INDEX } from '../lib/memory-rank.js';
-import { corpusEndpointsWith } from '../../engine/lib/web-tools-resolver.js';
 import { startCorpusStandIn, type CorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
-import type { DeploymentMetadata } from '../../platform/index.js';
 
 let standIn: CorpusStandIn;
 beforeAll(async () => { standIn = await startCorpusStandIn(); });
 afterAll(async () => { await standIn.stop(); });
-
-const deployed = (appType: string, over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
-  id: `${appType}-1`, name: appType, appType, status: 'running', clusterId: 'c1', strategy: 'helm', ownerId: TEST_USER.id, ...over,
-});
 
 describe('/api/memories', () => {
   let harness: Harness;
@@ -27,7 +21,7 @@ describe('/api/memories', () => {
       router: (db) => memoriesRouter({
         db,
         temporalBridge: { lastConsolidation: report },
-        unindex: unindexerFrom((ownerId) => corpusEndpointsWith({ db: db.infrastructure, serviceUrl: async () => standIn.base }, ownerId)),
+        unindex: unindexerFrom(standIn.endpoints),
       }),
     });
   });
@@ -76,8 +70,6 @@ describe('/api/memories', () => {
   });
 
   it('a retired memory is gone from the index, so nothing searching it finds it again', async () => {
-    for (const appType of ['quickwit', 'tei']) await harness.db.infrastructure.saveDeployment(deployed(appType));
-    await harness.db.infrastructure.saveDeployment({ ...deployed('qdrant'), qdrantApiKey: 'stand-in-key' });
     const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Retries', text: 'The retry budget is three attempts.', scope: 'global' });
     await indexMemories(standIn.endpoints, [made.data]);
     expect((await searchMemories(standIn.endpoints, 'retry budget', { ownerId: TEST_USER.id })).map((hit) => hit.id)).toEqual([made.data.id]);
@@ -88,19 +80,12 @@ describe('/api/memories', () => {
     expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);
   });
 
-  it('a person with no Quickwit or Qdrant of their own forgets a memory, since nothing of it is in an index', async () => {
-    const made = await axios.post<{ id: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Gone', text: 'A lesson.', scope: 'global' });
-
-    expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
-    expect(await harness.db.memory.getMemories(TEST_USER.id)).toEqual([]);
-  });
-
-  it('a person with only Quickwit has the memory taken out of Quickwit as it is forgotten', async () => {
-    await harness.db.infrastructure.saveDeployment(deployed('quickwit'));
+  it('a forgotten memory leaves the database and Quickwit both', async () => {
     const made = await axios.post<{ id: string; ownerId: string; category: 'lessons_learned'; title: string; text: string; createdAt: string; updatedAt: string }>(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Kept', text: 'A lesson.', scope: 'global' });
     await indexMemories(standIn.endpoints, [made.data]);
 
     expect((await axios.delete(harness.url(`/api/memories/${made.data.id}`))).data).toEqual({ deleted: true });
     expect(standIn.documents(MEMORY_INDEX).filter((doc) => doc.memory_id === made.data.id)).toEqual([]);
+    expect((await harness.db.memory.getMemories(TEST_USER.id)).map((item) => item.id)).not.toContain(made.data.id);
   });
 });

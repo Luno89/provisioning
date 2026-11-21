@@ -5,7 +5,7 @@ import { answerFailure, dependenciesOf, minioHealthUrl, temporaryStatus, type De
 import type { MongoTarget } from '../lib/mongo-target.js';
 import type { Db } from 'mongodb';
 import { leaseMongo, type MongoLease } from '../lib/mongo-lease.js';
-import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, WebToolSettings } from '../lib/settings.js';
+import { isOff, type BackendSettings, type ClusterWorkerSettings, type EngineWorkerSettings, type HostWorkerSettings, type MemoryIndex, type Off, type WebToolSettings } from '../lib/settings.js';
 import { getTemporalClient, reportTemporalTo } from '../lib/temporal-client.js';
 import { MongoPlatformStore } from '../store.js';
 import { DependencyStates, type DependencyCheck, type DependencyStatesDeps } from '../services/DependencyStates.js';
@@ -49,7 +49,13 @@ export interface ServiceAddresses {
   minio?: { endPoint: string; port: number; useSSL: boolean } | undefined;
   registryPush?: string | undefined;
   webTools?: WebToolSettings | undefined;
+  memoryIndex?: MemoryIndex | Off | undefined;
 }
+
+const indexChecks = (index: MemoryIndex | Off | undefined): [DependencyId, string | undefined][] =>
+  index && !isOff(index)
+    ? [['quickwit', `${trimmed(index.index.base)}/health/readyz`], ['qdrant', `${trimmed(index.vectors.base)}/readyz`], ['tei', `${trimmed(index.embeddings.base)}/health`]]
+    : [];
 
 export function checkServices(states: DependencyStates, at: ServiceAddresses, doFetch: typeof fetch = fetch): void {
   const checks: [DependencyId, string | undefined][] = [
@@ -59,6 +65,7 @@ export function checkServices(states: DependencyStates, at: ServiceAddresses, do
     ['registry', at.registryPush && `http://${at.registryPush}/v2/`],
     ['searxng', at.webTools?.searxngUrl && `${trimmed(at.webTools.searxngUrl)}/healthz`],
     ['crawl4ai', at.webTools?.crawl4aiUrl && `${trimmed(at.webTools.crawl4aiUrl)}/health`],
+    ...indexChecks(at.memoryIndex),
   ];
   for (const [dependency, url] of checks) if (url) states.checkWith(dependency, answersHttp(url, doFetch));
 }

@@ -59,6 +59,9 @@ data:
   {{- end }}
   SEARXNG_URL: http://searxng.searxng.svc.cluster.local:8080
   CRAWL4AI_URL: http://crawl4ai.crawl4ai.svc.cluster.local:11235
+  QUICKWIT_URL: http://quickwit.quickwit.svc.cluster.local:7280
+  QDRANT_URL: http://qdrant.qdrant.svc.cluster.local:6333
+  TEI_URL: http://tei.tei.svc.cluster.local:80
   CHECKS_API_URL: http://{{ include "instance.name" . }}.{{ .Release.Namespace }}.svc.cluster.local/api
   GITEA_REACHES_KOALA_AT: http://{{ include "instance.name" . }}.{{ .Release.Namespace }}.svc.cluster.local
   SELF_UPGRADE_CRONJOB: {{ include "instance.name" . }}-self-upgrade

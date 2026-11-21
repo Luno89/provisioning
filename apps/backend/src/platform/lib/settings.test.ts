@@ -36,6 +36,8 @@ const TENANT = {
   MINIO_ENDPOINT: 'instance-minio:9000', MINIO_ROOT_USER: 'koala', MINIO_ROOT_PASSWORD: 'minio-secret', MINIO_BUCKET: 'koala',
   KOALA_REGISTRY: '127.0.0.1:31737', KOALA_REGISTRY_PUSH: 'gitea-http.gitea.svc.cluster.local:3000', REGISTRY_PULL_HOST: '127.0.0.1:31737',
   SEARXNG_URL: 'http://searxng.searxng.svc.cluster.local:8080', CRAWL4AI_URL: 'http://crawl4ai.crawl4ai.svc.cluster.local:11235', CRAWL4AI_API_TOKEN: 'crawl-token',
+  QDRANT_API_KEY: 'qdrantKey40',
+  QUICKWIT_URL: 'http://quickwit.quickwit.svc.cluster.local:7280', QDRANT_URL: 'http://qdrant.qdrant.svc.cluster.local:6333', TEI_URL: 'http://tei.tei.svc.cluster.local:80',
   CHECKS_API_URL: 'http://instance.nowrinkles.svc.cluster.local/api',
 };
 
@@ -184,7 +186,20 @@ describe('the settings each worker reads once, at start', () => {
   });
 
   it('asks an instance\'s host worker for nothing of root\'s', () => {
-    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN, POD_NAME: INSTANCE.POD_NAME })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
+    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN, QUICKWIT_URL: TENANT.QUICKWIT_URL, QDRANT_URL: TENANT.QDRANT_URL, QDRANT_API_KEY: TENANT.QDRANT_API_KEY, TEI_URL: TENANT.TEI_URL, POD_NAME: INSTANCE.POD_NAME })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
+  });
+
+  it('gives an instance\'s backend, engine worker and host worker the memory index at the addresses the chart names, with Qdrant\'s key, and root none', () => {
+    const index = { index: { base: TENANT.QUICKWIT_URL }, vectors: { base: TENANT.QDRANT_URL, apiKey: TENANT.QDRANT_API_KEY }, embeddings: { base: TENANT.TEI_URL } };
+    const engine = { ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' };
+    expect(backendSettingsFrom(INSTANCE).tenant?.memoryIndex).toEqual(index);
+    expect(engineWorkerSettingsFrom(engine).tenant.memoryIndex).toEqual(index);
+    expect(hostWorkerSettingsFrom({ ...INSTANCE, ...WORKER }).memoryIndex).toEqual(index);
+    expect(hostWorkerSettingsFrom({ ...ROOT, ...WORKER }).memoryIndex).toEqual({ off: saying('root keeps no memories') });
+    expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, QUICKWIT_URL: '' }))).toContain('QUICKWIT_URL is not set: it is where the memory index keeps and finds words; the instance chart sets it');
+    expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, QDRANT_URL: '' }))).toContain('QDRANT_URL is not set: it is where the memory index keeps and finds meanings; the instance chart sets it');
+    expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, TEI_URL: '' }))).toContain('TEI_URL is not set: it is where the memory index turns text into meanings; the instance chart sets it');
+    expect(problemsOf(() => hostWorkerSettingsFrom({ ...INSTANCE, ...WORKER, QDRANT_API_KEY: '' }))).toContain('QDRANT_API_KEY is not set: Qdrant answers only a caller holding it, and the instance chart makes it');
   });
 
   it('gives the cluster worker its services, its Terraform and the address machines send metrics to, or why there is none', () => {
@@ -199,6 +214,9 @@ describe('the settings each worker reads once, at start', () => {
     expect(clusterWorkerSettingsFrom(env)).toMatchObject({ podNamespace: 'nowrinkles', crawl4aiToken: 'crawlToken40', dataDir: '/app/apps/backend/data' });
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: '' }))).toContain('CRAWL4AI_API_TOKEN is not set: Crawl4AI reads pages only for a caller holding it, and the instance chart makes it');
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, CRAWL4AI_API_TOKEN: 'a b' }))).toContain('CRAWL4AI_API_TOKEN holds more than letters and digits, which the instance chart never makes');
+    expect(clusterWorkerSettingsFrom(env)).toMatchObject({ qdrantApiKey: TENANT.QDRANT_API_KEY });
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, QDRANT_API_KEY: '' }))).toContain('QDRANT_API_KEY is not set: Qdrant answers only a caller holding it, and the instance chart makes it');
+    expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, QDRANT_API_KEY: 'a b' }))).toContain('QDRANT_API_KEY holds more than letters and digits, which the instance chart never makes');
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, POD_NAMESPACE: '' }))).toContain('POD_NAMESPACE is not set: it is this instance\'s own namespace, which the platform services answer and where Terraform keeps their state');
   });
 

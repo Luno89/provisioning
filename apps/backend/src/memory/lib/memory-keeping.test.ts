@@ -57,11 +57,18 @@ beforeEach(async () => {
   }
 });
 
-describe('consolidating one person\'s memories with their own Quickwit, Qdrant and TEI', () => {
-  it('retires what has the same title or what their Qdrant finds alike, takes it out of both indexes, and indexes what is left', async () => {
+const refusingFor = (ids: readonly string[]) => server.use(http.post(`${QUICKWIT}/api/v1/:index/delete-tasks`, async ({ request }) => {
+  const asked = await request.text();
+  return ids.some((id) => asked.includes(`memory_id:\\"${id}\\"`)) ? HttpResponse.text('the index is not answering', { status: 503 }) : HttpResponse.json({ opstamp: 1 });
+}));
+
+const unreachable = 'Quickwit refused: HTTP 503 the index is not answering';
+
+describe('consolidating one person\'s memories with the memory index', () => {
+  it('retires what has the same title or what Qdrant finds alike, takes it out of both indexes, and indexes what is left', async () => {
     const asked = answering();
 
-    const report = await consolidateOwner({ db, reach: async () => ends, now: () => NOW }, 'u1');
+    const report = await consolidateOwner({ db, index: () => ends, now: () => NOW }, 'u1');
 
     expect(report).toMatchObject({ deduped: 2, indexed: 2, live: 2 });
     expect(await current()).toEqual(['b', 'c']);
@@ -74,35 +81,24 @@ describe('consolidating one person\'s memories with their own Quickwit, Qdrant a
     expect(asked.written.sort()).toEqual(['b', 'c']);
   });
 
-  it('keeps every memory current when their indexes cannot be reached, since nothing retired could be taken out of them', async () => {
-    await expect(consolidateOwner({ db, reach: async () => { throw new Error('the cluster proxy is not answering'); }, now: () => NOW }, 'u1')).rejects.toThrow('the cluster proxy is not answering');
+  it('keeps every memory current when the index cannot take what is retired out of it', async () => {
+    answering();
+    refusingFor(['a']);
+    await expect(consolidateOwner({ db, index: () => ends, now: () => NOW }, 'u1')).rejects.toThrow(unreachable);
 
     expect(await current()).toEqual(['a', 'b', 'c', 'd']);
   });
 });
 
-describe('consolidating the memories of a person with no Quickwit, Qdrant or TEI of their own', () => {
-  it('still retires what has the same title, and indexes nothing', async () => {
-    const report = await consolidateOwner({ db, reach: async () => ({}), now: () => NOW }, 'u1');
-
-    expect(report).toMatchObject({ deduped: 1, indexed: 0, live: 3 });
-    expect(await current()).toEqual(['b', 'c', 'd']);
-  });
-});
-
 describe('consolidating everyone\'s memories, each person on their own', () => {
-  const unreachable = 'Qdrant "vectors" is deployed but not answering: the cluster proxy could not reach desk';
-  const reachFor = (down: ReadonlySet<string>) => async (ownerId: string) => {
-    if (down.has(ownerId)) throw new Error(unreachable);
-    return {};
-  };
-
   beforeEach(async () => {
     for (const item of [memory('z1', 'Builds run at night', 8), memory('z2', 'Builds run at night', 6)]) await db.memory.saveMemory({ ...item, ownerId: 'u2' });
+    answering();
   });
 
-  it('goes on to the next person when one person\'s indexes cannot be reached, and keeps why for that person', async () => {
-    const outcomes = await keepEveryOwner({ db, reach: reachFor(new Set(['u1'])), now: () => NOW });
+  it('goes on to the next person when one person\'s memories cannot be kept, and keeps why for that person', async () => {
+    refusingFor(['a']);
+    const outcomes = await keepEveryOwner({ db, index: () => ends, now: () => NOW });
 
     expect(outcomes.map((outcome) => [outcome.state.ownerId, outcome.state.state])).toEqual([['u1', 'down'], ['u2', 'kept']]);
     expect(await current()).toEqual(['a', 'b', 'c', 'd']);
@@ -111,16 +107,18 @@ describe('consolidating everyone\'s memories, each person on their own', () => {
     expect(await db.memory.getKeepingState('u2')).toEqual({ ownerId: 'u2', state: 'kept', at: NOW });
   });
 
-  it('keeps since when the person\'s indexes first stopped answering, and clears it once they answer', async () => {
+  it('keeps since when the person\'s memories first could not be kept, and clears it once they are', async () => {
     const later = new Date(Date.parse(NOW) + 3_600_000).toISOString();
-    await keepEveryOwner({ db, reach: reachFor(new Set(['u1'])), now: () => NOW });
-    await keepEveryOwner({ db, reach: reachFor(new Set(['u1'])), now: () => later });
+    refusingFor(['a']);
+    await keepEveryOwner({ db, index: () => ends, now: () => NOW });
+    await keepEveryOwner({ db, index: () => ends, now: () => later });
 
     expect(await db.memory.getKeepingState('u1')).toEqual({ ownerId: 'u1', state: 'down', since: NOW, reason: unreachable, at: later });
 
-    await keepEveryOwner({ db, reach: reachFor(new Set()), now: () => later });
+    refusingFor([]);
+    await keepEveryOwner({ db, index: () => ends, now: () => later });
 
     expect(await db.memory.getKeepingState('u1')).toEqual({ ownerId: 'u1', state: 'kept', at: later });
-    expect(await current()).toEqual(['b', 'c', 'd']);
+    expect(await current()).toEqual(['b', 'c']);
   });
 });

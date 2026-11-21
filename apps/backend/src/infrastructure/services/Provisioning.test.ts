@@ -274,7 +274,7 @@ describe('setting Koala up after its chart', () => {
     await toldWhen((view) => view.root !== undefined);
     await provisioning.close();
 
-    expect(reported.map((report) => report.progress.stage)).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea', 'verdaccio', 'infisical', 'monitoring', 'set-up']);
+    expect(reported.map((report) => report.progress.stage)).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea', 'verdaccio', 'infisical', 'monitoring', 'set-up']);
     const refused = { why: 'root refused hearing that Koala is set up: this Koala is moving (409)', at: expect.any(String) as unknown };
     expect((await store.getProvisioningRun('provision-machine-desk~a'))?.root).toEqual(refused);
     expect(told.at(-1)?.view).toMatchObject({ id: 'provision-machine-desk~a', root: refused });
@@ -291,7 +291,7 @@ describe('setting Koala up after its chart', () => {
     await provisioning.start();
     await provisioning.close();
 
-    expect(reported).toHaveLength(8);
+    expect(reported).toHaveLength(11);
     expect((await store.getProvisioningRun('provision-machine-desk~a'))?.root).toBeUndefined();
   });
 

@@ -169,7 +169,7 @@ export interface EgressBehind {
  * ── DUPLICATED, KNOWINGLY ── `DependencyDown`, `DependencyId` and the process names in apps/backend/src/platform/lib/dependencies.ts
  * and apps/backend/src/platform/lib/settings.ts (KoalaProcess) are the authority.
  */
-export type DependencyId = 'mongo' | 'temporal' | 'minio' | 'gitea' | 'infisical' | 'registry' | 'searxng' | 'crawl4ai' | 'root' | 'collector'
+export type DependencyId = 'mongo' | 'temporal' | 'minio' | 'gitea' | 'infisical' | 'registry' | 'searxng' | 'crawl4ai' | 'quickwit' | 'qdrant' | 'tei' | 'root' | 'collector'
 
 export type KoalaProcess = 'backend' | 'worker-host' | 'worker-cluster' | 'worker-engine'
 

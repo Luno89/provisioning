@@ -2,7 +2,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
 import { ApplicationFailure } from '@temporalio/common';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { hostWorkerSettingsFrom } from '../platform/index.js';
+import { hostWorkerSettingsFrom, type MemoryIndex } from '../platform/index.js';
 import { testKeyEnv } from '../platform/testing/keys.js';
 import { testDatabaseAt } from '../platform/lib/test-database.js';
 import { testDataDir } from '../platform/testing/data-dir.js';
@@ -38,18 +38,19 @@ afterAll(async () => {
   await standIn.stop();
 });
 
-const settingsWith = (crawl4aiUrl: string) => hostWorkerSettingsFrom({
+const settingsWith = (crawl4aiUrl: string, index: MemoryIndex = standIn.endpoints) => hostWorkerSettingsFrom({
   NODE_ENV: 'development', ...testKeyEnv('crawl'), ROLE: 'instance', MONGO_URI: mongoUri,
   TEMPORAL_CONNECTION_ADDRESS: inject('temporalTlsAddress'), TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'), DATA_DIR: testDataDir(),
   HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: '0',
   INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey,
   SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: crawl4aiUrl, CRAWL4AI_API_TOKEN: 'crawl-token', POD_NAME: 'crawl-host-worker',
+  QUICKWIT_URL: index.index.base, QDRANT_URL: index.vectors.base, QDRANT_API_KEY: index.vectors.apiKey, TEI_URL: index.embeddings.base,
 });
 
-const activitiesWith = (ends: () => Promise<Record<string, unknown>>) => {
-  const settings = settingsWith(standIn.base);
-  const place = crawlPlaceFor(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
-  return crawlActivities(() => ({ ...place, endpoints: ends }));
+const activitiesWith = (index: MemoryIndex) => {
+  const settings = settingsWith(standIn.base, index);
+  const place = crawlPlaceFor(settings, dependencyStatesFor(settings));
+  return crawlActivities(() => place);
 };
 
 const claim = (url: string) => ({ url, depth: 0 });
@@ -62,7 +63,7 @@ describe('crawling a site into a person\'s corpus', () => {
       namespace: env.namespace ?? 'default',
       taskQueue,
       workflowBundle: await bundled(resolve(import.meta.dirname, '../workflows/IngestWorkflow.ts')),
-      activities: activitiesWith(async () => standIn.endpoints),
+      activities: activitiesWith(standIn.endpoints),
     });
 
     const receipt = await worker.runUntil(env.client.workflow.execute<typeof executeIngestWorkflow>('executeIngestWorkflow', {
@@ -80,7 +81,7 @@ describe('crawling a site into a person\'s corpus', () => {
   it('a crawl whose index is deployed but down is retried, not stored to the database only', async () => {
     standIn.page('https://down.example.com/', PAGE);
     const down = await closedPort();
-    const { CrawlBatchActivity } = activitiesWith(async () => ({ ...standIn.endpoints, index: { base: down } }));
+    const { CrawlBatchActivity } = activitiesWith({ ...standIn.endpoints, index: { base: down } });
 
     const failed = await CrawlBatchActivity({ ownerId: 'owner-1', ingestId: 'down-1', batch: [claim('https://down.example.com/')], allowed: ['down.example.com'], keywords: [], maxDepth: 0 })
       .then(() => undefined, (err: unknown) => err);
@@ -90,22 +91,10 @@ describe('crawling a site into a person\'s corpus', () => {
     expect(await db.engine.getCorpusPages({ ownerId: 'owner-1', ingestId: 'down-1' })).toEqual([]);
   });
 
-  it('a person with no Quickwit, Qdrant or TEI of their own is refused once, naming them, and nothing is crawled or stored', async () => {
-    const before = standIn.crawled.length;
-    const { CrawlBatchActivity } = activitiesWith(async () => ({}));
-
-    const failed = await CrawlBatchActivity({ ownerId: 'owner-1', ingestId: 'none-1', batch: [claim('https://docs.example.com/')], allowed: ['docs.example.com'], keywords: [], maxDepth: 0 })
-      .then(() => undefined, (err: unknown) => err);
-
-    expect(failed).toBeInstanceOf(ApplicationFailure);
-    expect(failed).toMatchObject({ nonRetryable: true, message: 'crawling a site into your corpus needs your own Quickwit, Qdrant and TEI running, and you have no running Quickwit, Qdrant and TEI: deploy it as an app first' });
-    expect(standIn.crawled.length).toBe(before);
-    expect(await db.engine.getCorpusPages({ ownerId: 'owner-1', ingestId: 'none-1' })).toEqual([]);
-  });
 
   it('purging a crawl the index refuses keeps its pages, saying Quickwit\'s answer', async () => {
     standIn.page('https://kept.example.com/', PAGE);
-    const { CrawlBatchActivity, PurgeCorpusActivity } = activitiesWith(async () => standIn.endpoints);
+    const { CrawlBatchActivity, PurgeCorpusActivity } = activitiesWith(standIn.endpoints);
     await CrawlBatchActivity({ ownerId: 'owner-1', ingestId: 'kept-1', batch: [claim('https://kept.example.com/')], allowed: ['kept.example.com'], keywords: [], maxDepth: 0 });
     standIn.refuse(/^POST \/api\/v1\/koala-corpus\/delete-tasks$/, 403, 'index is read-only');
 
@@ -125,15 +114,21 @@ describe('the crawl activities the host worker registers, given the host\'s own 
     expect(await NextBatchActivity({ ingestId: 'host-1', limit: 8 })).toEqual({ batch: [], remaining: 0 });
   });
 
-  it('purge a crawl of a person with no Quickwit or Qdrant of their own from the database, asking no index', async () => {
-    const settings = settingsWith(standIn.base);
-    giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
-    await db.engine.saveCorpusPages([{ id: 'host-2:https://docs.example.com/', ownerId: 'owner-host', ingestId: 'host-2', url: 'https://docs.example.com/', host: 'docs.example.com', text: PAGE, bytes: PAGE.length, fetchedAt: '2026-11-18T00:00:00.000Z' }]);
-    const indexed = standIn.documents(INDEX_ID).length;
+  it('purge a crawl from the database and from the memory index the host\'s settings name', async () => {
+    const own = await startCorpusStandIn('crawl-token');
+    try {
+      own.page('https://purged.example.com/', PAGE);
+      const settings = settingsWith(own.base, own.endpoints);
+      await crawlActivities(() => crawlPlaceFor(settings, dependencyStatesFor(settings))).CrawlBatchActivity({ ownerId: 'owner-host', ingestId: 'host-2', batch: [claim('https://purged.example.com/')], allowed: ['purged.example.com'], keywords: [], maxDepth: 0 });
+      giveHostActivities(settings, hostClusterAccess(settings), dependencyStatesFor(settings));
+      expect(own.documents(INDEX_ID).some((doc) => doc.ingest_id === 'host-2')).toBe(true);
 
-    await PurgeCorpusActivity({ ownerId: 'owner-host', ingestId: 'host-2' });
+      await PurgeCorpusActivity({ ownerId: 'owner-host', ingestId: 'host-2' });
 
-    expect(await db.engine.getCorpusPages({ ownerId: 'owner-host', ingestId: 'host-2' })).toEqual([]);
-    expect(standIn.documents(INDEX_ID)).toHaveLength(indexed);
+      expect(await db.engine.getCorpusPages({ ownerId: 'owner-host', ingestId: 'host-2' })).toEqual([]);
+      expect(own.documents(INDEX_ID).some((doc) => doc.ingest_id === 'host-2')).toBe(false);
+    } finally {
+      await own.stop();
+    }
   });
 });

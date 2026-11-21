@@ -50,6 +50,20 @@ describe('checking a dependency over HTTP', () => {
     }
     expect(states.stateOf('gitea')).toEqual({ state: 'answering' });
   });
+
+  it('checks the memory index at each piece\'s own health path, needing no key', async () => {
+    const asked: string[] = [];
+    const server = http.createServer((req, res) => { asked.push(`${req.url} ${req.headers['api-key'] ?? 'no key'}`); res.writeHead(200); res.end(); });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    closing.push(() => new Promise<void>((done) => { server.close(() => done()); }));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const states = new DependencyStates({ process: 'worker-engine', described: ['quickwit', 'qdrant', 'tei'], firstMs: 50, log: quiet });
+    closing.push(async () => { states.stop(); });
+    checkServices(states, { memoryIndex: { index: { base }, vectors: { base: `${base}/`, apiKey: 'k' }, embeddings: { base } } });
+    await states.start();
+    expect(asked.sort()).toEqual(['/health no key', '/health/readyz no key', '/readyz no key']);
+    expect(states.down()).toEqual([]);
+  });
 });
 
 describe('web search at the platform\'s SearXNG', () => {
@@ -60,8 +74,6 @@ describe('web search at the platform\'s SearXNG', () => {
     closing.push(async () => { states.stop(); });
     const offline: typeof fetch = async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } }); };
     const tools = await resolveWebTools({
-      db: { getDeployments: async () => [] },
-      serviceUrl: async () => { throw new Error('no deployment is asked for'); },
       settings: { searxngUrl: searxng },
       dependencies: states,
       baseFetch: (input, init) => (String(input).startsWith(searxng) ? fetch(input, init) : offline(input, init)),

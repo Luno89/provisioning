@@ -2335,6 +2335,83 @@
           "pattern": "image: unclecode/crawl4ai:[a-z0-9.-]+@sha256:([0-9a-f]{64})"
         }
       ]
+    },
+    {
+      "kind": "image",
+      "name": "quickwit/quickwit",
+      "version": "v0.9.3",
+      "sha256": "7c3f5061ea7c00921205c295833f152871d057ec1a9e4c9b1d36131dacc420bd",
+      "where": "every instance (the memory index's words, and the corpus)",
+      "source": "docker.io/quickwit/quickwit:v0.9.3@sha256:7c3f5061ea7c00921205c295833f152871d057ec1a9e4c9b1d36131dacc420bd",
+      "released": "2026-10-22T18:49:58Z",
+      "uses": [
+        {
+          "file": "k8s/quickwit/quickwit.yaml",
+          "pattern": "image: quickwit/quickwit:([a-z0-9.-]+)@sha256:"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "k8s/quickwit/quickwit.yaml",
+          "pattern": "image: quickwit/quickwit:[a-z0-9.-]+@sha256:([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "qdrant/qdrant",
+      "version": "v1.20.0",
+      "sha256": "9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2",
+      "where": "every instance (the memory index's meanings, and the corpus)",
+      "source": "docker.io/qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2",
+      "released": "2026-10-21T19:12:49Z",
+      "uses": [
+        {
+          "file": "k8s/qdrant/qdrant.yaml",
+          "pattern": "image: qdrant/qdrant:([a-z0-9.-]+)@sha256:"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "k8s/qdrant/qdrant.yaml",
+          "pattern": "image: qdrant/qdrant:[a-z0-9.-]+@sha256:([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "ghcr.io/huggingface/text-embeddings-inference",
+      "version": "cpu-1.9.4",
+      "sha256": "2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+      "where": "every instance (the memory index's embeddings, on the CPU)",
+      "source": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+      "released": "2026-09-15T09:01:24Z",
+      "uses": [
+        {
+          "file": "k8s/tei/tei.yaml",
+          "pattern": "image: ghcr.io/huggingface/text-embeddings-inference:([a-z0-9.-]+)@sha256:"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "k8s/tei/tei.yaml",
+          "pattern": "image: ghcr.io/huggingface/text-embeddings-inference:[a-z0-9.-]+@sha256:([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "data",
+      "name": "BAAI/bge-small-en-v1.5",
+      "version": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "where": "every instance (the embedding model TEI serves; 384 dimensions, the memory and corpus collections' size)",
+      "source": "https://huggingface.co/BAAI/bge-small-en-v1.5/tree/5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "released": "2024-02-22T03:36:23Z",
+      "uses": [
+        {
+          "file": "k8s/tei/tei.yaml",
+          "pattern": "- --revision\\n\\s+- ([0-9a-f]{40})"
+        }
+      ]
     }
   ],
   "unpinned": [

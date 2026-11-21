@@ -39,9 +39,20 @@ const releases = (s: Synth): Release[] => Object.values(s.resource.helm_release 
 const setOf = (release: Release | undefined): Record<string, string> => Object.fromEntries((release?.set ?? []).map((entry) => [entry.name, entry.value]));
 const container = (deployment: KubeObject | undefined): Container | undefined => deployment?.spec?.template.spec.containers[0];
 
+const expectOnlyKoalaAnswered = (s: Synth, name: string, port: number): void => {
+  const service = object(s, "Service", name);
+  expect(service?.spec?.type ?? "ClusterIP").toBe("ClusterIP");
+  expect(JSON.stringify(service)).not.toContain("nodePort");
+  expect(object(s, "NetworkPolicy", "koala-only")).toEqual({
+    apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: { name: "koala-only", namespace: name },
+    spec: { podSelector: {}, policyTypes: ["Ingress"], ingress: [{ from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "nowrinkles" } } }] }] },
+  });
+  expect(container(object(s, "Deployment", name)).ports).toEqual([{ containerPort: port }]);
+};
+
 describe("the platform services Koala puts on the cluster it runs in", () => {
   it("are applied in the order they need one another", () => {
-    expect(PLATFORM_SERVICES).toEqual(["egress", "searxng", "crawl4ai", "gitea", "verdaccio", "infisical"]);
+    expect(PLATFORM_SERVICES).toEqual(["egress", "searxng", "crawl4ai", "quickwit", "qdrant", "tei", "gitea", "verdaccio", "infisical"]);
   });
 
   it("each makes what it makes once, taking over what is already there rather than failing on it", () => {
@@ -96,15 +107,7 @@ describe("the egress proxy", () => {
 describe("SearXNG and Crawl4AI", () => {
   for (const [name, port, secret, key, variable] of [["searxng", 8080, "searxng-secret", "secret_key", "SEARXNG_SECRET"], ["crawl4ai", 11235, "crawl4ai-secret", "api_token", "CRAWL4AI_API_TOKEN"]] as const) {
     it(`${name} answers only Koala's own pods, inside the cluster`, () => {
-      const s = synth(name);
-      const service = object(s, "Service", name);
-      expect(service?.spec?.type ?? "ClusterIP").toBe("ClusterIP");
-      expect(JSON.stringify(service)).not.toContain("nodePort");
-      expect(object(s, "NetworkPolicy", "koala-only")).toEqual({
-        apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: { name: "koala-only", namespace: name },
-        spec: { podSelector: {}, policyTypes: ["Ingress"], ingress: [{ from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "nowrinkles" } } }] }] },
-      });
-      expect(container(object(s, "Deployment", name)).ports).toEqual([{ containerPort: port }]);
+      expectOnlyKoalaAnswered(synth(name), name, port);
     });
 
     it(`${name} reads its secret from the Secret Koala made, holds no value of it, and restarts when it changes`, () => {
@@ -116,6 +119,53 @@ describe("SearXNG and Crawl4AI", () => {
       expect(deployment?.spec?.template.metadata.annotations).toEqual({ "koala.dev/secret": "feedfacecafebeef" });
     });
   }
+});
+
+describe("the memory index: Quickwit, Qdrant and TEI", () => {
+  const imagePin = (name: string) => pins.find((pin) => pin.kind === "image" && pin.name === name) as (Pin & { sha256: string }) | undefined;
+
+  for (const [name, port, image] of [["quickwit", 7280, "quickwit/quickwit"], ["qdrant", 6333, "qdrant/qdrant"], ["tei", 80, "ghcr.io/huggingface/text-embeddings-inference"]] as const) {
+    it(`${name} answers only Koala's own pods, inside the cluster, from the pinned image`, () => {
+      const s = synth(name);
+      expectOnlyKoalaAnswered(s, name, port);
+      const pin = imagePin(image);
+      expect(container(object(s, "Deployment", name)).image).toBe(`${image}:${pin?.version}@sha256:${pin?.sha256}`);
+    });
+
+    it(`${name} keeps what it holds on a volume of its own, replaced rather than rolled onto it`, () => {
+      const s = synth(name);
+      const deployment = object(s, "Deployment", name) as (KubeObject & { spec: Spec & { strategy?: unknown } }) | undefined;
+      expect(deployment?.spec.strategy).toEqual({ type: "Recreate" });
+      expect(objects(s).filter((o) => o.kind === "PersistentVolumeClaim")).toHaveLength(1);
+    });
+  }
+
+  it("sizes each from what its makers document, so a person's machine holds all three beside a model", () => {
+    expect(container(object(synth("quickwit"), "Deployment", "quickwit")).resources).toEqual({ limits: { memory: "2Gi", cpu: "2" }, requests: { memory: "512Mi", cpu: "100m" } });
+    expect(container(object(synth("qdrant"), "Deployment", "qdrant")).resources).toEqual({ limits: { memory: "1Gi", cpu: "1" }, requests: { memory: "256Mi", cpu: "100m" } });
+    expect(container(object(synth("tei"), "Deployment", "tei")).resources).toEqual({ limits: { memory: "2Gi", cpu: "2" }, requests: { memory: "512Mi", cpu: "250m" } });
+  });
+
+  it("Qdrant reads its API key from the Secret Koala made, holds no value of it, and restarts when it changes", () => {
+    const s = synth("qdrant", { stamp: "feedfacecafebeef" });
+    expect(objects(s).some((o) => o.kind === "Secret")).toBe(false);
+    const deployment = object(s, "Deployment", "qdrant");
+    expect(container(deployment).env).toContainEqual({ name: "QDRANT__SERVICE__API_KEY", valueFrom: { secretKeyRef: { name: "qdrant-secret", key: "api_key" } } });
+    expect(deployment?.spec?.template.metadata.annotations).toEqual({ "koala.dev/secret": "feedfacecafebeef" });
+  });
+
+  it("TEI embeds with the pinned small model at its pinned revision, on the CPU", () => {
+    const model = pins.find((pin) => pin.kind === "data" &&pin.name === "BAAI/bge-small-en-v1.5");
+    const tei = container(object(synth("tei"), "Deployment", "tei")) as Container & { args?: string[] };
+    expect(tei.args).toEqual(expect.arrayContaining(["--model-id", "BAAI/bge-small-en-v1.5", "--revision", model?.version]));
+    expect(JSON.stringify(tei.resources)).not.toContain("gpu");
+    expect(tei.image).toMatch(/:cpu-/);
+  });
+
+  it("Quickwit keeps its metastore and indexes on its own volume, listening beyond loopback", () => {
+    const quickwit = container(object(synth("quickwit"), "Deployment", "quickwit"));
+    expect(quickwit.env).toEqual(expect.arrayContaining([{ name: "QW_LISTEN_ADDRESS", value: "0.0.0.0" }, { name: "QW_DATA_DIR", value: "/quickwit/qwdata" }]));
+  });
 });
 
 describe("Gitea", () => {
@@ -213,7 +263,7 @@ describe("what a platform stack is told", () => {
 
   it("names every setting it is missing or cannot read, rather than guessing", () => {
     expect(() => platformSettingsFrom({})).toThrow(/PLATFORM_SERVICE.*\n.*PLATFORM_EXISTING.*\n.*KOALA_NAMESPACE.*\n.*POOL.*\n.*SECRET_STAMP/s);
-    expect(() => platformSettingsFrom({ ...env, PLATFORM_SERVICE: "mail" })).toThrow("PLATFORM_SERVICE is mail; the platform services are egress, searxng, crawl4ai, gitea, verdaccio, infisical");
+    expect(() => platformSettingsFrom({ ...env, PLATFORM_SERVICE: "mail" })).toThrow("PLATFORM_SERVICE is mail; the platform services are egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical");
     expect(() => platformSettingsFrom({ ...env, PLATFORM_EXISTING: "gitea" })).toThrow("PLATFORM_EXISTING is not a JSON list of what is already on the cluster");
     expect(() => platformSettingsFrom({ ...env, POOL: "maybe" })).toThrow("POOL is maybe; it is true on Koala's servers and false on a person's machine");
   });

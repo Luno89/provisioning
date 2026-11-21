@@ -1,4 +1,4 @@
-export const PLATFORM_SERVICES = ["egress", "searxng", "crawl4ai", "gitea", "verdaccio", "infisical"] as const;
+export const PLATFORM_SERVICES = ["egress", "searxng", "crawl4ai", "quickwit", "qdrant", "tei", "gitea", "verdaccio", "infisical"] as const;
 export type PlatformServiceName = typeof PLATFORM_SERVICES[number];
 
 export interface PlatformInputs {

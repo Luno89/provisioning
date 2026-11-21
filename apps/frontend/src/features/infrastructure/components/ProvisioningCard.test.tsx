@@ -35,7 +35,7 @@ describe('the "Setting Koala up" card on Infrastructure', () => {
     renderCard()
     expect(await screen.findByText('waiting for deployment/egress in egress: 0 of 1 ready')).toBeDefined()
     expect(screen.getByText('Setting Koala up')).toBeDefined()
-    expect(screen.getAllByText('waiting its turn')).toHaveLength(6)
+    expect(screen.getAllByText('waiting its turn')).toHaveLength(PROVISION_PIECES.length - 1)
     expect(screen.queryByRole('button', { name: 'Set up again' })).toBeNull()
     answering({ setups: [setup({ pieces: pieces((piece, index) => (index === 0 ? { ...piece, state: 'up' } : index === 1 ? { ...piece, state: 'working', line: 'waiting for deployment/searxng in searxng: 0 of 1 ready' } : piece)) })], can: ['set-up-again'] })
     handlers.get(PROVISIONING_CHANGED)!()
@@ -44,7 +44,7 @@ describe('the "Setting Koala up" card on Infrastructure', () => {
   })
 
   it('shows where the setup stopped and why, and "Set up again" asks for the same setup again', async () => {
-    const failed = setup({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error', pieces: pieces((piece, index) => (index < 3 ? { ...piece, state: 'up' } : index === 3 ? { ...piece, state: 'failed', why: 'pod gitea-0 is Init:Error' } : piece)) })
+    const failed = setup({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error', pieces: pieces((piece, index) => (index < PROVISION_PIECES.findIndex((each) => each.key === 'gitea') ? { ...piece, state: 'up' } : piece.key === 'gitea' ? { ...piece, state: 'failed', why: 'pod gitea-0 is Init:Error' } : piece)) })
     answering({ setups: [failed], can: ['set-up-again'] })
     vi.mocked(api.post).mockResolvedValue({ data: setup({ id: 'provision-desk~2', reason: 'asked' }) })
     renderCard()

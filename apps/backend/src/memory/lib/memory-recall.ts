@@ -1,4 +1,5 @@
-import { searchMemories, type MemoryEndpoints } from './memory-index.js';
+import type { MemoryIndex } from '../../platform/index.js';
+import { searchMemories } from './memory-index.js';
 import {
   selectForContext, renderMemoryContext, ranked,
   type MemoryItem, type MemoryContextOptions,
@@ -13,7 +14,7 @@ export interface RecallInput {
   ownerId: string;
   projectId?: string | undefined;
   query: string;
-  endpoints?: (() => Promise<MemoryEndpoints | undefined>) | undefined;
+  endpoints?: (() => Promise<MemoryIndex | undefined>) | undefined;
 }
 
 export interface RecallOutcome {

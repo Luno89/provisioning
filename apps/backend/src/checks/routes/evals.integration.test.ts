@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { level2Options } from '../testing/level2-options.js';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -7,12 +7,9 @@ import { evalsLevel2Router } from './evals-level2.js';
 import { Level2Service } from '../services/Level2Service.js';
 import { BenchService } from '../services/BenchService.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
-import { unindexerFrom } from '../../memory/lib/memory-index.js';
-import { startCorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
+import { standInUnindexer } from '../../memory/testing/memory-index.js';
 
-const memoryIndex = await startCorpusStandIn();
-afterAll(async () => { await memoryIndex.stop(); });
-const unindex = unindexerFrom(async () => memoryIndex.endpoints);
+const unindex = await standInUnindexer();
 
 const quiet = { validateStatus: () => true };
 

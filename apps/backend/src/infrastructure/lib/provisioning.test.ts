@@ -80,7 +80,7 @@ describe('a setup\'s record, as each piece reports', () => {
 
   it('is up only once every piece is, on the setup\'s own last stage', () => {
     let record = opened();
-    expect(() => pieceHeard(record, setUpProgress(), LATER)).toThrow('the setup of machine-desk cannot be up while egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring are not');
+    expect(() => pieceHeard(record, setUpProgress(), LATER)).toThrow('the setup of machine-desk cannot be up while egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical, monitoring are not');
     for (const piece of PROVISION_PIECES) record = pieceHeard(record, pieceProgress(record, piece.key, { state: 'done' }), AT);
     expect(pieceHeard(record, setUpProgress(), LATER)).toMatchObject({ state: 'up', endedAt: LATER });
   });

@@ -12,7 +12,7 @@ const working = { stage: 'gitea', title: 'Gitea, your repositories and images', 
 
 describe('the pieces a Koala sets up after its chart, as its card and root name them', () => {
   it('are the platform services in the order each needs the one before, then monitoring', () => {
-    expect(PROVISION_PIECES.map((piece) => piece.key)).toEqual(['egress', 'searxng', 'crawl4ai', 'gitea', 'verdaccio', 'infisical', 'monitoring']);
+    expect(PROVISION_PIECES.map((piece) => piece.key)).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea', 'verdaccio', 'infisical', 'monitoring']);
   });
 
   it('each have a title a person reads, and a stage name root takes', () => {
@@ -53,7 +53,7 @@ describe('a Koala\'s setup, as root hears it on the instance\'s report', () => {
       expect(provisionReportOf({ revision, progress: working })).toEqual({ ok: false, problem: '"revision" is the chart revision the setup is for, a whole number from 1' });
     }
     expect(provisionReportOf({ revision: 3, progress: { ...working, url: 'https://bo.koala.app' } })).toEqual({ ok: false, problem: 'only "stage", "title", "state", "why" and "line" are taken, not "url"' });
-    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring or set-up' });
+    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical, monitoring or set-up' });
     for (const state of ['started', 'failed'] as const) {
       expect(provisionReportOf({ revision: 3, progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state, ...(state === 'failed' ? { why: 'x' } : {}) } }))
         .toEqual({ ok: false, problem: 'the "set-up" stage is only ever done: a piece that fails says so itself' });
@@ -118,6 +118,6 @@ describe('root stopping an install on the machine', () => {
 describe('what a Koala makes on its own cluster outside its namespace', () => {
   it('is each platform service\'s namespaces, one list per piece but monitoring', () => {
     expect(Object.keys(KOALA_PLATFORM_NAMESPACES)).toEqual(PROVISION_PIECES.map((piece) => piece.key).filter((key) => key !== 'monitoring'));
-    expect(Object.values(KOALA_PLATFORM_NAMESPACES).flat()).toEqual(['koala-egress', 'searxng', 'crawl4ai', 'gitea', 'pipeline-builds', 'koala-registry', 'infisical']);
+    expect(Object.values(KOALA_PLATFORM_NAMESPACES).flat()).toEqual(['koala-egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea', 'pipeline-builds', 'koala-registry', 'infisical']);
   });
 });

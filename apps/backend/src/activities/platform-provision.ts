@@ -14,6 +14,7 @@ export interface PlatformPlace {
   pool: boolean;
   dataDir: string;
   crawl4aiToken: string;
+  qdrantApiKey: string;
 }
 
 type Steps = Pick<ClusterSteps, 'access' | 'infra'>;
@@ -36,7 +37,7 @@ async function kept(place: PlatformPlace, service: PlatformServicePlan, key: str
 
 async function valueOf(place: PlatformPlace, service: PlatformServicePlan, key: string, source: SecretSource): Promise<string> {
   if ('text' in source) return source.text;
-  if ('setting' in source) return place.crawl4aiToken;
+  if ('setting' in source) return place[source.setting];
   return kept(place, service, key, source);
 }
 

@@ -1,6 +1,7 @@
 import { ignore } from '@koala/engine-core/failures';
 import { consolidateMemories, type ConsolidateDeps, type ConsolidationReport } from './memory-consolidate.js';
-import { indexMemories, removeMemories, similarTo, type MemoryEndpoints } from './memory-index.js';
+import type { MemoryIndex } from '../../platform/index.js';
+import { indexMemories, removeMemories, similarTo } from './memory-index.js';
 
 export type KeepingState =
   | { ownerId: string; state: 'kept'; at: string }
@@ -13,7 +14,7 @@ export interface KeepingRecords {
 
 export interface KeepingPlace {
   db: ConsolidateDeps['db'];
-  reach: (ownerId: string) => Promise<MemoryEndpoints>;
+  index: () => MemoryIndex;
   now?: (() => string) | undefined;
 }
 
@@ -26,7 +27,7 @@ export type KeepingOutcome =
   | { state: KeepingState & { state: 'down' } };
 
 export async function consolidateOwner(place: KeepingPlace, ownerId: string): Promise<ConsolidationReport> {
-  const ends = await place.reach(ownerId);
+  const ends = place.index();
   return consolidateMemories({
     db: place.db,
     ownerId,

@@ -162,7 +162,7 @@ describe('setting up a piece', () => {
     records.clear();
     expect(await ops()['provision.service']!(request(input, { service: 'gitea' }))).toEqual({ exit: 'failed', outputs: { reason: `the setup ${input.recordId} is no longer recorded` } });
     records.set(input.recordId, opened(input));
-    expect(await ops()['provision.service']!(request(input, { service: 'monitoring' }))).toEqual({ exit: 'failed', outputs: { reason: 'monitoring is not one of egress, searxng, crawl4ai, gitea, verdaccio, infisical' } });
+    expect(await ops()['provision.service']!(request(input, { service: 'monitoring' }))).toEqual({ exit: 'failed', outputs: { reason: 'monitoring is not one of egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical' } });
     records.set(collector.recordId, opened(collector));
     expect(await ops()['provision.service']!(request(collector, { service: 'gitea' }))).toEqual({ exit: 'failed', outputs: { reason: 'the setup of desk-2 has no piece gitea' } });
     expect(started).toEqual([]);
@@ -173,7 +173,7 @@ describe('marking a setup', () => {
   beforeEach(() => { records.set(input.recordId, opened(input)); });
 
   it('marks it up once every piece is, and refuses with why while one is not', async () => {
-    expect(await ops()['provision.mark']!(request(input, { state: 'up' }))).toEqual({ exit: 'failed', outputs: { reason: 'the setup of machine-desk cannot be up while egress, searxng, crawl4ai, gitea, verdaccio, infisical, monitoring are not' } });
+    expect(await ops()['provision.mark']!(request(input, { state: 'up' }))).toEqual({ exit: 'failed', outputs: { reason: 'the setup of machine-desk cannot be up while egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical, monitoring are not' } });
     expect(records.get(input.recordId)!.state).toBe('running');
     const record = records.get(input.recordId)!;
     records.set(input.recordId, { ...record, pieces: record.pieces.map((piece) => ({ ...piece, state: 'up' as const })) });

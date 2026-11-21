@@ -29,7 +29,7 @@ beforeAll(async () => {
   });
   const dataDir = testDataDir();
   mkdirSync(dataDir, { recursive: true });
-  place = { koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40' };
+  place = { koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' };
   steps = {
     access,
     infra: new InfrastructureService(terraformPlacesFor({ kind: 'local' }, dataDir)),

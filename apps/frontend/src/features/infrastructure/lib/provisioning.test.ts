@@ -37,6 +37,9 @@ describe('the "Setting Koala up" card', () => {
           { key: 'egress', title: 'The egress proxy', state: 'up', words: 'up' },
           { key: 'searxng', title: 'SearXNG, web search', state: 'working', words: 'waiting for deployment/searxng in searxng: 0 of 1 ready' },
           { key: 'crawl4ai', title: 'Crawl4AI, page reading', state: 'working', words: 'under way' },
+          { key: 'quickwit', title: 'Quickwit, the memory index\'s words', state: 'waiting', words: 'waiting its turn' },
+          { key: 'qdrant', title: 'Qdrant, the memory index\'s meanings', state: 'waiting', words: 'waiting its turn' },
+          { key: 'tei', title: 'TEI, the memory index\'s embeddings', state: 'waiting', words: 'waiting its turn' },
           { key: 'gitea', title: 'Gitea, your repositories and images', state: 'waiting', words: 'waiting its turn' },
           { key: 'verdaccio', title: 'The npm registry mirror', state: 'waiting', words: 'waiting its turn' },
           { key: 'infisical', title: 'Infisical, your secrets', state: 'waiting', words: 'waiting its turn' },
@@ -49,12 +52,13 @@ describe('the "Setting Koala up" card', () => {
 
   it('says where a failed setup stopped and why, and offers "Set up again" only to whoever may ask for it', () => {
     const pieces = waiting()
-    pieces[3] = { ...pieces[3]!, state: 'failed', why: 'pod gitea-0 is Init:Error' }
+    const gitea = pieces.findIndex((piece) => piece.key === 'gitea')
+    pieces[gitea] = { ...pieces[gitea]!, state: 'failed', why: 'pod gitea-0 is Init:Error' }
     const failed = koala({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error', pieces, endedAt: '2026-11-18T10:09:00.000Z' })
     const shown = provisioningShown([failed], true)
     if (shown.kind !== 'setting-up' || shown.setups[0]?.kind !== 'open') throw new Error(`expected an open setup, got ${JSON.stringify(shown)}`)
     expect(shown.setups[0].failed).toBe('Stopped at Gitea, your repositories and images: pod gitea-0 is Init:Error')
-    expect(shown.setups[0].pieces[3]).toEqual({ key: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', words: 'pod gitea-0 is Init:Error' })
+    expect(shown.setups[0].pieces[gitea]).toEqual({ key: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', words: 'pod gitea-0 is Init:Error' })
     expect(shown.setups[0].again).toBe(true)
     const someoneElse = provisioningShown([failed], false)
     expect(someoneElse.kind === 'setting-up' && someoneElse.setups[0]?.kind === 'open' && someoneElse.setups[0].again).toBe(false)

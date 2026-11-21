@@ -4,7 +4,9 @@ import { containing } from '../../platform/lib/test-matchers.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Server as SocketServer } from 'socket.io';
-import { REOPEN_FIRST_MS, type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { REOPEN_FIRST_MS, type ClusterMetadata, type DeploymentMetadata, type MemoryIndex, type Off, type ProjectMetadata } from '../../platform/index.js';
+import { http, HttpResponse } from 'msw';
+import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { buildPlanAt } from '../../releases/lib/build-plan.js';
@@ -27,12 +29,12 @@ function ownerBrowsers() {
   return { io, told };
 }
 
-function bridge(options: { io?: SocketServer; clusterService?: ClusterService } = {}) {
+function bridge(options: { io?: SocketServer; clusterService?: ClusterService; memoryIndex?: MemoryIndex | Off } = {}) {
   const db = memoryDatabase();
   const workflow = mock<WorkflowClient>();
   const client = mock<Client>({ workflow });
   const connect = vi.fn<TemporalConnect>(async () => client);
-  const instance = new TemporalBridge(db, testDataDir(), options.io, KEY, options.clusterService, { connect });
+  const instance = new TemporalBridge(db, testDataDir(), options.io, KEY, options.clusterService, { connect, memoryIndex: options.memoryIndex });
   return { db, workflow, client, connect, instance, ready: () => { instance.client = client; return instance; } };
 }
 
@@ -603,13 +605,29 @@ describe('consolidating everyone\'s memories', () => {
     createdAt: new Date(Date.now() - days * 86_400_000).toISOString(), updatedAt: new Date(Date.now() - days * 86_400_000).toISOString(),
   });
 
-  it('retires each person\'s own duplicates, never one person\'s for another\'s, and keeps what the pass found', async () => {
-    const { db, instance } = bridge({ clusterService: { access: mock<ClusterAccess>() } as unknown as ClusterService });
+  const INDEX = 'http://index.bridge.test';
+  const server = interceptHttp();
+
+  it('retires each person\'s own duplicates, never one person\'s for another\'s, through the memory index, and keeps what the pass found', async () => {
+    const asked: string[] = [];
+    server.use(http.all(`${INDEX}/*`, ({ request }) => { asked.push(new URL(request.url).pathname); return HttpResponse.json({ result: [] }); }));
+    const { db, instance } = bridge({ memoryIndex: { index: { base: INDEX }, vectors: { base: INDEX, apiKey: 'k' }, embeddings: { base: INDEX } } });
     for (const item of [lesson('a1', 'u1', 8), lesson('a2', 'u1', 6), lesson('b1', 'u2', 7)]) await db.memory.saveMemory(item);
 
     await instance.consolidateMemoryBank();
 
     expect((await db.memory.getMemories()).map((item) => [item.id, item.mergedInto ?? 'current']).sort()).toEqual([['a1', 'a2'], ['a2', 'current'], ['b1', 'current']]);
     expect(instance.lastConsolidation).toMatchObject({ live: 1 });
+    expect(asked).toContain('/api/v1/koala-memory/delete-tasks');
+  });
+
+  it('keeps every person\'s memories, saying why, where no memory index was given', async () => {
+    const { db, instance } = bridge({ memoryIndex: { off: 'root keeps no memories and crawls no corpus, so it has no memory index; each instance does' } });
+    for (const item of [lesson('c1', 'u3', 8), lesson('c2', 'u3', 6)]) await db.memory.saveMemory(item);
+
+    await instance.consolidateMemoryBank();
+
+    expect((await db.memory.getMemories()).every((item) => !item.mergedInto)).toBe(true);
+    expect(await db.memory.getKeepingState('u3')).toMatchObject({ state: 'down', reason: 'memories cannot be kept here: root keeps no memories and crawls no corpus, so it has no memory index; each instance does' });
   });
 });

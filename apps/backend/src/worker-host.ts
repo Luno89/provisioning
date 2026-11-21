@@ -43,7 +43,7 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   const telemetryProxy = sharedClusterProxy(access);
   telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
   const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => access.own().clusterId });
-  checkServices(dependencies, { webTools: settings.webTools });
+  checkServices(dependencies, { webTools: settings.webTools, memoryIndex: settings.memoryIndex });
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
