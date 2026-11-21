@@ -14,6 +14,7 @@ import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
 import { RunBearers } from '../services/RunBearers.js';
+import { grantsOver } from '../../engine/testing/run-grants.js';
 import { SignJWT } from 'jose';
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
@@ -111,6 +112,8 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 
     const revocations = new AccessRevocations();
     revocations.listen(async (event) => { heard.push(event); });
+    const runGrants = grantsOver(instanceDb.engine);
+    revocations.listen(async (event) => { await runGrants.revokeGrantsOf(event); });
     signIn = new RootSignIn({
       kind: 'instance',
       clientId: 'inst-u1',
@@ -355,6 +358,18 @@ export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): 
     expect([after.status, (await after.json() as { error: string }).error]).toEqual([401, 'Unauthorized: run run-1 has ended']);
     const unknown = await asBearer((await world.signIn.runToken('run-never')).accessToken);
     expect([unknown.status, (await unknown.json() as { error: string }).error]).toEqual([401, 'Unauthorized: run run-never is not known here']);
+  });
+
+  it('refuses a run\'s token once root takes its person\'s access away, as soon as the logout lands', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    await liveGrant('run-1');
+    const run = await world.signIn.runToken('run-1');
+    expect((await asBearer(run.accessToken)).status).toBe(200);
+    await world.provider.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
+    await world.provider.deliverLogouts();
+    const after = await asBearer(run.accessToken);
+    expect([after.status, (await after.json() as { error: string }).error]).toEqual([401, 'Unauthorized: run run-1\'s access was taken away']);
   });
 
   it('refuses a token root did not sign, one for another audience, and one that is not an access token, and never reads the cookie beside a bearer', async () => {

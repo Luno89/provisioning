@@ -152,20 +152,6 @@ describe('an instance keeping its session with root', () => {
     expect(await world.signIn.renew({ ...session, userId: 'u2' })).toBe('ended');
   });
 
-  it("takes a session the instance made for one of its own processes, with the instance's claims, never renews it through root, and ends it when root revokes the person", async () => {
-    await world.signIn.announce();
-    const token = world.signIn.madeHere({ id: 'u1', email: 'u1@example.com' }, [{ role: 'person' }, { role: 'instance-owner' }], 60 * 60);
-    const session = world.signIn.verified(token)!;
-    expect(session).toEqual(having({ userId: 'u1', madeBy: 'instance', claims: [{ role: 'person' }, { role: 'instance-owner' }] }));
-    expect((await world.whoami(new Map([['session', token]]))).status).toBe(200);
-    expect(await world.signIn.renew({ ...session, freshUntil: 0 })).toBe('kept');
-
-    await world.provider.revoke({ personId: 'u1', at: after(), because: 'signed-out-everywhere' });
-    await world.provider.deliverLogouts();
-    expect(world.signIn.verified(token)).toBeUndefined();
-    expect((await world.whoami(new Map([['session', token]]))).status).toBe(401);
-  });
-
   it('asks root once for a session renewed twice at once', async () => {
     await world.signIn.announce();
     const { instanceJar } = await world.signInAs('u1');

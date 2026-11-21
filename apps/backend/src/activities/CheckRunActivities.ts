@@ -98,7 +98,7 @@ export interface CheckRunStore {
 
 export interface CheckRunDeps {
   store: CheckRunStore;
-  api: (space: { id: string; email: string; space?: { person: string } | undefined }) => AxiosInstance;
+  api: (space: { id: string; email: string; space?: { person: string } | undefined }, checkRunId: string) => AxiosInstance;
   seedFiles: (ownerId: string, repo: string, files: Record<string, string>) => Promise<void>;
   reported: (args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, says: string, answer: string) => Promise<boolean>;
   says?: ((args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, means: string, answer: string, index: number) => Promise<boolean>) | undefined;
@@ -325,7 +325,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const startedAt = Date.now();
       const space = await store.accounts.getUserById(spaceId);
       if (!space) return { result: failedResult(scenario, '', 'the check\'s space is gone', startedAt), runIds: [] };
-      const http = deps.api({ id: space.id, email: space.email, ...(space.space ? { space: { person: space.space.person } } : {}) });
+      const http = deps.api({ id: space.id, email: space.email, ...(space.space ? { space: { person: space.space.person } } : {}) }, args.checkRunId);
       const context = activityContext();
       const stopIfCancelled = async (runId?: string) => {
         if (!context?.cancellationSignal.aborted) return;

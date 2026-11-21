@@ -102,6 +102,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         caller: {
           ownerId: args.ticket.ownerId,
           runId: args.ticket.runId,
+          grantId: args.ticket.grantId,
           agentSlug: args.ticket.agentSlug,
           ...(args.ticket.conversationId ? { conversationId: args.ticket.conversationId } : {}),
           ...(args.ticket.projectId ? { projectId: args.ticket.projectId } : {}),

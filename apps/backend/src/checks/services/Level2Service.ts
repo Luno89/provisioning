@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolDefinition } from '@koala/agent-engine';
-import type { TemperatureSampling } from '../../engine/index.js';
+import type { RunGrantService, TemperatureSampling } from '../../engine/index.js';
+import type { Principal } from '../../platform/index.js';
 import { BUILT_IN_SCENARIOS, scenarioProblems, type Scenario, type ScenarioResult } from '../../eval/index.js';
 import type { Client } from '@temporalio/client';
 import { CheckRunWorkflow, type CheckRunInput, type CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
@@ -87,6 +88,8 @@ export interface Level2ServiceOptions {
   agents: (ownerId: string) => Promise<string[]>;
   procedures: (ownerId: string) => Promise<string[]>;
   store: EvalRecordStore;
+  grants: Pick<RunGrantService, 'issue' | 'endRun'>;
+  principal: (ownerId: string) => Promise<Principal>;
   builtIn?: readonly Scenario[] | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
@@ -203,6 +206,7 @@ export class Level2Service {
       ...(input.promptOverride ? { promptOverride: input.promptOverride } : {}),
     };
     await this.options.store.saveEvalRecord('evalScenarioRuns', run);
+    await this.options.grants.issue({ ownerId: run.ownerId, runId: run.id, principal: await this.options.principal(run.ownerId), startedBy: (run.trigger?.kind ?? 'manual') === 'manual' ? 'person' : 'platform' });
 
     const contracts = new Set(chosen.flatMap((scenario) => [scenario.expect.provokes?.tool, scenario.expect.chooses?.tool].filter((tool): tool is string => Boolean(tool))));
     const tools = contracts.size > 0 ? (await this.options.tools(run.ownerId)).filter((tool) => contracts.has(tool.name)) : [];
@@ -221,6 +225,7 @@ export class Level2Service {
     } catch (err) {
       const failed: Level2Run = { ...run, state: 'failed', finishedAt: this.now(), error: `the checks could not start: ${(err as Error).message}` };
       await this.options.store.saveEvalRecord('evalScenarioRuns', failed);
+      await this.options.grants.endRun(run.id);
       return failed;
     }
     this.settleLater(run.ownerId, run.id);
@@ -235,6 +240,7 @@ export class Level2Service {
 
   private async settle(ownerId: string, id: string): Promise<void> {
     const outcome = await this.options.checks.outcome(checkRunWorkflowId(id)).catch((err: Error) => ({ failed: err.message }));
+    await this.options.grants.endRun(id);
     const run = await this.get(ownerId, id);
     if (!run || run.state !== 'running') return;
     const { running: _running, ...rest } = run;

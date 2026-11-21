@@ -48,7 +48,11 @@ export class RunGrantService {
     return held?.state === 'live' ? held : this.issue(request);
   }
 
-  async neverStarted(runId: string): Promise<void> {
+  neverStarted(runId: string): Promise<void> {
+    return this.endRun(runId);
+  }
+
+  async endRun(runId: string): Promise<void> {
     const held = await this.deps.store.getRunGrantOfRun(runId);
     if (held?.state !== 'live') return;
     const gone = ended(held, this.now());

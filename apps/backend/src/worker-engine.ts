@@ -7,8 +7,7 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import { koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE, treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars, TreeHomeService, webhookUrlAt, type GroveRunLauncher } from './projects/index.js';
-import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, startedFor, carryingTrace, telemetrySettings, AccessRevocations, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
-import type { ClaimedUser } from './platform/index.js';
+import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, principalOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, startedFor, carryingTrace, telemetrySettings, AccessRevocations, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -34,11 +33,10 @@ import { Context as ActivityContext } from '@temporalio/activity';
 import { createCheckProgressActivity, createCheckRunActivities } from './activities/CheckRunActivities.js';
 import { createWorkspaceProjectActivities } from './activities/WorkspaceProjectActivity.js';
 import { withSeedBundle } from './engine-host/sandboxes/seed-bundle.js';
-import { scriptedModelBase, httpCheckAccess } from './checks/index.js';
+import { bearerApi, scriptedModelBase, httpCheckAccess } from './checks/index.js';
 import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
-import axios from 'axios';
 import { collectorSink } from './monitoring/index.js';
 import { checkServices } from './platform/wiring/dependencies.js';
 import { monitoringServiceFor } from './monitoring/wiring/monitoring.js';
@@ -117,11 +115,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   });
   const extensions = extensionServiceFor(db);
   const checksApi = tenant.checksApi;
-  const checks = httpCheckAccess(async (ownerId) => {
-    const person = await db.accounts.getUserById(ownerId);
-    if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-    return carryingTrace(axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: actingAs(person, 60 * 60) } }));
-  });
+  const checks = httpCheckAccess(async (who) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerFor(who.grantId))));
   const engineStores = storesFromDatabase(db, unindexerFrom((ownerId) => corpusEndpoints(webPlace, ownerId)));
   const growers: { launcher?: GroveRunLauncher } = {};
   const groving = (): GroveRunLauncher => {
@@ -151,10 +145,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const engineRole = settings.role;
   const rootSignIn = rootSignInFor({ role: engineRole, instanceCredential: settings.instanceCredential, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl });
   rootSignIn?.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
-  const actingAs = (person: ClaimedUser & { email: string }, seconds?: number): string =>
-    `session=${engineRole.role === 'instance' && rootSignIn
-      ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
-      : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
   const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`) });
   const runGrants = new RunGrantService({ store: db.engine, tokens: runTokens });
@@ -484,11 +474,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
       store: db,
-      api: (space) => carryingTrace(axios.create({
-        baseURL: checksApi,
-        proxy: false,
-        headers: { Cookie: actingAs(space) },
-      })),
+      api: (space, checkRunId) => carryingTrace(bearerApi(checksApi, () => runTokens.bearerForRun(checkRunId, space.id))),
       seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
       }),

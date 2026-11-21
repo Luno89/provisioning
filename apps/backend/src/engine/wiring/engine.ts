@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { ignore } from '@koala/engine-core/failures';
-import axios from 'axios';
 import { WorkflowNotFoundError } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
 import type { PersonaRecord } from '@koala/agent-engine';
 import {
-  type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, sessionToken, startedFor, getTemporalClient,
+  type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings, type DependencyReporter,
 } from '../../platform/index.js';
@@ -13,7 +12,7 @@ import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT, procedureChangeRun } from '../lib/agent-usage.js';
 import {
   fingerprintOf, scenarioSubjects, BenchService, Level2Service, temporalCheckRunner, ScriptedModelService,
-  httpCheckAccess, checksRouter, evalsLevel2Router,
+  bearerApi, httpCheckAccess, checksRouter, evalsLevel2Router,
 } from '../../checks/index.js';
 import { providerServing, type ModelService, type TreeModelsService } from '../../models/index.js';
 import { restoringApp, type wireReleases } from '../../releases/index.js';
@@ -107,6 +106,7 @@ export interface EngineCore {
   concluded: (ownerId: string, conversationId: string | undefined) => void;
   runningRecords: (ownerId: string) => Promise<RunningRecords>;
   runGrants: RunGrantService;
+  runTokens: RunTokens;
 }
 
 const tellBench = (bench: { service?: BenchService }, ownerId: string): void => {
@@ -243,7 +243,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   };
   return {
     extensions, dependencyFollowers, workspaceDependencies, dependenciesOf, agentDirectory, engineRegistry, conversationTurns, engineRuns, workspaceBuilds,
-    bench, agentsHolder, workspaceRepos, workspaceConclusions, memoryKeeper, reportMemory, concluded, runningRecords, runGrants,
+    bench, agentsHolder, workspaceRepos, workspaceConclusions, memoryKeeper, reportMemory, concluded, runningRecords, runGrants, runTokens: deps.runTokens,
   };
 }
 
@@ -257,7 +257,6 @@ export interface EngineWiringDeps {
   registry: RegistryHosts | { none: string };
   webTools: WebToolsPlace;
   role: RoleConfig;
-  sessionKey: SecretKey;
   dataKey: SecretKey;
   core: EngineCore;
   temporalBridge: TemporalBridge;
@@ -330,11 +329,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     treeLanguage: treeLanguageFrom(db.projects),
     treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure), ownNamespacesFrom(db.infrastructure)),
     ...(keptArtifacts ? { artifacts: { keep: (ownerId: string, runId: string, files: { name: string; bytes: Buffer }[]) => keptArtifacts.put(ownerId, runId, files) } } : {}),
-    checks: httpCheckAccess(async (ownerId) => {
-      const person = await db.accounts.getUserById(ownerId);
-      if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-      return axios.create({ baseURL: `http://localhost:${deps.port}/api`, proxy: false, headers: { Cookie: `session=${sessionToken(person, deps.sessionKey, { seconds: 60 * 60 })}` } });
-    }),
+    checks: httpCheckAccess(async (who) => bearerApi(`http://localhost:${deps.port}/api`, () => core.runTokens.bearerFor(who.grantId))),
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
     repoFor: workspaceRepos,
     hidden: (ownerId: string) => extensions.hidden(ownerId),
@@ -389,6 +384,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     agents: async (ownerId: string) => (await draftRegistry.agents(ownerId)).map((agent) => agent.slug),
     procedures: async (ownerId: string) => (await engineRegistry.procedures(ownerId)).map((procedure) => procedure.id),
     store: db.checks,
+    grants: core.runGrants,
+    principal: async (ownerId: string) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(deps.role)),
     onFinished: async (run) => { await bench.service?.finished(run); },
   });
 

@@ -15,7 +15,7 @@ export interface RunTokenRoot {
   endRunToken(refreshToken: string): Promise<void>;
 }
 
-export type RunTokenStore = Pick<EngineStore, 'getRunGrant' | 'swapRunGrantToken' | 'getRunGrantTokens' | 'dropRunGrantToken' | 'getRunGrantsHoldingTokens'>;
+export type RunTokenStore = Pick<EngineStore, 'getRunGrant' | 'getRunGrantOfRun' | 'swapRunGrantToken' | 'getRunGrantTokens' | 'dropRunGrantToken' | 'getRunGrantsHoldingTokens'>;
 
 export interface RunTokensDeps {
   store: RunTokenStore;
@@ -53,6 +53,12 @@ export class RunTokens {
     const getting = this.current(grantId, space).finally(() => this.asking.delete(asked));
     this.asking.set(asked, getting);
     return getting;
+  }
+
+  async bearerForRun(runId: string, space?: string): Promise<string> {
+    const grant = await this.deps.store.getRunGrantOfRun(runId);
+    if (!grant) throw new Error(`run ${runId} holds no grant here, so it holds no token`);
+    return this.bearerFor(grant.id, space);
   }
 
   private async current(grantId: string, asked: string | undefined): Promise<string> {

@@ -165,6 +165,13 @@ describe('tool runtime', () => {
     expect(asked).toEqual([[live.id, 'run_command', undefined], [gone.id, 'run_command', undefined]]);
   });
 
+  it('hands the run\'s grant to a platform tool, so what it reaches it reaches as the run', async () => {
+    const seen: (string | undefined)[] = [];
+    const tools = savingMemory((caller) => { seen.push(caller.grantId); });
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket: SAVING_TICKET }));
+    expect(seen).toEqual([GRANT.id]);
+  });
+
   it('hands the run\'s project to a platform tool', async () => {
     const seen: (string | undefined)[] = [];
     const tools = savingMemory((caller) => { seen.push(caller.projectId); });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claimsStale, instanceMadeSession, RevocationList, signedInSession } from './sign-in-state.js';
+import { claimsStale, RevocationList, signedInSession } from './sign-in-state.js';
 
 const session = { userId: 'u1', email: 'u1@example.com', sid: 's1', sessionAt: 1_000, freshUntil: 2_000, claims: [{ role: 'person' }] };
 
@@ -25,14 +25,5 @@ describe('a session an instance keeps for someone root signed in', () => {
     revoked.revoke('u1', new Date(3_000).toISOString());
     expect(revoked.ended({ userId: 'u1', sessionAt: 4_000 })).toBe(true);
     expect(revoked.ended({ userId: 'u2', sessionAt: 1 })).toBe(false);
-  });
-});
-
-describe('a session the instance makes for one of its own processes', () => {
-  it('says the instance made it, is fresh for as long as it lasts, and is read back as made by the instance alone', () => {
-    const made = instanceMadeSession({ id: 'space-1', email: 'space-1@koala.invalid' }, [{ role: 'person' }], 5_000, 60, 's2');
-    expect(made).toEqual({ userId: 'space-1', email: 'space-1@koala.invalid', sid: 's2', sessionAt: 5_000, freshUntil: 65_000, claims: [{ role: 'person' }], madeBy: 'instance' });
-    expect(signedInSession({ ...made })).toEqual(made);
-    expect(signedInSession({ ...session, madeBy: 'root' })).toBeUndefined();
   });
 });

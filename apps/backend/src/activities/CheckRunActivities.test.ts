@@ -110,7 +110,7 @@ const signedInAs: unknown[] = [];
 const activities = (over: { reported?: boolean; says?: boolean; ownClusterId?: string | undefined } = {}): CheckRunActivities => createCheckRunActivities({
   ownClusterId: () => ('ownClusterId' in over ? over.ownClusterId : 'machine-koala'),
   store: db,
-  api: (space) => { signedInAs.push(space); return axios.create({ baseURL: BASE, headers: { 'x-space': space.id } }); },
+  api: (space, checkRunId) => { signedInAs.push([space, checkRunId]); return axios.create({ baseURL: BASE, headers: { 'x-space': space.id } }); },
   seedFiles: async (_owner, repo, files) => {
     Object.assign(seeded, Object.fromEntries(Object.entries(files).map(([path, content]) => [`${repo}/${path}`, content])));
   },
@@ -317,10 +317,10 @@ describe('recording a check run\'s progress', () => {
 });
 
 describe('a check run on its space', () => {
-  it('signs in as the space with whose space it is, so it holds its person\'s claim and reaches their clusters', async () => {
+  it('reaches the API as the space, with whose space it is, as the check run it belongs to, so it holds its person\'s claim and reaches their clusters', async () => {
     signedInAs.length = 0;
     await perform(CHAT);
-    expect(signedInAs[0]).toEqual({ id: 'space-1', email: expect.any(String) as unknown, space: { person: 'bo' } });
+    expect(signedInAs[0]).toEqual([{ id: 'space-1', email: expect.any(String) as unknown, space: { person: 'bo' } }, 'c1']);
   });
 
   it('carries the trace and span it ran under, so where it failed can be read from the trace', async () => {

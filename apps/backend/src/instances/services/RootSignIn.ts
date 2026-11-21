@@ -11,7 +11,7 @@ import {
   CLAIMS_SECONDS, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, SESSION_SECONDS, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
-import { instanceMadeSession, RevocationList, signedInSession, type SignedInSession } from '../lib/sign-in-state.js';
+import { RevocationList, signedInSession, type SignedInSession } from '../lib/sign-in-state.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -161,12 +161,8 @@ export class RootSignIn implements RunTokenRoot {
   }
 
   private sessionToken(session: SignedInSession, seconds = SESSION_SECONDS): string {
-    const { userId, email, sid, sessionAt, freshUntil, claims, madeBy } = session;
-    return signJWT('client-session', { userId, email, sid, sessionAt, freshUntil, claims, ...(madeBy ? { madeBy } : {}) }, this.settings.sessionKey, seconds);
-  }
-
-  madeHere(person: { id: string; email: string }, claims: SignedInSession['claims'], seconds = SESSION_SECONDS): string {
-    return this.sessionToken(instanceMadeSession(person, claims, this.now(), seconds, crypto.randomUUID()), seconds);
+    const { userId, email, sid, sessionAt, freshUntil, claims } = session;
+    return signJWT('client-session', { userId, email, sid, sessionAt, freshUntil, claims }, this.settings.sessionKey, seconds);
   }
 
   async callback(currentUrl: URL, heldCookie: string | undefined): Promise<SignedIn> {
@@ -220,7 +216,6 @@ export class RootSignIn implements RunTokenRoot {
   }
 
   renew(session: SignedInSession): Promise<Renewed> {
-    if (session.madeBy === 'instance') return Promise.resolve('kept');
     const running = this.refreshing.get(session.sid);
     if (running) return running;
     const renewing = this.refresh(session).finally(() => this.refreshing.delete(session.sid));

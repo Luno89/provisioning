@@ -20,6 +20,7 @@ export interface ToolCallerContext {
   ownerId?: string | undefined;
   projectId?: string | undefined;
   runId?: string | undefined;
+  grantId?: string | undefined;
   agentSlug?: string | undefined;
   conversationId?: string | undefined;
   treeId?: string | undefined;

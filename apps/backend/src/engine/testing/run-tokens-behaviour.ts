@@ -85,6 +85,14 @@ export function runTokensBehaviour(database: () => Promise<Pick<Database, 'engin
       await expect(tokens.bearerFor('inside', 'space-c')).rejects.toThrow(/acts as space space-b, not space-c/);
     });
 
+    it('finds a run\'s grant by the run, for work that knows only the run it belongs to', async () => {
+      const { db, root, tokens } = await keeper();
+      await db.engine.saveRunGrant(grant('check'));
+      expect(await tokens.bearerForRun('run-check', 'space-a')).toBe(await tokens.bearerFor('check', 'space-a'));
+      expect(root.issued).toHaveLength(1);
+      await expect(tokens.bearerForRun('run-never')).rejects.toThrow('run run-never holds no grant here, so it holds no token');
+    });
+
     it('gives no token for a run whose grant ended, was revoked or is not known here, and asks root for none', async () => {
       const { db, root, tokens } = await keeper();
       await db.engine.saveRunGrant(grant('ended', { state: 'ended' }));
