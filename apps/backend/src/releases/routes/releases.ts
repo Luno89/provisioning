@@ -68,7 +68,6 @@ export function releasesRouter(deps: ReleasesRouterDeps): Router {
   router.post('/:id/releases/:releaseId/again', asyncRoute(async (req: Request, res: Response) => {
     const project = await owned(req, res);
     if (!project) return;
-    if (project.removal) return res.status(409).json({ error: 'This project is being deleted' });
     const outcome = await deps.releases.releaseAgain(project.ownerId ?? userOf(req).id, project, String(req.params.releaseId));
     if ('error' in outcome) return res.status(outcome.status).json({ error: outcome.error });
     if ('skipped' in outcome) return res.status(409).json({ error: outcome.skipped });

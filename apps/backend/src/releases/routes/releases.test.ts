@@ -98,19 +98,16 @@ describe('a project\'s releases', () => {
     expect((await routes.post('/p2/releases/r1/roll-back')).status).toBe(404);
   });
 
-  it('releases a build again, holds it when the service skips it, and refuses a project being deleted', async () => {
-    const { deps, releases, routes } = await setUp();
+  it('releases a build again, and holds it when the service skips it', async () => {
+    const { releases, routes } = await setUp();
     releases.releaseAgain.calledWith(TEST_USER.id, project, 'r1').mockResolvedValue({ ...release('preparing'), again: 'r1' });
     releases.releaseAgain.calledWith(TEST_USER.id, project, 'live').mockResolvedValue({ status: 409, error: 'the release is live, so its build cannot be released again' });
     releases.releaseAgain.calledWith(TEST_USER.id, project, 'held').mockResolvedValue({ skipped: 'held' });
-    deps.getOwnedProject.calledWith('going', any()).mockResolvedValue({ ...project, id: 'going', removal: { startedAt: 't' } } as ProjectMetadata);
     const again = await routes.post('/p1/releases/r1/again');
     expect([again.status, again.data]).toEqual([202, { release: { ...release('preparing'), again: 'r1' } }]);
     expect((await routes.post('/p1/releases/live/again')).data).toEqual({ error: 'the release is live, so its build cannot be released again' });
     const held = await routes.post('/p1/releases/held/again');
     expect([held.status, held.data]).toEqual([409, { error: 'held' }]);
-    const going = await routes.post('/going/releases/r1/again');
-    expect([going.status, going.data]).toEqual([409, { error: 'This project is being deleted' }]);
     expect((await routes.post('/p2/releases/r1/again')).status).toBe(404);
   });
 

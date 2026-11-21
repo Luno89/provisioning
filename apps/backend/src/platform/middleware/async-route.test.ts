@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { DependencyDownError } from '../lib/dependencies.js';
+import { WorkStopped } from '@koala/engine-core/work-for';
 import { asyncRoute, errorResponder } from './async-route.js';
 
 function answered() {
@@ -23,6 +24,13 @@ describe('what a route answers when it fails', () => {
       since: '2026-11-08T10:02:00.000Z',
       reason: 'it refused the connection (ECONNREFUSED)',
     });
+  });
+
+  it('answers work refused because its project is being deleted with 409, in the words the person reads', () => {
+    const res = answered();
+    errorResponder(new WorkStopped({ kind: 'project', id: 'p1' }), mock<Request>(), res, vi.fn());
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: 'this project is being deleted' });
   });
 
   it('answers any other failure with its own status, or 500, and its message', () => {

@@ -80,6 +80,11 @@ describe('a project, as the projects pages ask for it', () => {
     expect(side!.temporal.workflows.get(removeProjectWorkflowId(projectId))).toMatchObject({ status: 'RUNNING', args: [{ projectId }] })
   })
 
+  it('refuses a change to the project once its deletion has started, in the words the person reads, and still shows the deletion', async () => {
+    await expect(patchProject(projectId, { executionApproval: 'auto' })).rejects.toMatchObject({ response: { status: 409, data: { error: 'this project is being deleted' } } })
+    expect(await getProjectRemoval(projectId)).toMatchObject({ name: 'Desk work', state: { state: 'running' } })
+  })
+
   it('answers 404 to another person for every project route', async () => {
     await backend.signInAnother('second@koala.test')
     expect(await listProjects()).toEqual([])

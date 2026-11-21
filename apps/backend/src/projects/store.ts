@@ -325,3 +325,10 @@ export class MongoProjectsStore implements ProjectsStore {
     await this.secretRequests.deleteOne({ _id: id, ownerId });
   }
 }
+
+export const groveRecordsOf = (store: Pick<ProjectsStore, 'getTrees' | 'getBranches' | 'getLeaves' | 'getTasks'>) => ({
+  trees: () => store.getTrees(),
+  branches: () => store.getBranches(),
+  leaves: () => store.getLeaves(),
+  tasks: (ownerId: string) => store.getTasks(ownerId),
+});

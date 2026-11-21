@@ -7,6 +7,7 @@ import { afterAll } from 'vitest'
 import { createAuth, type Auth } from '../../../../backend/src/platform/middleware/auth'
 import { standInClientSessions } from '../../../../backend/src/platform/testing/client-sessions-stand-in'
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
+import { refuseWorkOfDeletingProjects } from '../../../../backend/src/projects/wiring/deleting-refusals'
 import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
 import { AccessRevocations } from '../../../../backend/src/platform/services/AccessRevocations'
 import { testDatabase } from '../../../../backend/src/platform/lib/test-database'
@@ -92,6 +93,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   app.use(express.json({ limit: JSON_LIMITS.signedIn }))
   app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, appUrl: origin, revocations, passwords }))
   app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: SESSION_KEY }))
+  refuseWorkOfDeletingProjects(app, db)
   const api = express.Router()
   app.use('/api', api)
   await mount({ db, api, auth, origin, io })

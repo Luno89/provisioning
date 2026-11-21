@@ -35,4 +35,5 @@ export type { SignIn } from './services/ProjectSecretsService.js';
 export { createSecretVault, SecretRequestService } from './services/SecretRequestService.js';
 export { TreeHomeService } from './services/TreeHomeService.js';
 export { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
+export { groveRecordsOf } from './store.js';
 export type { ProjectsStore } from './store.js';
