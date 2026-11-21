@@ -17,7 +17,7 @@ export function clientSessionsContract(make: () => Promise<SessionsWorld>): void
   it('takes the person a sign-in made from its token, with their claims, until a time still ahead', async () => {
     const world = await make();
     const session = world.sessions.verified(await world.signIn());
-    expect(session).toMatchObject({ userId: expect.any(String), email: expect.any(String), sid: expect.any(String) });
+    expect([typeof session?.userId, typeof session?.email, typeof session?.sid]).toEqual(['string', 'string', 'string']);
     expect(session!.claims).toContainEqual({ role: 'person' });
     expect(session!.until).toBeGreaterThan(Date.now());
     expect(session!.sessionAt).toBeLessThanOrEqual(Date.now());
