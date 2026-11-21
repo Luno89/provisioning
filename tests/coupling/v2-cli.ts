@@ -6,12 +6,11 @@ import { ARTIFACTS, OUT, ROOT, runsIn, runsOf, type Gathered } from './artifacts
 import { builtGraph } from './repo-graph.js';
 import { codebaseOf, DEPENDENCIES, SHARING, versionsIn, type Since } from './v2.js';
 import { AREAS, evidenceFrom, survivorsIn, type KeptRun, type MutationReport, type Unchecked } from './mutation.js';
+import { backtest, faultEvidence, type KnownFault } from './faults.js';
 
 const STARTING: Weights = { unit: 0.5, component: 0.6, contract: 0.7, container: 0.8, vm: 0.9 };
 const EVIDENCE = join(ROOT, 'tests', 'coupling', 'evidence.json');
 const kept = existsSync(EVIDENCE) ? JSON.parse(readFileSync(EVIDENCE, 'utf8')) as KeptRun[] : [];
-const learned = learnedWeights(STARTING, evidenceFrom(kept, Date.now()), { strength: 10, halfLife: 30 });
-const WEIGHTS = learned.weights;
 const CHURN_SINCE = '90 days ago';
 
 const git = (args: readonly string[]): string => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
@@ -52,11 +51,19 @@ const codebase = { ...codebaseOf(graph, runs, {
   churn,
   failures,
 }), unchecked };
-const judged = judge(codebase, WEIGHTS, { dependency: SHARING, composition: { target: 0.5 } });
+const SHARED = { dependency: SHARING, composition: { target: 0.5 } };
+const FAULTS = JSON.parse(readFileSync(join(ROOT, 'tests', 'coupling', 'faults.json'), 'utf8')) as KnownFault[];
+const faultsFound = backtest(judge(codebase, STARTING, SHARED), FAULTS);
+const learned = learnedWeights(STARTING, [...evidenceFrom(kept, Date.now()), ...faultEvidence(faultsFound)], { strength: 10, halfLife: 30 });
+const WEIGHTS = learned.weights;
+const judged = judge(codebase, WEIGHTS, SHARED);
+const tested = backtest(judged, FAULTS);
 const args = process.argv.slice(2);
 const shown = Number(args.find((arg) => /^\d+$/.test(arg)) ?? 25);
 console.log(`layer weights, from ${kept.length} mutation runs: ${Object.entries(WEIGHTS).map(([layer, weight]) => `${layer} ${weight.toFixed(2)} (${learned.evidence[layer as keyof Weights].caught} caught, ${learned.evidence[layer as keyof Weights].missed} missed)`).join(', ')}`);
 console.log(reportOf(judged, shown));
+console.log(`known faults, against the risk given their code: ${tested.inRiskierHalf} of ${tested.judged} in the riskier half`);
+for (const entry of tested.faults) console.log(entry.found ? `  ${String(entry.percentile).padStart(3)}%  ${entry.fault.file}#${entry.fault.name} (rank ${entry.rank} of ${entry.ofAll}, run at ${entry.runAt.join(', ') || 'no layer'}): ${entry.fault.what}` : `    -   ${entry.fault.file}#${entry.fault.name}: not in the graph`);
 if (judged.blocking.length > 0) process.exitCode = 1;
 
 const LIST = join(ROOT, 'tests', 'coupling', 'untested.json');

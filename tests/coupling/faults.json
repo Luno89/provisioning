@@ -1,0 +1,7 @@
+[
+ { "file": "apps/backend/src/platform/lib/change-streams.ts", "name": "watchWrites", "what": "a watch read each document when delivered, so under fast writes it saw a later state twice and missed one, and a deploy or build could go unfollowed", "fixedIn": "9a2fb0729" },
+ { "file": "apps/frontend/src/features/platform/stores/socket.ts", "name": "useLogSocket", "what": "a followed log's socket was made without connecting, and its reconnect listener never fired, so app and build logs sat silent", "fixedIn": "28ee10f57" },
+ { "file": "apps/backend/src/platform/middleware/auth.ts", "name": "requireAuth", "what": "the pool's trial, move and monitoring paths stayed open without sign-in after the pool went, and three prefixes were open on roles that serve nothing there", "fixedIn": "70c69935e" },
+ { "file": "apps/backend/src/infrastructure/lib/followed-work.ts", "name": "followedAction", "what": "a resize or settings sync followed from its record alone was settled as a plain deploy", "fixedIn": "4b8241c0e" },
+ { "file": "apps/backend/src/platform/lib/stop-workflow.ts", "name": "stopIfRunning", "what": "stopping a workflow waits 60 seconds and then terminates it, a deadline that calls work stopped by giving up (found by research, not yet fixed)", "fixedIn": "" }
+]
