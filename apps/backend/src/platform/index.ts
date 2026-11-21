@@ -58,7 +58,7 @@ export type { DependencySources, OsvAdvisory, OsvQuery, Severity } from './lib/o
 export { ownedBy, withBuiltIns } from './lib/ownership.js';
 export type { PayloadBlobs } from './lib/payload-storage.js';
 export { allowed, asPerson, authorize, claimsOf, clusterResource, holds, operatorsAmong, PERMISSIONS, principalOf, SESSION_PERMISSIONS, sessionPermissions, sessionView } from './lib/permissions.js';
-export type { Actions, Claim, ClaimedUser, ClaimSettings, Decision, Principal, Resource, SessionPermission, SessionPlace, SessionView } from './lib/permissions.js';
+export type { Actions, BearerSignIn, Claim, ClaimedUser, ClaimSettings, Decision, Principal, Resource, SessionPermission, SessionPlace, SessionView } from './lib/permissions.js';
 export { claimSettingsFrom, holdsAccounts, roleFromEnv, servesTenants, signsInThroughRoot } from './lib/platform-role.js';
 export type { PlatformRole, RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';

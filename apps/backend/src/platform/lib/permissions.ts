@@ -1,5 +1,5 @@
 import type { PlatformRole } from './platform-role.js';
-import type { PlatformGrant } from './types.js';
+import type { PlatformGrant, UserMetadata } from './types.js';
 import { noteOnSpan } from '@koala/engine-core/telemetry';
 
 export type Claim =
@@ -13,6 +13,8 @@ export interface Principal {
   id: string;
   claims: readonly Claim[];
 }
+
+export type BearerSignIn = { user: UserMetadata; principal: Principal } | { refused: string };
 
 export interface ClaimSettings {
   role: PlatformRole;

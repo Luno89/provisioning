@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import * as client from 'openid-client';
-import { importJWK, jwtVerify, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, customFetch as joseFetch, importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
+  answerUnlimited, decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
@@ -39,6 +39,15 @@ export type SignedIn =
 
 export type Renewed = { token: string; session: SignedInSession } | 'kept' | 'ended';
 
+export interface CheckedRunToken {
+  personId: string;
+  runId: string;
+  claims: SignedInSession['claims'];
+  space?: string | undefined;
+}
+
+const RUN_TOKEN_TYP = 'at+jwt';
+
 export const SIGN_IN_COOKIE = 'koala_sign_in';
 
 const reasonOf = (err: unknown): string => {
@@ -51,6 +60,7 @@ const SIGN_IN_COOKIE_SECONDS = 10 * 60;
 
 export class RootSignIn implements RunTokenRoot {
   private configured: Promise<client.Configuration> | undefined;
+  private keys: Promise<ReturnType<typeof createRemoteJWKSet>> | undefined;
   private readonly refreshing = new Map<string, Promise<Renewed>>();
   private markAnnounced: () => void = () => undefined;
   readonly announced: Promise<void> = new Promise((resolve) => { this.markAnnounced = resolve; });
@@ -282,6 +292,29 @@ export class RootSignIn implements RunTokenRoot {
       ...(space ? { koala_space: space } : {}),
     }).catch((err: unknown) => { throw new Error(`root gave run ${runId} no token: ${reasonOf(err)}`); });
     return this.runTokenOf(tokens);
+  }
+
+  private rootKeys(): Promise<ReturnType<typeof createRemoteJWKSet>> {
+    this.keys ??= (async () => {
+      const uri = (await this.config()).serverMetadata().jwks_uri;
+      if (!uri) throw new Error('root names no keys in its discovery');
+      return createRemoteJWKSet(new URL(uri), { [joseFetch]: answerUnlimited() as never });
+    })();
+    this.keys.catch(() => { this.keys = undefined; });
+    return this.keys;
+  }
+
+  async checkRunToken(token: string): Promise<CheckedRunToken | string> {
+    let payload: JWTPayload;
+    try {
+      ({ payload } = await jwtVerify(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), typ: RUN_TOKEN_TYP }));
+    } catch (err) {
+      return `the run token could not be checked: ${(err as Error).message}`;
+    }
+    const claims = payload[KOALA_CLAIMS];
+    const space = payload.koala_space;
+    if (typeof payload.sub !== 'string' || typeof payload.koala_run !== 'string' || !claimsShaped(claims) || (space !== undefined && typeof space !== 'string')) return 'the run token does not say whose run it is';
+    return { personId: payload.sub, runId: payload.koala_run, claims, ...(typeof space === 'string' ? { space } : {}) };
   }
 
   async renewRunToken(refreshToken: string): Promise<RunToken> {

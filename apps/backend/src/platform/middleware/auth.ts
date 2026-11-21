@@ -8,7 +8,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { InviteMetadata, UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
-import { authorize, principalOf, type Actions, type Claim, type Principal, type Resource } from '../lib/permissions.js';
+import { authorize, principalOf, type Actions, type BearerSignIn, type Claim, type Principal, type Resource } from '../lib/permissions.js';
 
 export interface ClientSession {
   userId: string;
@@ -44,6 +44,7 @@ export interface AuthDeps {
   instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
   clientSessions?: ClientSessions | undefined;
+  bearer?: ((token: string) => Promise<BearerSignIn>) | undefined;
   sessionEnds: Pick<SessionEnds, 'ended' | 'end'>;
   open: readonly OpenMount[];
 }
@@ -129,7 +130,7 @@ const userOfSession = (session: ClientSession): UserMetadata => ({
   createdAt: new Date(session.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds, open }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, bearer, sessionEnds, open }: AuthDeps): Auth {
   const opens = openedBy(open);
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
@@ -184,6 +185,13 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
     if (await opens(req, res)) return next();
+    const presented = bearer ? /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1] : undefined;
+    if (bearer && presented) {
+      const signed = await bearer(presented);
+      if ('refused' in signed) return res.status(401).json({ error: `Unauthorized: ${signed.refused}` });
+      signedIn(req, { user: signed.user, principal: signed.principal });
+      return next();
+    }
     const secure = securedFor(req);
     if (!getCookie(req, cookieNamed(SESSION_COOKIE, secure))) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });

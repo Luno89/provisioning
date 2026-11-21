@@ -31,7 +31,7 @@ import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { InstanceSide, wireInstances } from './instances/wiring/instances.js';
-import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
+import { rootProviderFor, rootSignInFor, rootTokenOf, runBearersFor } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { refuseWebhookOfDeletingProjects, refuseWorkOfDeletingProjects } from './projects/wiring/deleting-refusals.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
@@ -286,7 +286,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, bearer: runBearersFor(rootSignIn, db, claimSettings), sessionEnds });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
