@@ -223,4 +223,41 @@ describe('each rule, broken alone, refused with exactly its own field and words'
       for (const port of [0, 65536, 8080.5]) only(at({ [which]: { path: '/health', port } }), `${which}.port`, 'must be a port number.');
     }
   });
+
+  it('refuses a list entry that is empty or leaves a field out with the words for each field, rather than failing on it', () => {
+    const file = { name: 'mongod.conf', content: 'quiet: true', mountPath: '/etc/mongod.conf' };
+    expect(validateSpec(at({ configFiles: [null] }))).toEqual([
+      { field: 'configFiles[0].name', problem: 'is required.' },
+      { field: 'configFiles[0].content', problem: 'must be a string.' },
+      { field: 'configFiles[0].mountPath', problem: 'must be an absolute path inside the container.' },
+    ]);
+    only(at({ configFiles: [{ content: file.content, mountPath: file.mountPath }] }), 'configFiles[0].name', 'is required.');
+    only(at({ configFiles: [{ name: file.name, content: file.content }] }), 'configFiles[0].mountPath', 'must be an absolute path inside the container.');
+    expect(validateSpec(at({ volumes: [null] }))).toEqual([
+      { field: 'volumes[0].path', problem: 'must be an absolute path inside the container.' },
+      { field: 'volumes[0].size', problem: 'must be a size like 10Gi.' },
+    ]);
+    only(at({ volumes: [{ size: '10Gi' }] }), 'volumes[0].path', 'must be an absolute path inside the container.');
+    only(at({ env: [null] }), 'env[0].name', 'is required.');
+    only(at({ env: [{ value: 'x' }] }), 'env[0].name', 'is required.');
+  });
+
+  it('refuses a probe that is null or has no path, and takes the first and last port', () => {
+    for (const which of ['liveness', 'readiness'] as const) {
+      only(at({ [which]: null }), which, 'must be { path, port }.');
+      only(at({ [which]: { port: 8080 } }), `${which}.path`, 'must be an HTTP path starting with /.');
+      for (const port of [1, 65535]) expect(validateSpec(at({ [which]: { path: '/health', port } }))).toEqual([]);
+    }
+  });
+
+  it('takes a one-letter name, and a quantity with two decimals, and refuses one with words before its number', () => {
+    expect(validateSpec(at({ id: 'a', ports: [{ name: 'x', port: 80 }] }))).toEqual([]);
+    for (const memory of ['1.25Gi', '0.75']) expect(validateSpec(at({ resources: { limits: { memory, cpu: '100m' } } }))).toEqual([]);
+    only(at({ resources: { limits: { memory: 'lots512Mi', cpu: '1' } } }), 'resources.memory', '"lots512Mi" is not a Kubernetes quantity (512Mi, 2Gi, 100m).');
+  });
+
+  it('explains the problems as the person reads them, one to a line, a whole-spec problem without a field', () => {
+    expect(explainSpecProblems(validateSpec('mongo'))).toBe('This spec cannot be stored:\n  · A spec must be an object.');
+    expect(explainSpecProblems(validateSpec(at({ image: '', ports: [] })))).toBe('This spec cannot be stored:\n  · image: is required.\n  · ports: at least one port is required — a Service with none routes nowhere.');
+  });
 });

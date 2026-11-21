@@ -189,4 +189,19 @@ describe('each way a pod is judged, the whole verdict', () => {
     expect(restarted({ terminated: { reason: 'Error', finishedAt: minutesAgo(60) } })).toEqual({ ...healthy, restarts: 1, state: 'ok' });
     expect(restarted({ terminated: { reason: 'Error' } })).toEqual({ ...healthy, restarts: 1, state: 'ok' });
   });
+
+  it('judges a pod from what kubectl leaves out or leaves empty, and counts only a running pod as ready', () => {
+    expect(podVerdict({ metadata: { name: 'p', namespace: 'a', creationTimestamp: minutesAgo(1) } }, NOW)).toEqual({ ...healthy, ready: false, state: 'starting', reason: 'it is starting' });
+    expect(judged({ phase: 'Running' })).toEqual({ ...healthy, ready: false, state: 'warning', reason: 'it is running but not ready' });
+    expect(judged({ phase: 'Pending', containerStatuses: [container({})] }, minutesAgo(1))).toEqual({ ...healthy, ready: false, state: 'starting', reason: 'it is starting' });
+    expect(judged({ phase: 'Running', containerStatuses: [container({ state: { waiting: { reason: 'CrashLoopBackOff' } }, lastState: {} })] })).toEqual({ ...healthy, ready: false, state: 'down', reason: 'it keeps crashing' });
+    expect(judged({ phase: 'Failed', reason: 'Evicted', containerStatuses: [container({}), container({ name: 'side', state: { waiting: { reason: 'ContainerCreating' } } })] }))
+      .toEqual({ ...healthy, ready: false, failed: true, state: 'down', reason: 'Evicted' });
+    expect(judged({ phase: 'Unknown', containerStatuses: [container({ ready: true, state: { running: {} } })] })).toEqual({ ...healthy, ready: false, state: 'warning', reason: 'it is running but not ready' });
+  });
+
+  it('waits for room on a node only when scheduling is what failed, not when the pod is merely not ready', () => {
+    expect(judged({ phase: 'Pending', conditions: [{ type: 'Ready', status: 'False', message: 'containers with unready status: [main]' }] }))
+      .toEqual({ ...healthy, ready: false, state: 'warning', reason: 'it has been starting for a while' });
+  });
 });

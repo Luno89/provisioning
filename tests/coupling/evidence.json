@@ -72,5 +72,16 @@
     "missed": 7
    }
   }
+ },
+ {
+  "area": "infrastructure-lib",
+  "commit": "536d454fb77b",
+  "at": "2026-11-21T05:00:28.874Z",
+  "layers": {
+   "unit": {
+    "caught": 603,
+    "missed": 9
+   }
+  }
  }
 ]
