@@ -23,6 +23,23 @@ import { InstanceSide, wireInstancePresence } from '../../instances/wiring/insta
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
 import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
+import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
+import { AccountRemovalService, temporalKoalaRemovals, temporalRemovalWorkflows } from '../../accounts/services/AccountRemovalService.js';
+import { OwnerRemoval } from '../../accounts/services/OwnerRemoval.js';
+import { wireOwnerRemoval } from '../../accounts/wiring/owner-removal.js';
+import { KOALA_REMOVAL_QUERY, OWNER_REMOVING, ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../../accounts/lib/account-removal.js';
+import { principalOf } from '../../platform/lib/permissions.js';
+import type { UserMetadata } from '../../platform/lib/types.js';
+import { QUEUES } from '../../platform/lib/work-places.js';
+import type { DeletionProgress } from '../../projects/lib/project-deletion.js';
+import { createStreamActivities } from '../../engine-host/temporal/activities.js';
+import { DEFAULT_STREAM_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
+import { ownerRemovalTold } from '../../engine/wiring/engine.js';
+import { newWorld, temporalTestEnvironment } from '../../workflows/testing/temporal-test-env.js';
+import { environmentForFile, testWorker, uniqueName } from '../../workflows/testing/test-worker.js';
+import { fakeRemovalSteps, nothingFrozen } from '../../workflows/testing/account-removal-steps.js';
+
+const temporal = environmentForFile(temporalTestEnvironment);
 
 const KEY = 'sides-test-secret';
 const closers = closedAfterEach();
@@ -50,7 +67,7 @@ async function listening(app: express.Express): Promise<{ url: string; io: Socke
 
 const mesh = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
 
-async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>) {
+async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>, atRoot?: { removal?: AccountRemovalService }) {
   const pem = generateIdentityKey();
   const rootDb = await testDatabase();
   const instanceDb = await testDatabase();
@@ -88,7 +105,14 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
     accounts: rootSide.accounts!,
     callerOf: async (req) => rootSide!.instanceCaller(String(req.headers['x-instance-id'] ?? ''), String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')),
   }));
-  rootApp.use('/api/instances', instancesRouter({ instances, chart: async () => '' }));
+  const removalAtRoot = () => {
+    if (!atRoot?.removal) throw new Error('this world was given no account removal at root');
+    return atRoot.removal;
+  };
+  rootApp.use('/api/instances', instancesRouter({
+    instances, chart: async () => '',
+    ...(atRoot ? { ownerRemoval: { removing: (ownerId: string) => removalAtRoot().ownerRemoving(ownerId), told: (ownerId: string, progress: DeletionProgress) => removalAtRoot().koalaTold(ownerId, progress) } } : {}),
+  }));
   const role = roleFromEnv({ ROLE: 'instance', INSTANCE_ID: instanceId, INSTANCE_OWNER_ID: 'bo', ROOT_URL: root.url, ROOT_PUBLIC_KEYS: publicKeyPem(identityKeysFrom(pem).publicKey) });
   const side = new InstanceSide(role, { edge: { off: 'this test runs no edge' }, unreachableAfterMs: 600_000 }, async () => token);
   const devices = recordingDevices();
@@ -98,12 +122,71 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
     devices, projects, rootToken: async () => token, side,
     instances: () => undefined,
   });
-  return { root, rootDb, rootSide, instances, token, instanceDb, instanceSide, devices, projects, instanceId, watch: () => { side.watchRoot(async () => undefined, new DependencyStates({ process: 'backend', described: ['root'] })); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
+  return { root, rootDb, rootSide, instances, token, instanceDb, instanceSide, devices, projects, instanceId, side, tellInstance, watch: () => { side.watchRoot(async () => undefined, new DependencyStates({ process: 'backend', described: ['root'] })); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
 }
 
 const machinesOn = async (db: Database) => db.machines.getLocalAgentDevices();
 
 describe('a root and an instance wired as they run, against each other', () => {
+  it('root\'s removal of the owner reaches their Koala over its presence connection, the Koala removes its owner, and root hears how it stands and removes nothing of its own until the Koala says deleted', async () => {
+    const atRoot: { removal?: AccountRemovalService } = {};
+    const { root, rootDb, token, instanceId, side, tellInstance, watch } = await rootAndInstance(undefined, atRoot);
+    await rootDb.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
+    const { env } = temporal;
+    const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>) => principalOf(user, { role: 'root' });
+    const rootQueue = uniqueName('root-removal');
+    atRoot.removal = new AccountRemovalService({
+      store: rootDb,
+      workflows: temporalRemovalWorkflows(() => env.client, rootQueue),
+      workflowType: ROOT_REMOVAL_WORKFLOW,
+      steps: ROOT_REMOVAL_STEPS,
+      instances: () => rootDb.instances.getInstances(),
+      machines: () => rootDb.machines.getLocalAgentDevices(),
+      principalFor,
+      koalas: temporalKoalaRemovals(() => env.client, (id) => tellInstance(id, OWNER_REMOVING)),
+    });
+    const seen: string[] = [];
+    const rootWorker = await testWorker(env, {
+      taskQueue: rootQueue,
+      workflows: 'RootAccountRemovalWorkflow.ts',
+      activities: {
+        RootRemovalInstanceActivity: async () => { seen.push('root: its Koala'); return { koala: instanceId }; },
+        RootRemovalMachinesActivity: async () => { seen.push('root: machines'); return []; },
+        RootRemovalMeshActivity: async () => { seen.push('root: mesh'); return { devices: 0, user: true }; },
+        RootRemovalRecordsActivity: async () => { seen.push('root: records'); return { users: 1 }; },
+      },
+    });
+    const koala = await newWorld(env);
+    const koalaQueue = uniqueName('owner-removal');
+    const reporter = new InstanceReporter({ root: { url: root.url, instanceId, token: async () => token } });
+    const nothingRunning = { trees: [], projects: [], conversations: [], checkRuns: [], releases: [], agentName: () => undefined };
+    const told = createStreamActivities({ registry: {} as never, endpoints: {} as never, bus: {} as never, accountDeletionChanged: ownerRemovalTold({ ownerRemovalToRoot: reporter, core: { runningRecords: async () => nothingRunning } }) });
+    const koalaWorker = await testWorker(env, { namespace: koala.namespace, taskQueue: koalaQueue, workflows: 'DeleteAccountWorkflow.ts', activities: fakeRemovalSteps(seen) });
+    const clusterWorker = await testWorker(env, { namespace: koala.namespace, taskQueue: QUEUES.cluster, activities: nothingFrozen() });
+    const streamWorker = await testWorker(env, { namespace: koala.namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { AccountDeletionChangedActivity: told.AccountDeletionChangedActivity } });
+    const ownerRemoval = new OwnerRemoval({ ownerId: 'bo', root: reporter, workflows: temporalRemovalWorkflows(() => koala.client, koalaQueue) });
+    let gaveUp: (why: string) => void = () => undefined;
+    const cannotCome = new Promise<never>((_, refuse) => { gaveUp = (why) => refuse(new Error(why)); });
+    wireOwnerRemoval(side, {
+      check: (why) => ownerRemoval.check(why).then((said) => {
+        if (why === 'told' && said !== 'started' && said !== 'running') gaveUp(`the Koala heard root's word and said ${said}`);
+        if (said === 'started') koala.client.workflow.getHandle(removeAccountWorkflowId('bo')).result().catch((err: Error) => gaveUp(`the Koala's removal of its owner failed: ${err.message}`));
+        return said;
+      }, (err: Error) => { gaveUp(`the Koala could not check whether root removes its owner: ${err.message}`); throw err; }),
+    });
+    watch();
+    const atRootHandle = env.client.workflow.getHandle(removeAccountWorkflowId('bo'));
+    await rootWorker.runUntil(koalaWorker.runUntil(clusterWorker.runUntil(streamWorker.runUntil(async () => {
+      const started = await atRoot.removal!.remove({ ownerId: 'bo', requestedBy: 'bo', confirm: 'bo@example.com' }, principalFor({ id: 'bo' }));
+      expect(started.ok, JSON.stringify(started)).toBe(true);
+      await Promise.race([atRootHandle.result(), cannotCome]);
+      expect(await atRootHandle.query<DeletionProgress | undefined>(KOALA_REMOVAL_QUERY)).toMatchObject({ phase: 'deleted', parts: { records: { state: 'deleted' } } });
+    }))));
+    expect(seen.slice(-3)).toEqual(['root: machines', 'root: mesh', 'root: records']);
+    expect(seen.indexOf('records'), 'the Koala deleted its owner\'s records before root went on').toBeLessThan(seen.indexOf('root: machines'));
+    expect(seen[0]).toBe('root: its Koala');
+  });
+
   it('copies the instance\'s machines from before to root once it connects, keeping their ids', async () => {
     const { rootDb, watch } = await rootAndInstance(async (db) => {
       await db.machines.saveLocalAgentDevice({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z', tokenHash: 'h'.repeat(64) });

@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter, AuthService, devicesFor, loadBreachedPasswords, OWNER_REMOVING, OwnerRemoval, passwordRouter, PasswordService, SignInProviders, temporalRemovalWorkflows } from './accounts/index.js';
+import { authRouter, AuthService, devicesFor, loadBreachedPasswords, OwnerRemoval, passwordRouter, PasswordService, SignInProviders, temporalRemovalWorkflows, wireOwnerRemoval } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
@@ -435,13 +435,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (role.role === 'instance' && role.instance && settings.instance) {
     if (!instanceReporter) throw new Error('this instance has its client settings but no sign-in through root to get a service token with');
     const clusterId = koalasClusterId(settings.clusters.here);
-    const ownerRemoval = new OwnerRemoval({ ownerId: role.instance.ownerId, root: instanceReporter, workflows: temporalRemovalWorkflows(getTemporalClient, QUEUES.engine) });
-    const checkOwnerRemoval = (why: 'told' | 'connected') => () => {
-      ownerRemoval.check(why).catch((err: Error) => console.warn(`[accounts] whether root is removing this Koala's owner could not be checked: ${err.message}; root tells it again`));
-    };
-    instanceSide.hear(OWNER_REMOVING, checkOwnerRemoval('told'));
-    instanceSide.hear('connect', checkOwnerRemoval('connected'));
-    checkOwnerRemoval('connected')();
+    wireOwnerRemoval(instanceSide, new OwnerRemoval({ ownerId: role.instance.ownerId, root: instanceReporter, workflows: temporalRemovalWorkflows(getTemporalClient, QUEUES.engine) }));
     wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
