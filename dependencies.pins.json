@@ -235,7 +235,7 @@
           "pattern": "ARG KUBECTL_VERSION=(v[0-9.]+)"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "KUBECTL_VERSION=(v[0-9.]+)"
         }
       ],
@@ -247,22 +247,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "KUBECTL_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "KUBECTL_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "KUBECTL_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "KUBECTL_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
@@ -285,7 +285,7 @@
           "pattern": "ARG HELM_VERSION=(v[0-9.]+)"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "helm-(v[0-9.]+)-"
         },
         {
@@ -309,22 +309,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "HELM_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "HELM_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "HELM_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "HELM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         },
@@ -353,7 +353,7 @@
       },
       "uses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "k3d/releases/download/(v[0-9.]+)/"
         }
       ],
@@ -365,22 +365,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "K3D_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "K3D_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "K3D_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "K3D_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
@@ -403,7 +403,7 @@
           "pattern": "ARG TERRAFORM_VERSION=([0-9.]+)"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "terraform/([0-9.]+)/terraform_"
         }
       ],
@@ -415,22 +415,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TERRAFORM_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TERRAFORM_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TERRAFORM_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TERRAFORM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
@@ -549,7 +549,7 @@
       },
       "uses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "docker/compose/releases/download/(v[0-9.]+)/"
         }
       ],
@@ -561,22 +561,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "COMPOSE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "COMPOSE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "COMPOSE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "COMPOSE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
@@ -1020,7 +1020,7 @@
           "pattern": "TEMPORAL_CLI_VERSION = '([0-9.]+)'"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_CLI_VERSION=([0-9.]+)"
         }
       ],
@@ -1033,22 +1033,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_CLI_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_CLI_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_CLI_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_CLI_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
@@ -1067,7 +1067,7 @@
           "pattern": "TEMPORAL_TEST_SERVER_VERSION = '([0-9.]+)'"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_TEST_SERVER_VERSION=([0-9.]+)"
         }
       ],
@@ -1080,22 +1080,22 @@
       },
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_TEST_SERVER_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_TEST_SERVER_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_TEST_SERVER_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "TEMPORAL_TEST_SERVER_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
@@ -1551,28 +1551,28 @@
       },
       "uses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "RCLONE_VERSION=(v[0-9.]+)"
         }
       ],
       "shaUses": [
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "RCLONE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
           "arch": "linux-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "RCLONE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
           "arch": "linux-arm64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "RCLONE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
           "arch": "darwin-amd64"
         },
         {
-          "file": "scripts/setup.sh",
+          "file": "scripts/setup-binaries.sh",
           "pattern": "RCLONE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }

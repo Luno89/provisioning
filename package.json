@@ -6,6 +6,7 @@
   "scripts": {
     "postinstall": "node scripts/fix-dnd-kit-hoisting.js",
     "setup": "bash scripts/setup.sh",
+    "setup:binaries": "bash scripts/setup-binaries.sh",
     "build": "npm run build -w apps/frontend",
     "start": "concurrently --kill-others \"npm run start -w apps/backend\" \"npm run start:worker -w apps/backend\" \"npm run start:worker:cluster -w apps/backend\" \"npm run start:worker:engine -w apps/backend\"",
     "dev": "bash scripts/dev.sh",

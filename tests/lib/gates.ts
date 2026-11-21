@@ -7,6 +7,7 @@ export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md', '
 export interface GateStep { name: string; script: string; memoryMB?: number; alone?: true }
 
 export const UNIT_STEPS: GateStep[] = [
+  { name: 'the pinned binaries, fetched and checked', script: 'setup:binaries' },
   { name: 'typecheck and the unit tier', script: 'test:unit' },
   { name: 'lint', script: 'lint' },
 ];
