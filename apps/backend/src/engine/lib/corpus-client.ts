@@ -1,5 +1,5 @@
 import { indexConfig, collectionConfig, chunksFor, pointId, type CorpusDoc } from './corpus-backend.js';
-import type { MemoryIndex } from '../../platform/index.js';
+import type { MemoryIndexReach, Reaching } from '../../platform/index.js';
 import { answered, bothOf, refusal } from './corpus-stores.js';
 
 export const INDEX_ID = 'koala-corpus';
@@ -7,47 +7,57 @@ export const COLLECTION_ID = 'koala-corpus';
 
 const isVector = (value: unknown): value is number[] => Array.isArray(value) && value.every((entry) => typeof entry === 'number');
 
-const created = new Set<string>();
-const collections = new Set<string>();
+const made = new Set<string>();
 
-export async function ensureIndex(base: string): Promise<void> {
-  if (created.has(base)) return;
-  const res = await fetch(`${base}/api/v1/indexes`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(indexConfig(INDEX_ID)),
-  });
-  if (res.ok) { created.add(base); return; }
+async function madeOnce(reach: Reaching & { base: string }, what: string, who: string, make: () => Promise<Response>): Promise<void> {
+  const key = `${reach.base} ${what}`;
+  if (made.has(key)) return;
+  const res = await make();
+  if (res.ok) { made.add(key); return; }
   const body = await res.text();
-  if (/already exist/i.test(body)) { created.add(base); return; }
-  throw refusal('Quickwit', res, body);
+  if (/already exist/i.test(body)) { made.add(key); return; }
+  throw reach.failed(refusal(who, res, body));
 }
 
-export async function indexPages(base: string, docs: CorpusDoc[]): Promise<number> {
+export const ensureIndex = (index: MemoryIndexReach['index'], id = INDEX_ID, config: unknown = indexConfig(INDEX_ID)): Promise<void> =>
+  madeOnce(index, `index ${id}`, 'Quickwit', () => index.fetch(`${index.base}/api/v1/indexes`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(config),
+  }));
+
+export const ensureCollection = (vectors: MemoryIndexReach['vectors'], name = COLLECTION_ID): Promise<void> =>
+  madeOnce(vectors, `collection ${name}`, 'Qdrant', () => vectors.fetch(`${vectors.base}/collections/${name}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
+    body: JSON.stringify(collectionConfig()),
+  }));
+
+export async function indexPages(index: MemoryIndexReach['index'], docs: CorpusDoc[]): Promise<number> {
   if (!docs.length) return 0;
   const ndjson = docs.map((d) => JSON.stringify(d)).join('\n');
-  const res = await fetch(`${base}/api/v1/${INDEX_ID}/ingest?commit=force`, {
+  const res = await index.fetch(`${index.base}/api/v1/${INDEX_ID}/ingest?commit=force`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-ndjson' },
     body: ndjson,
   });
-  await answered(res, 'Quickwit');
+  await answered(res, 'Quickwit', index);
   return docs.length;
 }
 
 export const EMBED_BATCH = 32;
 
-export async function embed(base: string, inputs: string[]): Promise<number[][]> {
+export async function embed(embeddings: MemoryIndexReach['embeddings'], inputs: string[]): Promise<number[][]> {
   if (!inputs.length) return [];
 
   const out: number[][] = [];
   for (let at = 0; at < inputs.length; at += EMBED_BATCH) {
-    const res = await fetch(`${base}/embed`, {
+    const res = await embeddings.fetch(`${embeddings.base}/embed`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ inputs: inputs.slice(at, at + EMBED_BATCH), truncate: true }),
     });
-    const body = await answered(res, 'TEI');
+    const body = await answered(res, 'TEI', embeddings);
     if (!Array.isArray(body)) continue;
     if (!body.every(isVector)) throw new Error('The embedding service answered with something that is not a list of vectors');
     out.push(...body);
@@ -55,21 +65,8 @@ export async function embed(base: string, inputs: string[]): Promise<number[][]>
   return out;
 }
 
-export async function ensureCollection(base: string, apiKey: string): Promise<void> {
-  if (collections.has(base)) return;
-  const res = await fetch(`${base}/collections/${COLLECTION_ID}`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json', 'api-key': apiKey },
-    body: JSON.stringify(collectionConfig()),
-  });
-  if (res.ok) { collections.add(base); return; }
-  const body = await res.text();
-  if (/already exist/i.test(body)) { collections.add(base); return; }
-  throw refusal('Qdrant', res, body);
-}
-
 export async function embedPages(
-  stores: Pick<MemoryIndex, 'vectors' | 'embeddings'>,
+  stores: Pick<MemoryIndexReach, 'vectors' | 'embeddings'>,
   docs: CorpusDoc[],
 ): Promise<number> {
   if (!docs.length) return 0;
@@ -77,7 +74,7 @@ export async function embedPages(
   const chunks = docs.flatMap((d) => chunksFor(d.url, d.body).map((c) => ({ ...c, doc: d })));
   if (!chunks.length) return 0;
 
-  const vectors = await embed(stores.embeddings.base, chunks.map((c) => c.text));
+  const vectors = await embed(stores.embeddings, chunks.map((c) => c.text));
   if (vectors.length !== chunks.length) {
     throw new Error(`Embedding returned ${vectors.length} vectors for ${chunks.length} chunks.`);
   }
@@ -95,27 +92,27 @@ export async function embedPages(
     },
   }));
 
-  const res = await fetch(`${stores.vectors.base}/collections/${COLLECTION_ID}/points?wait=true`, {
+  const res = await stores.vectors.fetch(`${stores.vectors.base}/collections/${COLLECTION_ID}/points?wait=true`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', 'api-key': stores.vectors.apiKey },
     body: JSON.stringify({ points }),
   });
-  await answered(res, 'Qdrant');
+  await answered(res, 'Qdrant', stores.vectors);
   return points.length;
 }
 
-export async function purgeCorpus(ends: Pick<MemoryIndex, 'index' | 'vectors'>, ingestId: string): Promise<void> {
+export async function purgeCorpus(ends: Pick<MemoryIndexReach, 'index' | 'vectors'>, ingestId: string): Promise<void> {
   const { index, vectors } = ends;
   await bothOf(
-    fetch(`${index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
+    index.fetch(`${index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
-    }).then((res) => answered(res, 'Quickwit')),
-    fetch(`${vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
+    }).then((res) => answered(res, 'Quickwit', index)),
+    vectors.fetch(`${vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'api-key': vectors.apiKey },
       body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
-    }).then((res) => answered(res, 'Qdrant')),
+    }).then((res) => answered(res, 'Qdrant', vectors)),
   );
 }

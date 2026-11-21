@@ -4,7 +4,8 @@ import { containing } from '../../platform/lib/test-matchers.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Server as SocketServer } from 'socket.io';
-import { REOPEN_FIRST_MS, type ClusterMetadata, type DeploymentMetadata, type MemoryIndex, type Off, type ProjectMetadata } from '../../platform/index.js';
+import { REOPEN_FIRST_MS, type ClusterMetadata, type DeploymentMetadata, type MemoryIndexReach, type Off, type ProjectMetadata } from '../../platform/index.js';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
@@ -29,7 +30,7 @@ function ownerBrowsers() {
   return { io, told };
 }
 
-function bridge(options: { io?: SocketServer; clusterService?: ClusterService; memoryIndex?: MemoryIndex | Off } = {}) {
+function bridge(options: { io?: SocketServer; clusterService?: ClusterService; memoryIndex?: MemoryIndexReach | Off } = {}) {
   const db = memoryDatabase();
   const workflow = mock<WorkflowClient>();
   const client = mock<Client>({ workflow });
@@ -611,7 +612,7 @@ describe('consolidating everyone\'s memories', () => {
   it('retires each person\'s own duplicates, never one person\'s for another\'s, through the memory index, and keeps what the pass found', async () => {
     const asked: string[] = [];
     server.use(http.all(`${INDEX}/*`, ({ request }) => { asked.push(new URL(request.url).pathname); return HttpResponse.json({ result: [] }); }));
-    const { db, instance } = bridge({ memoryIndex: { index: { base: INDEX }, vectors: { base: INDEX, apiKey: 'k' }, embeddings: { base: INDEX } } });
+    const { db, instance } = bridge({ memoryIndex: unreportedReach({ index: { base: INDEX }, vectors: { base: INDEX, apiKey: 'k' }, embeddings: { base: INDEX } }) });
     for (const item of [lesson('a1', 'u1', 8), lesson('a2', 'u1', 6), lesson('b1', 'u2', 7)]) await db.memory.saveMemory(item);
 
     await instance.consolidateMemoryBank();

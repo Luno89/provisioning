@@ -2,14 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { failureOf } from '../../platform/lib/dependencies.js';
+import { intercepted, QDRANT, qdrantAt, QUICKWIT, quickwitAt, unreportedReach } from '../../platform/testing/memory-index.js';
 import { ensureCollection, ensureIndex, indexPages, purgeCorpus } from './corpus-client.js';
 import type { CorpusDoc } from './corpus-backend.js';
 
-const QUICKWIT = 'http://quickwit.test:7280';
-const QDRANT = 'http://qdrant.test:6333';
-const TEI = 'http://tei.test';
-
-const ends = { index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: TEI } };
+const ends = unreportedReach(intercepted);
 
 const doc: CorpusDoc = {
   url: 'https://docs.example.com/a', host: 'docs.example.com', owner_id: 'u1', ingest_id: 'i1', project_id: '',
@@ -41,7 +38,7 @@ describe('purging an ingest', () => {
 describe('writing pages to the corpus', () => {
   it('pages Quickwit refuses fail with its answer', async () => {
     server.use(http.post(`${QUICKWIT}/api/v1/:index/ingest`, () => HttpResponse.text('disk full', { status: 507 })));
-    await expect(indexPages(QUICKWIT, [doc])).rejects.toThrow('Quickwit refused: HTTP 507 disk full');
+    await expect(indexPages(ends.index, [doc])).rejects.toThrow('Quickwit refused: HTTP 507 disk full');
   });
 });
 
@@ -50,8 +47,8 @@ describe('making the corpus\'s index and collection', () => {
     const base = 'http://quickwit-refusing.test:7280';
     let asked = 0;
     server.use(http.post(`${base}/api/v1/indexes`, () => { asked += 1; return HttpResponse.text('invalid index config', { status: 400 }); }));
-    await expect(ensureIndex(base)).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
-    await expect(ensureIndex(base)).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
+    await expect(ensureIndex(quickwitAt(base))).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
+    await expect(ensureIndex(quickwitAt(base))).rejects.toThrow('Quickwit refused: HTTP 400 invalid index config');
     expect(asked).toBe(2);
   });
 
@@ -59,20 +56,20 @@ describe('making the corpus\'s index and collection', () => {
     const base = 'http://quickwit-made.test:7280';
     let asked = 0;
     server.use(http.post(`${base}/api/v1/indexes`, () => { asked += 1; return HttpResponse.text('index `koala-corpus` already exists', { status: 400 }); }));
-    await ensureIndex(base);
-    await ensureIndex(base);
+    await ensureIndex(quickwitAt(base));
+    await ensureIndex(quickwitAt(base));
     expect(asked).toBe(1);
   });
 
   it('a collection Qdrant refuses to make fails with its answer', async () => {
     const base = 'http://qdrant-refusing.test:6333';
     server.use(http.put(`${base}/collections/:collection`, () => HttpResponse.text('wrong api key', { status: 401 })));
-    await expect(ensureCollection(base, 'k')).rejects.toThrow('Qdrant refused: HTTP 401 wrong api key');
+    await expect(ensureCollection(qdrantAt(base))).rejects.toThrow('Qdrant refused: HTTP 401 wrong api key');
   });
 
   it('a collection that is already there is taken as made', async () => {
     const base = 'http://qdrant-made.test:6333';
     server.use(http.put(`${base}/collections/:collection`, () => HttpResponse.text('Collection `koala-corpus` already exists!', { status: 409 })));
-    await expect(ensureCollection(base, 'k')).resolves.toBeUndefined();
+    await expect(ensureCollection(qdrantAt(base))).resolves.toBeUndefined();
   });
 });

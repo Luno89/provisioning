@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 import { pointId } from '../../engine/lib/corpus-backend.js';
 import type { Database } from '../../platform/index.js';
 import { consolidateOwner, keepEveryOwner } from './memory-keeping.js';
@@ -10,7 +11,7 @@ import type { MemoryItem } from './memory-store.js';
 const QUICKWIT = 'http://quickwit.keeping.test:7280';
 const QDRANT = 'http://qdrant.keeping.test:6333';
 const TEI = 'http://tei.keeping.test';
-const ends = { index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: TEI } };
+const ends = unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: TEI } });
 
 const NOW = new Date().toISOString();
 const daysBefore = (n: number) => new Date(Date.parse(NOW) - n * 86_400_000).toISOString();

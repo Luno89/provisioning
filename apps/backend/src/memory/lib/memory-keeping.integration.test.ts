@@ -4,6 +4,7 @@ import { closedPort, startCorpusStandIn, type CorpusStandIn } from '../../engine
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { consolidateOwner, keepEveryOwner } from './memory-keeping.js';
 import { indexMemories } from './memory-index.js';
+import { unreportedReach } from '../../platform/testing/memory-index.js';
 import { MEMORY_COLLECTION, MEMORY_INDEX } from './memory-rank.js';
 import type { MemoryItem } from './memory-store.js';
 
@@ -33,9 +34,9 @@ describe('consolidating a person\'s memories in Mongo with their own Quickwit, Q
     const newer = memory('keep-b', 'environment_facts', 'DNS lives at Cloudflare', 6);
     const other = memory('keep-c', 'prompt_guidance', 'Answer in short sentences', 4);
     for (const item of [older, newer, other]) await db.memory.saveMemory(item);
-    await indexMemories(standIn.endpoints, [older, newer, other]);
+    await indexMemories(standIn.reach, [older, newer, other]);
 
-    const report = await consolidateOwner({ db, index: () => standIn.endpoints, now: () => NOW }, 'keeper-owner');
+    const report = await consolidateOwner({ db, index: () => standIn.reach, now: () => NOW }, 'keeper-owner');
 
     expect(report).toMatchObject({ deduped: 1, live: 2, indexed: 2 });
     expect((await db.memory.getMemories('keeper-owner')).map((item) => [item.id, item.invalidAt ? `retired for ${item.mergedInto}` : 'current']).sort())
@@ -48,8 +49,8 @@ describe('consolidating a person\'s memories in Mongo with their own Quickwit, Q
     const findings = 'The shop\'s Odoo needs the website module installed before any theme can be applied, and installing it afterwards resets the theme to the default one, so the module goes in first and the theme second on every new database.';
     await db.projects.saveLeaf({ id: 'leaf-theme', ownerId: 'keeper-lessons', branchId: 'b1', title: 'Apply the shop theme', status: 'succeeded', findings } as never);
 
-    await consolidateOwner({ db, index: () => standIn.endpoints, now: () => NOW }, 'keeper-lessons');
-    await consolidateOwner({ db, index: () => standIn.endpoints, now: () => NOW }, 'keeper-lessons');
+    await consolidateOwner({ db, index: () => standIn.reach, now: () => NOW }, 'keeper-lessons');
+    await consolidateOwner({ db, index: () => standIn.reach, now: () => NOW }, 'keeper-lessons');
 
     const lessons = (await db.memory.getMemories('keeper-lessons')).filter((item) => !item.invalidAt);
     expect(lessons.map((item) => [item.title, item.category, item.provenance?.taskId])).toEqual([['What "Apply the shop theme" established', 'lessons_learned', 'leaf-theme']]);
@@ -64,7 +65,7 @@ describe('consolidating everyone\'s memories in Mongo, each person on their own'
     for (const item of [owned('bob-a', 'keeping-bob', 'The shop sells tea', 8), owned('bob-b', 'keeping-bob', 'The shop sells tea', 6)]) await db.memory.saveMemory(item);
     const down = await closedPort();
 
-    const outcomes = await keepEveryOwner({ db, index: () => ({ index: { base: down }, vectors: { base: down, apiKey: 'k' }, embeddings: { base: down } }), now: () => NOW });
+    const outcomes = await keepEveryOwner({ db, index: () => unreportedReach({ index: { base: down }, vectors: { base: down, apiKey: 'k' }, embeddings: { base: down } }), now: () => NOW });
 
     const ours = outcomes.filter((outcome) => outcome.state.ownerId.startsWith('keeping-'));
     expect(ours.map((outcome) => [outcome.state.ownerId, outcome.state.state]).sort()).toEqual([['keeping-ann', 'down'], ['keeping-bob', 'down']]);

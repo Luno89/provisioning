@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { useDependencyHttp } from '@koala/engine-core/http';
+import { dependencyFetch, useDependencyHttp } from '@koala/engine-core/http';
 import type { SinkListener } from '@koala/engine-core/telemetry-sdk';
-import { answerFailure, dependenciesOf, minioHealthUrl, temporaryStatus, type DependencyId, type DependencyReporter } from '../lib/dependencies.js';
+import { answerFailure, dependenciesOf, minioHealthUrl, reachingMemoryIndex, temporaryStatus, type DependencyId, type DependencyReporter, type MemoryIndexReach } from '../lib/dependencies.js';
 import type { MongoTarget } from '../lib/mongo-target.js';
 import type { Db } from 'mongodb';
 import { leaseMongo, type MongoLease } from '../lib/mongo-lease.js';
@@ -56,6 +56,9 @@ const indexChecks = (index: MemoryIndex | Off | undefined): [DependencyId, strin
   index && !isOff(index)
     ? [['quickwit', `${trimmed(index.index.base)}/health/readyz`], ['qdrant', `${trimmed(index.vectors.base)}/readyz`], ['tei', `${trimmed(index.embeddings.base)}/health`]]
     : [];
+
+export const memoryIndexReachOf = (index: MemoryIndex | Off, reporter: DependencyReporter): MemoryIndexReach | Off =>
+  isOff(index) ? index : reachingMemoryIndex(index, reporter, dependencyFetch);
 
 export function checkServices(states: DependencyStates, at: ServiceAddresses, doFetch: typeof fetch = fetch): void {
   const checks: [DependencyId, string | undefined][] = [

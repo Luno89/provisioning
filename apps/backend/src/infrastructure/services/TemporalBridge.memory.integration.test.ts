@@ -19,7 +19,7 @@ const lesson = (id: string, ownerId: string, days: number) => ({
 describe('the bridge\'s pass over everyone\'s memories, on Mongo', () => {
   it('retires each person\'s own duplicates, indexes what is left in the memory index, and keeps what the pass found', async () => {
     const db = await testDatabase();
-    const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, undefined, { memoryIndex: standIn.endpoints });
+    const bridge = new TemporalBridge(db, testDataDir(), undefined, KEY, undefined, { memoryIndex: standIn.reach });
     for (const item of [lesson('a1', 'u1', 8), lesson('a2', 'u1', 6), lesson('b1', 'u2', 7)]) await db.memory.saveMemory(item);
 
     await bridge.consolidateMemoryBank();

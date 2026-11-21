@@ -1,5 +1,6 @@
 import { type Fields, fieldsOf } from '../../platform/lib/request-fields.js';
 import { answered } from './corpus-stores.js';
+import type { Reaching } from '../../platform/index.js';
 
 
 export interface CrawlSpec {
@@ -48,10 +49,9 @@ export function readCrawlResults(body: unknown): FetchedPage[] {
   }).filter((p) => p.url);
 }
 
-export interface Crawler {
+export interface Crawler extends Reaching {
   base: string;
   token: string;
-  fetch: typeof fetch;
 }
 
 export async function crawlPages(crawler: Crawler, urls: string[]): Promise<FetchedPage[]> {
@@ -60,7 +60,7 @@ export async function crawlPages(crawler: Crawler, urls: string[]): Promise<Fetc
     headers: { 'content-type': 'application/json', authorization: `Bearer ${crawler.token}` },
     body: JSON.stringify(buildBatchPayload(urls)),
   });
-  return readCrawlResults(await answered(res, 'Crawl4AI'));
+  return readCrawlResults(await answered(res, 'Crawl4AI', crawler));
 }
 
 export function hostOf(url: string): string | undefined {
