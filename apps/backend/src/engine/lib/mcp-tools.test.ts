@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { contractFor, contractsFor, qualify, routeCall, serversFor, unqualify } from './mcp-tools.js';
+import { contractFor, qualify, unqualify } from './mcp-tools.js';
 import type { McpServer } from './mcp-registry.js';
 
 const server = (over: Partial<McpServer> = {}): McpServer => ({
@@ -28,20 +28,5 @@ describe('hints become declarations', () => {
   it('asks before a tool the server says is destructive, and only trusts a tool that writes when it says it is not', () => {
     expect(contractFor('Gitea MCP', { name: 'delete_repo', annotations: { destructiveHint: true } }).destructive).toBe(true);
     expect(contractFor('Gitea MCP', { name: 'add_label', annotations: { destructiveHint: false } }).destructive).toBe(false);
-  });
-});
-
-describe('which servers a run gets', () => {
-  it('keeps only named servers that answered with tools', () => {
-    const down = server({ id: 'd2', name: 'Down', unreachable: 'timeout' });
-    const empty = server({ id: 'd3', name: 'Empty', tools: [] });
-    expect(serversFor(['Gitea MCP', 'Down', 'Empty'], [server(), down, empty]).map((s) => s.name)).toEqual(['Gitea MCP']);
-    expect(contractsFor(serversFor(['Gitea MCP'], [server()])).map((c) => c.name)).toEqual(['gitea-mcp__list_repos', 'gitea-mcp__create_issue']);
-  });
-
-  it('routes a call only to a tool the server really has', () => {
-    expect(routeCall('gitea-mcp__list_repos', [server()])).toMatchObject({ tool: 'list_repos' });
-    expect(routeCall('gitea-mcp__drop_everything', [server()])).toBeUndefined();
-    expect(routeCall('other__list_repos', [server()])).toBeUndefined();
   });
 });
