@@ -204,6 +204,15 @@ export function platformStoreContract(make: () => Promise<PlatformStore>): void 
       expect(await got(store, 'b3')).toMatchObject({ person: { sub: 'bob' } });
       expect(await store.endBrowserSessions({ sub: 'nobody' })).toEqual([]);
     });
+
+    it('ends the sessions root holds for an account signed in on root itself with the rest of that person\'s', async () => {
+      const store = await make();
+      await put(store, 'r1', { cookie: held('ann', 'x').cookie, account: { sub: 'ann', sessionAt: 1 } });
+      await put(store, 'r2', { cookie: held('bob', 'x').cookie, account: { sub: 'bob', sessionAt: 1 } });
+      await put(store, 'b1', held('ann', 'root-1'));
+      expect((await store.endBrowserSessions({ sub: 'ann' })).sort()).toEqual(['b1', 'r1']);
+      expect(await got(store, 'r2')).toMatchObject({ account: { sub: 'bob' } });
+    });
   });
 
   describe('failed sign-in attempts', () => {

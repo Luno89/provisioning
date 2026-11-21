@@ -28,12 +28,23 @@ export const BROWSER_SESSION_COOKIE = 'koala_sid';
 
 export const BROWSER_SESSION_SECONDS = 14 * 24 * 60 * 60;
 
-export const heldBy = (person: Pick<BrowserPerson, 'sub' | 'rootSid'> | undefined, of: BrowserSessionsOf): boolean =>
-  person !== undefined && ('sub' in of ? person.sub === of.sub : person.rootSid === of.rootSid);
+export interface AccountSession {
+  sub: string;
+  sessionAt: number;
+}
+
+export interface HeldSession {
+  person?: Pick<BrowserPerson, 'sub' | 'rootSid'> | undefined;
+  account?: AccountSession | undefined;
+}
+
+export const heldBy = (held: HeldSession, of: BrowserSessionsOf): boolean =>
+  'sub' in of ? held.person?.sub === of.sub || held.account?.sub === of.sub : held.person !== undefined && held.person.rootSid === of.rootSid;
 
 declare module 'express-session' {
   interface SessionData {
     person: BrowserPerson;
+    account: AccountSession;
     signingIn: SignInStarted;
   }
 }

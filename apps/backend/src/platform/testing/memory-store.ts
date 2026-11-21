@@ -42,7 +42,7 @@ export class MemoryPlatformStore implements PlatformStore {
     const all = await new Promise<Record<string, session.SessionData>>((resolve, reject) => {
       this.sessions.all((err, found) => (err ? reject(err as Error) : resolve((found ?? {}) as Record<string, session.SessionData>)));
     });
-    const ids = Object.entries(all).filter(([, held]) => heldBy(held.person, of)).map(([id]) => id);
+    const ids = Object.entries(all).filter(([, held]) => heldBy(held, of)).map(([id]) => id);
     for (const id of ids) await new Promise<void>((resolve, reject) => { this.sessions.destroy(id, (err) => (err ? reject(err as Error) : resolve())); });
     return ids;
   }
