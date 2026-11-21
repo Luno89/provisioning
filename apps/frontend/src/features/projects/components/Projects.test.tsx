@@ -3,6 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Projects } from './Projects.js'
 import * as groveApi from '../api/grove.js'
+import { useDeletionsStore } from '../stores/deletions.js'
+
+vi.mock('../../platform/stores/socket', () => import('../../../test/socket-events'))
 
 vi.mock('../api/grove.js', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
@@ -42,9 +45,17 @@ vi.mock('./Strip/ProjectStrip.js', () => ({
 }))
 
 vi.mock('./Settings/index.js', () => ({
-  default: ({ treeId, projectId }: { treeId?: string; projectId?: string }) => (
-    <div data-testid="settings">Settings for {treeId ? `tree:${treeId}` : `project:${projectId}`}</div>
+  default: ({ treeId, projectId, onDeleted }: { treeId?: string; projectId?: string; onDeleted: () => void }) => (
+    <div data-testid="settings">
+      Settings for {treeId ? `tree:${treeId}` : `project:${projectId}`}
+      <button type="button" onClick={() => { useDeletionsStore.getState().follow({ projectId: projectId ?? '', name: 'shop', mode: 'archive' }); onDeleted() }}>delete-it</button>
+    </div>
   ),
+}))
+
+vi.mock('../api/projects.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/projects.js')>()),
+  getProjectRemoval: vi.fn().mockResolvedValue({ name: 'shop', trees: [], keptConversations: 0, builds: 0, apps: [], deletion: { startedAt: '2026-11-21T10:00:00Z', requestedBy: 'bo', mode: 'archive', phase: 'deleting' } }),
 }))
 
 vi.mock('./Board/index.js', () => ({
@@ -178,5 +189,16 @@ describe('Projects component routing and hash synchronization', () => {
 
     expect(window.location.hash).toBe('#/projects/tree/tree-1')
     expect(await screen.findByText('Board for tree:tree-1')).toBeInTheDocument()
+  })
+
+  it('goes back to the projects once a project is being deleted, and keeps showing its deletion there', async () => {
+    useDeletionsStore.setState({ followed: [] })
+    window.location.hash = '#/projects/project/proj-1/settings'
+    renderProjects()
+    fireEvent.click(await screen.findByRole('button', { name: 'delete-it' }))
+    expect(await screen.findByTestId('project-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('settings')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Deleting shop' })).toBeInTheDocument()
+    expect(await screen.findByText('Deleting')).toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createTurnLogBus, notifyTurnLog, TURN_LOG_CHANNEL, userRoom } from './stream-worker.js';
+import { createTurnLogBus, notifyProjectDeletion, notifyTurnLog, TURN_LOG_CHANNEL, userRoom } from './stream-worker.js';
+import { PROJECT_DELETION } from '../../projects/index.js';
 import type { EngineEvent } from '@koala/agent-engine';
 import type { TurnLogEntry } from '../../engine/lib/turn-log.js';
 
@@ -11,6 +12,15 @@ const rooms = () => {
 };
 
 afterEach(() => { vi.useRealTimers(); });
+
+describe('telling browsers where a project\'s deletion stands', () => {
+  it('sends it to its owner\'s browsers only', () => {
+    const { io, sent } = rooms();
+    const event = { projectId: 'p1', progress: { seq: 1, phase: 'deleting' as const, work: [], parts: {} } };
+    notifyProjectDeletion(io)('u1', event);
+    expect(sent).toEqual([{ room: userRoom('u1'), channel: PROJECT_DELETION, payload: event }]);
+  });
+});
 
 describe('telling browsers about a turn', () => {
   it('sends a written entry to its owner\'s browsers only, without the owner on it', () => {

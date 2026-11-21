@@ -1,4 +1,4 @@
-import type { ProjectRemovalPreview, ProjectRemovalState } from '../types/project-removal'
+import type { ProjectDeletion, ProjectDeletionMode, ProjectRemovalPreview } from '../types/project-removal'
 import { api } from '../../../api/client'
 
 export const projectKeys = {
@@ -6,6 +6,8 @@ export const projectKeys = {
   runs: (id: string | null) => ['project-runs', id] as const,
   log: (runId: string | null) => ['logs', 'pipeline', runId] as const,
   removal: (id: string) => ['projects', id, 'removal'] as const,
+  deletion: (id: string) => ['project-deletion', id] as const,
+  deleted: () => ['projects-deleted'] as const,
 }
 
 export const listProjects = <T,>(): Promise<T[]> =>
@@ -27,5 +29,5 @@ export const promoteRun = (projectId: string, runId: string, body?: unknown) =>
 export const getProjectRemoval = (id: string): Promise<ProjectRemovalPreview> =>
   api.get<ProjectRemovalPreview>(`/projects/${encodeURIComponent(id)}/removal`).then((r) => r.data)
 
-export const deleteProject = (id: string, confirm: string, mode: 'archive' | 'permanent'): Promise<ProjectRemovalState> =>
-  api.delete<{ state: ProjectRemovalState }>(`/projects/${encodeURIComponent(id)}`, { data: { confirm, mode } }).then((r) => r.data.state)
+export const deleteProject = (id: string, confirm: string, mode: ProjectDeletionMode): Promise<ProjectDeletion> =>
+  api.delete<{ deletion: ProjectDeletion }>(`/projects/${encodeURIComponent(id)}`, { data: { confirm, mode } }).then((r) => r.data.deletion)

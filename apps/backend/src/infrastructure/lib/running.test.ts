@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runningItems, type RunningRecords, type RunningWorkflow } from './running.js';
+import { runningItems, workTitle, type RunningRecords, type RunningWorkflow } from './running.js';
 
 const records: RunningRecords = {
   trees: [{ id: 't1', name: 'Delivery Labels' }],
@@ -51,6 +51,12 @@ describe('what is running, in plain words', () => {
       flow('bench-idle-u1', 'BenchIdleWorkflow', 4),
     ], records);
     expect(items.map((item) => item.workflowId)).toEqual(['grove-run-t1']);
+  });
+
+  it('names any one piece of work in the same words, child runs and quiet work included, as a deletion lists what it stops', () => {
+    expect(workTitle(flow('grove-run-t1', 'AgentRunWorkflow', 1, { parent: 'x' }), records)).toBe('Tree run: Delivery Labels');
+    expect(workTitle(flow('stored-files-p1-1', 'StoredFilesWorkflow', 1), records)).toBe('Saving files you uploaded');
+    expect(workTitle(flow('b1', 'executePipelineRunWorkflow', 1), records)).toBe('Building a project');
   });
 
   it('still says something useful about a run from before runs said what they were', () => {

@@ -18,6 +18,7 @@ import { QUEUES } from '../platform/lib/work-places.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { bundled, realTemporalEnvironment } from './testing/temporal-test-env.js';
 import { testWorker, uniqueName } from './testing/test-worker.js';
+import { latest, type ToldDeletion } from './testing/removal-steps.js';
 
 let env: TestTemporal;
 let db: MongoDB;
@@ -61,11 +62,12 @@ describe('a project being deleted while a step of its release is still writing',
       files: { removeProjectFiles: async () => 0 },
     });
     const work = temporalProjectWork(async () => client);
+    const told: ToldDeletion[] = [];
     const workers = await Promise.all([
       testWorker(env, { taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'DeleteProjectWorkflow.ts')), activities: createProjectDeletionActivities({ work, removal, archive: temporalProjectArchive(async () => client, db.projects, queue) }) }),
       testWorker(env, { taskQueue: QUEUES.cluster, activities: createFrozenWorkActivities({ work, workers: { restart: async () => 'not-here' } }) }),
       testWorker(env, { taskQueue: `${queue}-step`, workflowBundle: await bundled(resolve(import.meta.dirname, 'testing/project-step.fixture-workflow.ts'), [resolve(import.meta.dirname, 'telemetry-interceptors.ts')]), activities: { ProjectStepActivity: step } }),
-      testWorker(env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined } }),
+      testWorker(env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined, ProjectDeletionChangedActivity: async (change: ToldDeletion) => { told.push(change); } } }),
     ]);
     const runs = workers.map((worker) => worker.run());
     try {
@@ -75,6 +77,7 @@ describe('a project being deleted while a step of its release is still writing',
       await withWorkFor({ project, removing: 'project' }, () => workflows.start(DELETE_PROJECT_WORKFLOW, deleteProjectWorkflowId(project), [{ projectId: project, mode: 'permanent' }], owner));
       const handle = client.workflow.getHandle(deleteProjectWorkflowId(project));
       expect(await handle.result()).toMatchObject({ stopped: [releaseRunWorkflowId(project)] });
+      expect(latest(told)?.work.map((item) => [item.workflowId, item.type, item.state]), 'the person saw the step stop').toEqual([[releaseRunWorkflowId(project), 'ProjectStepWorkflow', 'stopped']]);
       expect(((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes), 'deletion waits on no timer').toBe(false);
       expect((await db.releases.getPipelineRuns()).some((entry) => entry.projectId === project), 'what the step wrote on its way out is gone with the project').toBe(false);
       expect((await db.projects.getProjects()).some((entry) => entry.id === project)).toBe(false);

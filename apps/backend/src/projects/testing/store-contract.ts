@@ -117,6 +117,20 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
       expect(await store.deletedProjects('owner-1')).toEqual([]);
     });
 
+    it('keeps where a deletion stands with its mark, never letting an older copy replace a newer one', async () => {
+      const store = await make();
+      await store.saveProject(project('a'));
+      const progress = (seq: number) => ({ seq, phase: 'deleting' as const, work: [], parts: { apps: { state: 'deleting' as const, left: 3 - seq, deleted: seq } } });
+      expect(await store.saveDeletionProgress('a', progress(1)), 'nothing is kept for a project not being deleted').toBe(false);
+      await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1', mode: 'archive' });
+      expect(await store.saveDeletionProgress('a', progress(2))).toBe(true);
+      expect(await store.saveDeletionProgress('a', progress(1))).toBe(false);
+      expect(await store.deletion('a')).toEqual({ startedAt: at(1), requestedBy: 'owner-1', mode: 'archive', phase: 'deleting', progress: progress(2) });
+      expect(await store.archive('a')).toBe(true);
+      expect(await store.deletion('a')).toMatchObject({ phase: 'archived', progress: progress(2) });
+      expect(await store.saveDeletionProgress('missing', progress(3))).toBe(false);
+    });
+
     it('holds a project open for an upload being kept, and not once it is being deleted or is not there', async () => {
       const store = await make();
       await store.saveProject(project('a'));

@@ -23,7 +23,7 @@ import {
   treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
   type GiteaService, type ProjectRepoService, treeTypesRouter,
 } from '../../projects/index.js';
-import { type ClusterAccess, type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
+import { type ClusterAccess, type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter, workTitle } from '../../infrastructure/index.js';
 import { extensionServiceFor } from '../services/ExtensionService.js';
 import { EngineToolService } from '../services/EngineToolService.js';
 import { McpServerService } from '../services/McpServerService.js';
@@ -653,6 +653,13 @@ export function startEngineStream(deps: EngineStreamDeps): void {
     const worker = await startStreamWorker({
       io,
       turnLogs: db.engine,
+      deletions: {
+        store: db.projects,
+        titles: async (ownerId) => {
+          const records = await core.runningRecords(ownerId);
+          return (work) => workTitle(work, records);
+        },
+      },
       connection: deps.connection,
       services: {
         registry: engineRegistry,

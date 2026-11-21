@@ -80,8 +80,8 @@ interface Changes { losing: boolean; lost: string[]; columns: { table: string; c
 interface RepoEntry { path: string; type: 'file' | 'dir' }
 
 async function removalFailed(http: AxiosInstance, projectId: string): Promise<string | undefined> {
-  const state = ((await http.get(`/projects/${projectId}/removal`, { validateStatus: () => true })).data as { state?: { state: string; reason?: string } }).state;
-  return state?.state === 'failed' ? `deleting the project failed: ${state.reason}` : undefined;
+  const problem = ((await http.get(`/projects/${projectId}/removal`, { validateStatus: () => true })).data as { deletion?: { progress?: { problem?: string } } }).deletion?.progress?.problem;
+  return problem ? `deleting the project is stuck: ${problem}` : undefined;
 }
 
 async function commit(http: AxiosInstance, projectId: string, entries: { path: string; content: string }[], message: string): Promise<string> {
@@ -467,7 +467,7 @@ async function main(): Promise<void> {
     console.log('[5] deleting the project while its app is live takes the app with it');
     const removal = (await http.get(`/projects/${projectId}/removal`)).data as { apps: string[] };
     assert.deepEqual(removal.apps, [NAME], `the deletion does not say the app goes with it: ${JSON.stringify(removal)}`);
-    const removing = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
+    const removing = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME, mode: 'permanent' } });
     assert.equal(removing.status, 202, JSON.stringify(removing.data));
     await until('the project to be deleted', async () => {
       const status = (await http.get(`/projects/${projectId}/removal`)).status;
@@ -497,7 +497,7 @@ async function main(): Promise<void> {
       console.log(`[6] the run stopped early, and ODOO_RELEASE_LIVE_KEEP keeps what it made: project ${projectId}, namespace ${place.namespace}`);
     } else if (projectId) {
       console.log('[6] the run stopped early: removing what it made');
-      const removed = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
+      const removed = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME, mode: 'permanent' } });
       console.log(`    deleting the project, its app with it: ${removed.status} ${removed.status >= 300 ? JSON.stringify(removed.data) : ''}`);
       await until('the project to be deleted', async () => {
         const status = (await http.get(`/projects/${projectId}/removal`)).status;

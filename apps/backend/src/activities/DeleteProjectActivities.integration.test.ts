@@ -35,8 +35,9 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
         return ids.length === 2 ? ids : waiting(`listed: ${ids.join(', ') || 'nothing'}`);
       });
       const stopped = await deletion.StopProjectWorkActivity({ projectId: project });
-      expect([...stopped].sort()).toEqual([going, `${going}-child`].sort());
-      expect(await frozen.AwaitProjectWorkActivity({ workflowIds: stopped })).toEqual({ restarted: [] });
+      expect(stopped.map((work) => work.workflowId).sort()).toEqual([going, `${going}-child`].sort());
+      expect(new Set(stopped.map((work) => work.type)), 'each is listed with its type, which names it for the person').toEqual(new Set(['projectProbeWorkflow', 'projectProbeChildWorkflow']));
+      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [] });
       expect((await client.workflow.getHandle(going).describe()).status.name).toBe('CANCELLED');
       expect((await client.workflow.getHandle(staying).describe()).status.name).toBe('RUNNING');
       await client.workflow.getHandle(staying).cancel();
@@ -54,10 +55,12 @@ describe('keeping a deleted project for its 90 days', () => {
     await db.projects.saveProject({ id: project, name: 'kept', ownerId: 'owner-1', appType: 'gitapp', createdAt: '2026-11-21T00:00:00.000Z' });
     await db.projects.markDeleting(project, { startedAt: '2026-11-21T00:00:00.000Z', requestedBy: 'owner-1', mode: 'archive' });
     const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: temporalProjectArchive(async () => client, db.projects, uniqueName('purges')) });
-    await deletion.ArchiveProjectActivity({ projectId: project });
-    await deletion.ArchiveProjectActivity({ projectId: project });
+    const first = await deletion.ArchiveProjectActivity({ projectId: project });
+    const again = await deletion.ArchiveProjectActivity({ projectId: project });
     expect(await db.projects.deletion(project)).toMatchObject({ phase: 'archived' });
     const described = await client.workflow.getHandle(purgeProjectWorkflowId(project)).describe();
+    expect(first, 'the date shown is the one Temporal will purge it on').toEqual({ keptUntil: described.executionTime!.toISOString() });
+    expect(again).toEqual(first);
     expect(described.status.name).toBe('RUNNING');
     expect(described.executionTime!.getTime() - described.startTime.getTime()).toBe(ARCHIVE_DAYS * 86_400_000);
     expect(described.typedSearchAttributes.getAll().map((pair) => pair.key.name), 'the purge is the deletion\'s own work, not the project\'s').not.toContain('KoalaProject');

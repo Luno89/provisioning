@@ -33,7 +33,7 @@ export { cleanKubeconfig } from './lib/kubeconfig-clean.js';
 export { dkimValue, mailByHand, mailRecords } from './lib/mail-dns.js';
 export { isValidImageTag } from './lib/registry-tags.js';
 export { missingFromEnvFile, signInSecretsOf } from './lib/root-sign-in.js';
-export type { RunningRecords } from './lib/running.js';
+export { workTitle, type RunningRecords } from './lib/running.js';
 export { bindingProjection, bindingSecretName } from './lib/service-binding.js';
 export type { ProjectedBinding } from './lib/service-binding.js';
 export { existingOnCluster, orphanedIngressWebhook, PLATFORM_KINDS, PLATFORM_PLAN, platformSecretManifests, platformStackEnv, platformStackName, secretStamp } from './lib/platform-provision.js';

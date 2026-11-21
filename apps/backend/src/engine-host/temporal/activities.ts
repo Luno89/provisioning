@@ -53,7 +53,7 @@ import type { TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { groveAgentOf, resolveTreeType } from '../../projects/lib/tree-types.js';
 
-import type { AdoptedPlan, Tree, Branch, Leaf } from '../../projects/index.js';
+import type { AdoptedPlan, Tree, Branch, Leaf, ProjectDeletionChange } from '../../projects/index.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { EnvironmentResolver } from '../sandboxes/environments.js';
 import { platformCatalogue } from '../../extensions/installed.js';
@@ -78,6 +78,7 @@ export interface StreamServices {
   post?: ((ownerId: string, notice: Readonly<Record<string, unknown>>) => Promise<void>) | undefined;
   asking?: ((ownerId: string, tool: string) => Promise<void>) | undefined;
   groveChanged?: ((ownerId: string) => void) | undefined;
+  deletionChanged?: ((change: ProjectDeletionChange) => Promise<void>) | undefined;
   workflowFailed?: ((report: WorkflowFailedReport) => Promise<void>) | undefined;
   machineClusters?: MachineClusterRecords | undefined;
   storedFiles?: StoredFilesActivities | undefined;
@@ -101,6 +102,13 @@ const NO_MACHINE_CLUSTERS = 'this Koala keeps no machine clusters, so a machine\
 function machineClustersOf(services: StreamServices): MachineClusterRecords {
   if (!services.machineClusters) throw ApplicationFailure.nonRetryable(NO_MACHINE_CLUSTERS, 'NoMachineClusters');
   return services.machineClusters;
+}
+
+const NO_DELETION_NOTICES = 'this process tells nobody about a project\'s deletion, so where it stands cannot be told here';
+
+function deletionChangedOf(services: StreamServices): (change: ProjectDeletionChange) => Promise<void> {
+  if (!services.deletionChanged) throw ApplicationFailure.nonRetryable(NO_DELETION_NOTICES, 'NoDeletionNotices');
+  return services.deletionChanged;
 }
 
 export interface TraceRecorder {
@@ -149,6 +157,7 @@ export interface StreamActivities extends StoredFilesActivities {
   EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
   EngineBenchIdleActivity(args: { ownerId: string }): Promise<BenchIdleOutcome>;
   EngineGroveChangedActivity(args: { ownerId: string }): Promise<void>;
+  ProjectDeletionChangedActivity(change: ProjectDeletionChange): Promise<void>;
   EngineWorkflowFailedActivity(report: WorkflowFailedReport): Promise<void>;
   EngineMachineClusterStartedActivity(args: { clusterId: string; result: MachineClusterResult }): Promise<void>;
   EngineMachineClusterStoppedActivity(args: { clusterId: string }): Promise<void>;
@@ -507,6 +516,10 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
 
     async EngineGroveChangedActivity({ ownerId }: { ownerId: string }): Promise<void> {
       services.groveChanged?.(ownerId);
+    },
+
+    async ProjectDeletionChangedActivity(change: ProjectDeletionChange): Promise<void> {
+      await deletionChangedOf(services)(change);
     },
 
     async EngineMachineClusterStartedActivity({ clusterId, result }: { clusterId: string; result: MachineClusterResult }): Promise<void> {
