@@ -736,14 +736,14 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         if ('deleteProject' in action) {
           const id = world.projectId;
           if (typeof id !== 'string') throw new Error('the check has no project to delete');
-          const removed = await http.delete(`/projects/${id}`, { data: { confirm: world.projectName }, validateStatus: () => true });
+          const removed = await http.delete(`/projects/${id}`, { data: { confirm: world.projectName, mode: 'permanent' }, validateStatus: () => true });
           if (removed.status >= 300) return { outcome: 'failed', reason: `the project would not be deleted: ${(removed.data as { error?: string; blockers?: string[] }).error ?? removed.status}${(removed.data as { blockers?: string[] }).blockers?.length ? ` (${(removed.data as { blockers: string[] }).blockers.join('; ')})` : ''}` };
           for (;;) {
             await stopIfCancelled();
             const preview = await http.get(`/projects/${id}/removal`, { validateStatus: () => true });
             if (preview.status === 404) return { outcome: 'ok' };
-            const state = (preview.data as { state?: { state: string; reason?: string } }).state;
-            if (state?.state === 'failed') return { outcome: 'failed', reason: `deleting the project stopped: ${state.reason}` };
+            const problem = (preview.data as { deletion?: { progress?: { problem?: string } } }).deletion?.progress?.problem;
+            if (problem) return { outcome: 'failed', reason: `deleting the project is stuck: ${problem}` };
             await wait();
           }
         }

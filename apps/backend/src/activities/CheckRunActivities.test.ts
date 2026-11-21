@@ -899,14 +899,14 @@ describe('the actions a check performs on a tree and its project', () => {
       .toContain('it finished failed: the drop was refused: conflict');
   });
 
-  it('deletes the project by its name and waits for its removal to finish, or says why it stopped', async () => {
+  it('deletes the project for good by its name and waits until it is gone, or says why it is stuck', async () => {
     const world = { project: { name: 'shop' } };
     const remove = (over: Record<string, Route>) => perform({ ...CHAT, world, then: [{ name: 'delete', do: { deleteProject: true }, expect: { outcome: 'ok' } }] }, planned(over));
     let polled = 0;
-    expect(failures((await remove({ 'DELETE /projects/p1': {}, 'GET /projects/p1/removal': () => (++polled < 2 ? { data: { state: { state: 'running' } } } : { status: 404 }) })).result.checks)).toEqual([]);
-    expect(happened('DELETE /projects/p1')[0]!.body).toEqual({ confirm: 'shop-space-1' });
-    expect((await remove({ 'DELETE /projects/p1': {}, 'GET /projects/p1/removal': { data: { state: { state: 'failed', reason: 'a cluster is down' } } } })).result.checks.map((check) => check.detail))
-      .toContain('it finished failed: deleting the project stopped: a cluster is down');
+    expect(failures((await remove({ 'DELETE /projects/p1': {}, 'GET /projects/p1/removal': () => (++polled < 2 ? { data: { deletion: { phase: 'deleting' } } } : { status: 404 }) })).result.checks)).toEqual([]);
+    expect(happened('DELETE /projects/p1')[0]!.body).toEqual({ confirm: 'shop-space-1', mode: 'permanent' });
+    expect((await remove({ 'DELETE /projects/p1': {}, 'GET /projects/p1/removal': { data: { deletion: { phase: 'deleting', progress: { problem: 'a cluster is down' } } } } })).result.checks.map((check) => check.detail))
+      .toContain('it finished failed: deleting the project is stuck: a cluster is down');
     expect((await remove({ 'DELETE /projects/p1': { status: 409, data: { error: 'busy', blockers: ['an app', 'a build'] } } })).result.checks.map((check) => check.detail))
       .toContain('it finished failed: the project would not be deleted: busy (an app; a build)');
     expect((await perform({ ...CHAT, then: [{ name: 'delete', do: { deleteProject: true }, expect: {} }] })).result.checks.map((check) => check.detail)).toContain('the check has no project to delete');
