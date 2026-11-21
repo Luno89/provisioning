@@ -15,10 +15,12 @@ const GITEA: McpServerRecord = {
   captured: { tools: [{ name: 'list_repos', description: 'List repositories', annotations: { readOnlyHint: true } }], at: 't1', fingerprint: runsFingerprint(HOSTED) },
 };
 
-const hostFor = async (enabled: string[]) => {
+const SAID_READ_ONLY: McpServerRecord = { ...GITEA, tools: { list_repos: { kind: 'read-only' } } };
+
+const hostFor = async (enabled: string[], server: McpServerRecord = SAID_READ_ONLY) => {
   const db = await testDatabase();
   await seedAll(db);
-  await db.engine.saveMcpServer(GITEA);
+  await db.engine.saveMcpServer(server);
   await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'chat', messages: [], mcpServers: enabled, createdAt: 't0', updatedAt: 't0' });
   const grants = grantsHeldInMemory();
     const grantId = await grantHeld(grants, { ownerId: 'bo', runId: 'r1' });
@@ -39,6 +41,11 @@ describe('the person\'s MCP servers, read from their records by the engine host'
     const answered = await call('gitea__list_repos', {});
     expect(answered.ok).toBe(false);
     expect(answered.content).toBe('the server has no address this platform can reach: its deployment is not running, or nothing routes to it');
+  });
+
+  it('asks the person before a hosted server\'s tool runs while only the server itself says it only reads', async () => {
+    const { call } = await hostFor(['gitea'], GITEA);
+    expect(await call('gitea__list_repos', {})).toMatchObject({ ok: false, asks: true, digest: 'gitea__list_repos waits for a person to allow it' });
   });
 
   it('lists the person\'s servers with their state, and the known ones they have not added', async () => {
