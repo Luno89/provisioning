@@ -20,5 +20,27 @@
     "missed": 2433
    }
   }
+ },
+ {
+  "area": "accounts-services",
+  "commit": "28ee10f57ba8",
+  "at": "2026-11-21T01:33:33.730Z",
+  "layers": {
+   "component": {
+    "caught": 662,
+    "missed": 224
+   }
+  }
+ },
+ {
+  "area": "engine-services",
+  "commit": "28ee10f57ba8",
+  "at": "2026-11-21T01:36:02.936Z",
+  "layers": {
+   "component": {
+    "caught": 299,
+    "missed": 127
+   }
+  }
  }
 ]

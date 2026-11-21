@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.stryker.component.config.ts" },
+  "mutate": [
+    "src/accounts/services/AuthService.ts",
+    "src/accounts/services/PasswordService.ts",
+    "src/accounts/services/ProjectInviteLimitsService.ts",
+    "src/accounts/routes/auth.ts",
+    "src/accounts/routes/password.ts",
+    "src/accounts/routes/device.ts",
+    "src/accounts/routes/admin.ts"
+  ],
+  "inPlace": true,
+  "coverageAnalysis": "perTest",
+  "reporters": ["json", "clear-text"],
+  "jsonReporter": { "fileName": "../../tests/.coupling/mutation/accounts-services.json" },
+  "concurrency": 4
+}

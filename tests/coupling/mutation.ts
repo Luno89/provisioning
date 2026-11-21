@@ -11,6 +11,8 @@ export interface MutationReport {
 export const AREAS: Record<string, { workspace: string; report: string }> = {
   provision: { workspace: 'packages/provision', report: 'tests/.coupling/mutation/provision.json' },
   'infrastructure-lib': { workspace: 'apps/backend', report: 'tests/.coupling/mutation/infrastructure-lib.json' },
+  'accounts-services': { workspace: 'apps/backend', report: 'tests/.coupling/mutation/accounts-services.json' },
+  'engine-services': { workspace: 'apps/backend', report: 'tests/.coupling/mutation/engine-services.json' },
 };
 
 const JUDGED = new Set(['Killed', 'Survived', 'Timeout']);
