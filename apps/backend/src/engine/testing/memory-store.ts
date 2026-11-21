@@ -16,7 +16,7 @@ import type { McpToolHint } from '../lib/mcp-tool-hints.js';
 import { PRINTS_KEPT, type PoisoningSignal, type ReadsPart, type RunReads, type SignalState } from '../lib/poisoning.js';
 import { type ProcedureSource, procedureKey } from '../lib/procedure-source.js';
 import type { PublishedWorkspace } from '../lib/published-workspace.js';
-import type { Handover, RunGrant } from '../lib/run-grants.js';
+import type { Handover, HeldRunToken, RunGrant } from '../lib/run-grants.js';
 import { type StoredNodeTrace, runTraceKey } from '../lib/run-traces.js';
 import { MARK_MESSAGE_CHARS, type RunMark, type TurnLogEntry } from '../lib/turn-log.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
@@ -142,6 +142,7 @@ export class MemoryEngineStore implements EngineStore {
   private readonly publishedWorkspaces: Rows<PublishedWorkspace>;
   private readonly runEffort: Rows<RunEffort>;
   private readonly runGrants: Rows<RunGrant>;
+  private readonly runTokens = new Map<string, Map<string, HeldRunToken>>();
   private readonly runEndings: Rows<RunEnding>;
   private readonly runReads: Rows<StoredReads>;
   private readonly poisoningSignals: Rows<PoisoningSignal>;
@@ -187,12 +188,36 @@ export class MemoryEngineStore implements EngineStore {
     this.runGrants.put(grant.id, grant);
   }
 
+  async swapRunGrantToken(grantId: string, token: HeldRunToken, fromTurn: number): Promise<boolean> {
+    const grant = this.runGrants.get(grantId);
+    const held = this.runTokens.get(grantId) ?? new Map<string, HeldRunToken>();
+    if (grant?.state !== 'live' || (held.get(token.key)?.turn ?? 0) !== fromTurn) return false;
+    held.set(token.key, copied(token));
+    this.runTokens.set(grantId, held);
+    return true;
+  }
+
+  async getRunGrantTokens(grantId: string): Promise<HeldRunToken[]> {
+    return [...(this.runTokens.get(grantId)?.values() ?? [])].map(copied);
+  }
+
+  async dropRunGrantToken(grantId: string, key: string): Promise<void> {
+    const held = this.runTokens.get(grantId);
+    held?.delete(key);
+    if (held?.size === 0) this.runTokens.delete(grantId);
+  }
+
+  async getRunGrantsHoldingTokens(): Promise<string[]> {
+    return [...this.runTokens.keys()].filter((grantId) => this.runGrants.has(grantId));
+  }
+
   async getRunGrant(id: string): Promise<RunGrant | undefined> {
     return this.runGrants.get(id);
   }
 
   async deleteRunGrant(id: string): Promise<void> {
     this.runGrants.delete(id);
+    this.runTokens.delete(id);
   }
 
   async getRunGrantOfRun(runId: string): Promise<RunGrant | undefined> {

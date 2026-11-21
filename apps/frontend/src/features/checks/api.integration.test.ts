@@ -24,6 +24,7 @@ import type { AgentChange as BackendChange } from '../../../../backend/src/engin
 import type { Level2Run as BackendLevel2Run } from '../../../../backend/src/checks/services/Level2Service'
 import type { MemoryItem } from '../../../../backend/src/memory/lib/memory-store'
 import { standInMemoryIndex } from '../../test/backend/memory-index'
+import { grantsActingAsOwner } from '../../../../backend/src/engine/testing/run-grants'
 
 let side: ProjectsSide | undefined
 const idleTimers: { ownerId: string; idleMs: number }[] = []
@@ -38,6 +39,7 @@ const backend = await startBackend(async (site) => {
     agents: async (ownerId) => (await side!.registry.agents(ownerId)).map((agent) => agent.slug),
     procedures: async (ownerId) => (await side!.registry.procedures(ownerId)).map((procedure) => procedure.id),
     store: db.checks,
+    ...grantsActingAsOwner(db.engine),
   })
   const unindex = standInMemoryIndex()
   const practices = new PracticeService({ store: db.memory, unindex })

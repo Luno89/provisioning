@@ -1,14 +1,12 @@
 import { describe, it, expect, afterAll } from 'vitest';
+import { level2Options } from '../testing/level2-options.js';
 import axios from 'axios';
-import { BUILDER_TOOLS } from '@koala/agent-engine';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { PracticeService } from '../../memory/services/PracticeService.js';
 import { evalsLevel2Router } from './evals-level2.js';
 import { Level2Service } from '../services/Level2Service.js';
 import { BenchService } from '../services/BenchService.js';
-import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
-import { seededPersonas } from '../../extensions/seeds.js';
 import { unindexerFrom } from '../../memory/lib/memory-index.js';
 import { startCorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
 
@@ -27,19 +25,14 @@ const level2Harness = (): Promise<Harness> => mountRouter({
   prefix: '/api/evals/level2',
   router: (db) => evalsLevel2Router({
     level2: new Level2Service({
-      checks: {
+      ...level2Options(db, {
         start: async () => undefined,
         cancel: async () => false,
         outcome: async () => ({
           cancelled: false,
           results: [{ scenarioId: 'builder-saves', name: 'The builder saves', runId: 'run-x', procedure: { id: 'tool-rounds', version: '3' }, passed: true, outcome: 'ok', answer: 'Saved.', checks: [{ what: 'finishes ok', passed: true, detail: 'it finished ok' }], calls: [], counters: { rounds: 1, toolCalls: 1, totalTokens: 1 }, tasks: [], durationMs: 1 }],
         }),
-      },
-      tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
-      agents: async () => seededPersonas().map((agent) => agent.slug),
-      procedures: async () => ['tool-rounds'],
-      store: db.checks,
-      builtIn: [SCENARIO],
+      }, [SCENARIO]),
       newId: () => 'run-2',
     }),
     notes: new PracticeService({ store: db.memory, unindex, category: 'tool_note' }),

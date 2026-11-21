@@ -7,7 +7,7 @@ import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../en
 import type { McpTool } from '../../engine/lib/mcp-client.js';
 import type { MemoryItem } from '../../memory/lib/memory-store.js';
 import type { ToolContract } from '@koala/engine-core';
-import { RunGrantService } from '../../engine/index.js';
+import { grantsOver } from '../../engine/testing/run-grants.js';
 import { WITHHELD_WHY } from '../../engine/lib/tool-access.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { asPerson } from '../../platform/lib/permissions.js';
@@ -35,7 +35,7 @@ const serverTools = (enabled: string[]) => createServerTools({
 });
 
 async function offered(persona: AgentDefinition, { enabled = [], environment, settings = {}, memories, binding, catalogue = [], actingFor = 'u1' }: { enabled?: string[]; environment?: unknown; settings?: Record<string, unknown>; memories?: MemoryItem[]; binding?: unknown; catalogue?: ToolContract[]; actingFor?: string } = {}) {
-  const grants = new RunGrantService({ store: memoryDatabase().engine });
+  const grants = grantsOver(memoryDatabase().engine);
   const grant = await grants.issue({ ownerId: 'u1', runId: 'r1', principal: asPerson(actingFor), startedBy: 'person' });
   const [node] = createToolNodes({
     grants,

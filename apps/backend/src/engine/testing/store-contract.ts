@@ -389,6 +389,33 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
       expect(await store.getLiveRunGrants('owner-1')).toEqual([]);
     });
 
+    it('keeps each holder\'s run token on its grant, swapped only from the turn it was read at and only while the grant is live, through the grant\'s own saves', async () => {
+      const store = await make();
+      const token = (key: string, turn: number, access: string) => ({ key, turn, access, refresh: `refresh-${access}`, expiresAt: 1000 * turn });
+      await store.saveRunGrant(grant('g1'));
+      await store.saveRunGrant(grant('g2'));
+      expect(await store.swapRunGrantToken('g1', token('w1', 1, 'a'), 0)).toBe(true);
+      expect(await store.swapRunGrantToken('g1', token('w1', 1, 'b'), 0)).toBe(false);
+      expect(await store.swapRunGrantToken('g1', token('w1', 2, 'c'), 1)).toBe(true);
+      expect(await store.swapRunGrantToken('g1', token('w1', 3, 'd'), 1)).toBe(false);
+      expect(await store.swapRunGrantToken('g1', token('w2', 1, 'e'), 0)).toBe(true);
+      expect(await store.swapRunGrantToken('g2', token('w1', 1, 'f'), 0)).toBe(true);
+      expect(await store.swapRunGrantToken('never', token('w1', 1, 'g'), 0)).toBe(false);
+      expect(await store.getRunGrantsHoldingTokens()).toEqual(expect.arrayContaining(['g1', 'g2']));
+
+      await store.saveRunGrant(grant('g1', { state: 'ended', endedAt: at(2) }));
+      expect(await store.getRunGrant('g1')).toEqual(grant('g1', { state: 'ended', endedAt: at(2) }));
+      expect((await store.getRunGrantTokens('g1')).sort((a, b) => a.key.localeCompare(b.key))).toEqual([token('w1', 2, 'c'), token('w2', 1, 'e')]);
+      expect(await store.swapRunGrantToken('g1', token('w1', 3, 'h'), 2)).toBe(false);
+
+      await store.dropRunGrantToken('g1', 'w1');
+      expect(await store.getRunGrantTokens('g1')).toEqual([token('w2', 1, 'e')]);
+      await store.dropRunGrantToken('g1', 'w2');
+      expect(await store.getRunGrantTokens('g1')).toEqual([]);
+      expect(await store.getRunGrantTokens('never')).toEqual([]);
+      expect(await store.getRunGrantsHoldingTokens()).toEqual(['g2']);
+    });
+
     it('removes a grant issued for a start that never began, leaving every other grant', async () => {
       const store = await make();
       await store.saveRunGrant(grant('g1'));

@@ -27,6 +27,14 @@ export interface RunGrant {
   revokedBecause?: RevokedBecause | undefined;
 }
 
+export interface HeldRunToken {
+  key: string;
+  turn: number;
+  access: string;
+  refresh: string;
+  expiresAt: number;
+}
+
 export interface GrantRequest {
   ownerId: string;
   runId: string;

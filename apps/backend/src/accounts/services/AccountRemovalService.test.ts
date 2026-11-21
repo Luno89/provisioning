@@ -27,7 +27,7 @@ async function set(options: { instances?: InstanceRecord[]; releases?: InstanceR
     workflows,
     now: () => 'now',
     principalFor,
-    revocations: { revoked: async (event) => { revoked.push(event); } },
+    revocations: { revoked: async (event) => { revoked.push(event); return []; } },
     instances: options.instances ? async () => options.instances! : undefined,
     releases: options.releases ? async () => options.releases! : undefined,
     currentRelease: options.current,

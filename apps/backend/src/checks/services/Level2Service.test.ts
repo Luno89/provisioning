@@ -1,33 +1,21 @@
 import type { Client } from '@temporalio/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { BUILDER_TOOLS } from '@koala/agent-engine';
-import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
-import { seededPersonas } from '../../extensions/seeds.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { asPerson } from '../../platform/lib/permissions.js';
+import { BUILDER_SAVES, level2Options, scenarioResult } from '../testing/level2-options.js';
 import type { CheckRunInput, CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
 import type { ScenarioProposal } from '../lib/scenario-proposals.js';
 import { Level2Service, checkRunWorkflowId, temporalCheckRunner, type CheckRunner, type Level2Run } from './Level2Service.js';
 
-const SCENARIO: Scenario = {
-  id: 'builder-saves',
-  name: 'The builder checks then saves',
-  describe: 'It should compile before writing.',
-  agent: 'agent-builder',
-  procedure: { id: 'tool-rounds' },
-  input: { message: 'Save this as tidy once it checks out.' },
-  expect: { outcome: 'ok', toolsInOrder: ['check_procedure', 'save_procedure'], toolsNotCalled: ['list_tasks'] },
-};
+const SCENARIO = BUILDER_SAVES;
 
 type Outcome = CheckRunOutcome | { failed: string } | { missing: true };
 
-const result = (scenarioId: string, passed: boolean): ScenarioResult => ({
-  scenarioId, name: scenarioId, runId: `run-of-${scenarioId}`, procedure: { id: 'tool-rounds', version: '3' }, passed, outcome: passed ? 'ok' : 'failed',
-  answer: '', checks: [{ what: 'finishes ok', passed, detail: passed ? 'it finished ok' : 'it finished failed' }], calls: [], counters: { rounds: 1, toolCalls: 1, totalTokens: 10 }, tasks: [], durationMs: 5,
-});
+const result = scenarioResult;
 
 function fakeRunner() {
   const started: { workflowId: string; input: CheckRunInput }[] = [];
@@ -58,17 +46,8 @@ function fakeRunner() {
 function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; runner?: CheckRunner; fingerprints?: (ownerId: string, agents: readonly string[]) => Promise<Record<string, string>> } = {}) {
   const db: Database = memoryDatabase();
   const fake = fakeRunner();
-  let ids = 0;
-  let ticks = 0;
   const service = new Level2Service({
-    checks: over.runner ?? fake.runner,
-    tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
-    agents: async () => seededPersonas().map((agent) => agent.slug),
-    procedures: async () => ['tool-rounds', 'research'],
-    store: db.checks,
-    builtIn: over.builtIn ?? [SCENARIO],
-    newId: () => `run-${(ids += 1)}`,
-    now: () => new Date(Date.parse('2026-10-03T12:00:00Z') + (ticks += 1) * 1000).toISOString(),
+    ...level2Options(db, over.runner ?? fake.runner, over.builtIn ?? [SCENARIO]),
     ...(over.onFinished ? { onFinished: over.onFinished } : {}),
     fingerprints: over.fingerprints ?? (async (_ownerId, agents) => Object.fromEntries(agents.map((agent) => [agent, `${agent}-v1`]))),
   });
@@ -162,6 +141,23 @@ describe('Level 2 scenarios run as checks', () => {
     expect(await settled(service, run.id)).toMatchObject({ state: 'cancelled' });
     expect(await service.cancel('user-1', run.id)).toBe(false);
     expect(await service.cancel('user-1', 'nope')).toBe(false);
+  });
+
+  it('works with a grant of its person from its start until it settles, as the person when they started it and as Koala when the bench did', async () => {
+    const { service, fake, db } = world();
+    const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
+    expect(await db.engine.getRunGrantOfRun(run.id)).toMatchObject({ personId: 'user-1', principal: asPerson('user-1'), startedBy: 'person', state: 'live' });
+    const benched = await service.start({ ownerId: 'user-1', trigger: { kind: 'full' } }) as Level2Run;
+    expect(await db.engine.getRunGrantOfRun(benched.id)).toMatchObject({ startedBy: 'platform', state: 'live' });
+    fake.finish(`check-run-${run.id}`, { cancelled: false, results: [result('builder-saves', true)] });
+    await settled(service, run.id);
+    expect(await db.engine.getRunGrantOfRun(run.id)).toMatchObject({ state: 'ended' });
+
+    const failing = mock<CheckRunner>();
+    failing.start.mockRejectedValue(new Error('Temporal is not reachable'));
+    const { service: refusing, db: refusedDb } = world({ runner: failing });
+    const refused = await refusing.start({ ownerId: 'user-1' }) as Level2Run;
+    expect(await refusedDb.engine.getRunGrantOfRun(refused.id)).toMatchObject({ state: 'ended' });
   });
 
   it('says why the checks could not start, or why they ended badly', async () => {

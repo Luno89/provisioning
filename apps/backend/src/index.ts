@@ -31,10 +31,11 @@ import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { InstanceSide, wireInstances } from './instances/wiring/instances.js';
-import { rootProviderFor, rootSignInFor, rootTokenOf } from './instances/wiring/sign-in.js';
+import { rootProviderFor, rootSignInFor, rootTokenOf, runBearersFor } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { refuseWebhookOfDeletingProjects, refuseWorkOfDeletingProjects } from './projects/wiring/deleting-refusals.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
+import { RunTokens } from './engine/index.js';
 import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireProvisioning } from './infrastructure/wiring/provisioning.js';
@@ -198,7 +199,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }, (message) => console.warn(message));
   }
 
-  const engine = engineCore({ db, role, temporalBridge, machines: machineService, checks: () => level2Service, revocations });
+  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${role.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => console.warn(`[run-tokens] ${message}`) });
+  if (tenants) void runTokens.endLeftovers().catch((err: Error) => console.warn(`[run-tokens] the tokens of runs that ended while this backend was down could not be read, so they are handed back at its next start: ${err.message}`));
+  const engine = engineCore({ db, role, temporalBridge, machines: machineService, checks: () => level2Service, revocations, runTokens });
   const {
     extensions, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, workspaceRepos, workspaceConclusions,
     memoryKeeper, concluded, runningRecords, bench, agentsHolder, workspaceDependencies,
@@ -283,7 +286,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, bearer: runBearersFor(rootSignIn, db, claimSettings), sessionEnds });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
@@ -374,7 +377,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 
   const { poisoning, evalHost, level2Service, mcpCatalogue } = await wireEngine({
-    tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {}, dependencies }, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
+    tenant, db, io, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {}, dependencies }, role, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));

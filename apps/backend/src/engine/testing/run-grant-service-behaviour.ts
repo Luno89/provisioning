@@ -3,6 +3,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 import { RunGrantService } from '../services/RunGrantService.js';
 import { HANDOVER_TOOL } from '../lib/run-grants.js';
+import { grantsOver } from './run-grants.js';
 
 export function runGrantServiceBehaviour(database: () => Promise<Pick<Database, 'engine'>>): void {
   const now = new Date('2026-10-29T10:00:00Z');
@@ -10,9 +11,10 @@ export function runGrantServiceBehaviour(database: () => Promise<Pick<Database, 
   async function service() {
     const db = await database();
     const signalRevoked = vi.fn(async () => undefined);
+    const tokens = { ended: vi.fn(async (_grantId: string) => true) };
     let next = 0;
-    const grants = new RunGrantService({ store: db.engine, signalRevoked, now: () => now, newId: () => `grant-${++next}` });
-    return { db, grants, signalRevoked, problem: problemOf(grants) };
+    const grants = new RunGrantService({ store: db.engine, signalRevoked, tokens, now: () => now, newId: () => `grant-${++next}` });
+    return { db, grants, signalRevoked, tokens, problem: problemOf(grants) };
   }
 
   const problemOf = (grants: RunGrantService) => async (id: string, tool: string, projectId: string | undefined): Promise<string | undefined> => {
@@ -21,6 +23,20 @@ export function runGrantServiceBehaviour(database: () => Promise<Pick<Database, 
   };
 
   describe('the run grants a person\'s runs work with', () => {
+    it('hands the run\'s tokens back to root whenever its grant ends: the run ending, a start that never began, or its access taken away', async () => {
+      const { grants, tokens } = await service();
+      const finished = await grants.issue({ ownerId: 'owner', runId: 'run-1', principal: asPerson('owner'), startedBy: 'person' });
+      const never = await grants.issue({ ownerId: 'owner', runId: 'run-2', principal: asPerson('owner'), startedBy: 'person' });
+      const taken = await grants.issue({ ownerId: 'owner', runId: 'run-3', principal: asPerson('owner'), startedBy: 'person' });
+      await grants.runEnded({ ownerId: 'owner', runId: 'run-1', agentSlug: 'koala', depth: 0, outcome: 'ok' });
+      await grants.neverStarted('run-2');
+      await grants.revokeGrantsOf({ personId: 'owner', because: 'signed-out-everywhere' });
+      expect(tokens.ended.mock.calls.map(([id]) => id)).toEqual([finished.id, never.id, taken.id]);
+      await grants.runEnded({ ownerId: 'owner', runId: 'run-1', agentSlug: 'koala', depth: 0, outcome: 'ok' });
+      await grants.runEnded({ ownerId: 'owner', runId: 'run-1-research-1', agentSlug: 'research', depth: 1, outcome: 'ok' });
+      expect(tokens.ended).toHaveBeenCalledTimes(3);
+    });
+
     it('issues a grant the run works with until the run ends, then refuses any further call', async () => {
       const { grants, problem } = await service();
       const grant = await grants.issue({ ownerId: 'owner', runId: 'run-1', principal: asPerson('owner'), startedBy: 'person', projectId: 'p1' });
@@ -69,7 +85,7 @@ export function runGrantServiceBehaviour(database: () => Promise<Pick<Database, 
     it('ending a run twice ends its grant once and records one ending', async () => {
       const db = await database();
       let clock = new Date('2026-10-29T10:00:00Z');
-      const grants = new RunGrantService({ store: db.engine, now: () => clock, newId: () => 'grant-twice' });
+      const grants = grantsOver(db.engine, { now: () => clock, newId: () => 'grant-twice' });
       await grants.issue({ ownerId: 'owner', runId: 'run-twice', principal: asPerson('owner'), startedBy: 'person' });
 
       const first = await grants.runEnded({ ownerId: 'owner', runId: 'run-twice', agentSlug: 'koala', depth: 0, outcome: 'ok' });

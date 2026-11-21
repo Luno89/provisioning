@@ -1,27 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { BUILDER_TOOLS } from '@koala/agent-engine';
-import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js';
+import { BUILDER_SAVES, level2Options, scenarioResult } from '../testing/level2-options.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
-import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { CheckRunInput, CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
 import { Level2Service, type CheckRunner, type Level2Run } from './Level2Service.js';
-import { seededPersonas } from '../../extensions/seeds.js';
 
-const SCENARIO: Scenario = {
-  id: 'builder-saves',
-  name: 'The builder checks then saves',
-  describe: 'It should compile before writing.',
-  agent: 'agent-builder',
-  procedure: { id: 'tool-rounds' },
-  input: { message: 'Save this as tidy once it checks out.' },
-  expect: { outcome: 'ok', toolsInOrder: ['check_procedure', 'save_procedure'], toolsNotCalled: ['list_tasks'] },
-};
+const SCENARIO = BUILDER_SAVES;
 
-const result = (scenarioId: string, passed: boolean): ScenarioResult => ({
-  scenarioId, name: scenarioId, runId: `run-of-${scenarioId}`, procedure: { id: 'tool-rounds', version: '3' }, passed, outcome: passed ? 'ok' : 'failed',
-  answer: '', checks: [{ what: 'finishes ok', passed, detail: passed ? 'it finished ok' : 'it finished failed' }], calls: [], counters: { rounds: 1, toolCalls: 1, totalTokens: 10 }, tasks: [], durationMs: 5,
-});
+const result = scenarioResult;
 
 function fakeRunner() {
   const started: { workflowId: string; input: CheckRunInput }[] = [];
@@ -44,8 +30,6 @@ function fakeRunner() {
 async function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run) => Promise<void>; runner?: CheckRunner } = {}) {
   const db = await testDatabase();
   const fake = fakeRunner();
-  let ids = 0;
-  let ticks = 0;
   const finishing = new Map<string, (run: Level2Run) => void>();
   const finishings = new Map<string, Promise<Level2Run>>();
   const finishingOf = (id: string): Promise<Level2Run> => {
@@ -53,14 +37,7 @@ async function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run)
     return finishings.get(id)!;
   };
   const service = new Level2Service({
-    checks: over.runner ?? fake.runner,
-    tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
-    agents: async () => seededPersonas().map((agent) => agent.slug),
-    procedures: async () => ['tool-rounds', 'research'],
-    store: db.checks,
-    builtIn: over.builtIn ?? [SCENARIO],
-    newId: () => `run-${(ids += 1)}`,
-    now: () => new Date(Date.parse('2026-10-03T12:00:00Z') + (ticks += 1) * 1000).toISOString(),
+    ...level2Options(db, over.runner ?? fake.runner, over.builtIn ?? [SCENARIO]),
     onFinished: async (run) => {
       await over.onFinished?.(run);
       void finishingOf(run.id);

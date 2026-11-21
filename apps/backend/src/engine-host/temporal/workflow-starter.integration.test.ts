@@ -5,14 +5,13 @@ import { WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
 import { namesItsWork } from '../../platform/lib/temporal-client.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { RunGrantService } from '../../engine/services/RunGrantService.js';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createRunStarter, type WorkflowStarter } from '../registries/run-starter.js';
 import { workflowOfRun, type ProcedureRunInput } from './contracts.js';
 import { temporalWorkflowStarter } from './workflow-starter.js';
 import { environmentForFile, testWorker } from '../../workflows/testing/test-worker.js';
 import { testClient } from '@koala/engine-core/testing/temporal';
-import { runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { grantsOver, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
 
 const file = environmentForFile(realTemporalEnvironment);
 
@@ -41,7 +40,7 @@ describe('two processes starting the same run at once through Temporal', () => {
   it('leaves only the started run\'s grant, the one its ticket carries', async () => {
     const taskQueue = `run-race-${Math.random().toString(36).slice(2, 8)}`;
     const db = await testDatabase();
-    const grants = new RunGrantService({ store: db.engine });
+    const grants = grantsOver(db.engine);
     const naming = testClient(file.env, { interceptors: { workflow: [namesItsWork] } });
     const temporal = temporalWorkflowStarter(naming.workflow);
     let arrived = 0;

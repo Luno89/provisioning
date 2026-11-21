@@ -17,7 +17,7 @@ import { type ProcedureSource, procedureKey } from './lib/procedure-source.js';
 import type { PublishedWorkspace } from './lib/published-workspace.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { type StoredNodeTrace, runTraceKey } from './lib/run-traces.js';
-import type { Handover, RunEnded, RunGrant } from './lib/run-grants.js';
+import type { Handover, HeldRunToken, RunEnded, RunGrant } from './lib/run-grants.js';
 import { PRINTS_KEPT, READS_KEPT_DAYS, type PoisoningSignal, type ReadsPart, type RunReads, type SignalState } from './lib/poisoning.js';
 import type { WorkspaceImageSpec } from './lib/workspace-image-seeds.js';
 
@@ -99,6 +99,10 @@ export interface EngineStore extends AreaStore {
   deleteRunGrant(id: string): Promise<void>;
   getRunGrantOfRun(runId: string): Promise<RunGrant | undefined>;
   getLiveRunGrants(personId: string): Promise<RunGrant[]>;
+  swapRunGrantToken(grantId: string, token: HeldRunToken, fromTurn: number): Promise<boolean>;
+  getRunGrantTokens(grantId: string): Promise<HeldRunToken[]>;
+  dropRunGrantToken(grantId: string, key: string): Promise<void>;
+  getRunGrantsHoldingTokens(): Promise<string[]>;
   saveRunEnded(ending: RunEnding): Promise<void>;
   saveRunHandover(ownerId: string, runId: string, handover: Handover): Promise<void>;
   getRunEndings(ownerId: string, runIds: readonly string[]): Promise<RunEnding[]>;
@@ -255,12 +259,37 @@ export class MongoEngineStore implements EngineStore {
 
   async saveRunGrant(grant: RunGrant): Promise<void> {
     const { _id, rest } = keyedDoc(grant);
-    await this.runGrants.replaceOne({ _id }, rest, { upsert: true });
+    await this.runGrants.updateOne({ _id }, [{ $replaceWith: { $mergeObjects: [{ _id: '$_id' }, { $literal: rest }, { tokens: '$tokens' }] } }], { upsert: true });
   }
 
   async getRunGrant(id: string): Promise<RunGrant | undefined> {
-    const doc = await this.runGrants.findOne({ _id: id as never });
+    const doc = await this.runGrants.findOne({ _id: id as never }, { projection: { tokens: 0 } });
     return doc ? fromDoc<RunGrant>(doc) : undefined;
+  }
+
+  async swapRunGrantToken(grantId: string, token: HeldRunToken, fromTurn: number): Promise<boolean> {
+    const { key, ...held } = token;
+    const at = `tokens.${key}`;
+    const found = await this.runGrants.updateOne(
+      { _id: grantId as never, state: 'live', ...(fromTurn === 0 ? { [at]: { $exists: false } } : { [`${at}.turn`]: fromTurn }) },
+      { $set: { [at]: held } },
+    );
+    return found.matchedCount === 1;
+  }
+
+  async getRunGrantTokens(grantId: string): Promise<HeldRunToken[]> {
+    const doc = await this.runGrants.findOne({ _id: grantId as never }, { projection: { tokens: 1 } });
+    const tokens = ((doc as { tokens?: unknown } | null)?.tokens ?? {}) as Record<string, Omit<HeldRunToken, 'key'>>;
+    return Object.entries(tokens).map(([key, held]) => ({ key, turn: held.turn, access: held.access, refresh: held.refresh, expiresAt: held.expiresAt }));
+  }
+
+  async dropRunGrantToken(grantId: string, key: string): Promise<void> {
+    await this.runGrants.updateOne({ _id: grantId as never }, { $unset: { [`tokens.${key}`]: '' } });
+    await this.runGrants.updateOne({ _id: grantId as never, tokens: {} }, { $unset: { tokens: '' } });
+  }
+
+  async getRunGrantsHoldingTokens(): Promise<string[]> {
+    return (await this.runGrants.find({ tokens: { $exists: true } }, { projection: { _id: 1 } }).toArray()).map((doc) => String(doc._id));
   }
 
   async deleteRunGrant(id: string): Promise<void> {
@@ -268,12 +297,12 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async getRunGrantOfRun(runId: string): Promise<RunGrant | undefined> {
-    const doc = await this.runGrants.findOne({ runId });
+    const doc = await this.runGrants.findOne({ runId }, { projection: { tokens: 0 } });
     return doc ? fromDoc<RunGrant>(doc) : undefined;
   }
 
   async getLiveRunGrants(personId: string): Promise<RunGrant[]> {
-    return (await this.runGrants.find({ personId, state: 'live' }).toArray()).map((doc) => fromDoc<RunGrant>(doc));
+    return (await this.runGrants.find({ personId, state: 'live' }, { projection: { tokens: 0 } }).toArray()).map((doc) => fromDoc<RunGrant>(doc));
   }
 
   async openRunReads(key: string, ownerId: string, runId: string, fpKey: string, at: string): Promise<RunReads> {

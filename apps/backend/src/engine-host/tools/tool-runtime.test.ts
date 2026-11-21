@@ -9,11 +9,11 @@ import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/en
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
-import { RunGrantService } from '../../engine/index.js';
+import { grantsOver } from '../../engine/testing/run-grants.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 
-const GRANTS = new RunGrantService({ store: memoryDatabase().engine });
+const GRANTS = grantsOver(memoryDatabase().engine);
 const GRANT = await GRANTS.issue({ ownerId: 'user-1', runId: 'run-1', principal: asPerson('user-1'), startedBy: 'person' });
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
@@ -147,7 +147,7 @@ describe('tool runtime', () => {
   it('asks the run\'s grant before every call, and runs nothing it refuses', async () => {
     const { backend, driver } = sandbox();
     const asked: [string | undefined, string, string | undefined][] = [];
-    const grants = new RunGrantService({ store: memoryDatabase().engine });
+    const grants = grantsOver(memoryDatabase().engine);
     const live = await grants.issue({ ownerId: 'user-1', runId: 'run-1', principal: asPerson('user-1'), startedBy: 'person' });
     const gone = await grants.issue({ ownerId: 'user-1', runId: 'run-2', principal: asPerson('user-2'), startedBy: 'person' });
     await grants.revokeGrantsOf({ personId: 'user-2', because: 'signed-out-everywhere' });
@@ -163,6 +163,13 @@ describe('tool runtime', () => {
     expect(refused.digest).toContain('access was revoked because they signed out everywhere, so it may not use run_command');
     expect(backend.exec).toHaveBeenCalledTimes(1);
     expect(asked).toEqual([[live.id, 'run_command', undefined], [gone.id, 'run_command', undefined]]);
+  });
+
+  it('hands the run\'s grant to a platform tool, so what it reaches it reaches as the run', async () => {
+    const seen: (string | undefined)[] = [];
+    const tools = savingMemory((caller) => { seen.push(caller.grantId); });
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket: SAVING_TICKET }));
+    expect(seen).toEqual([GRANT.id]);
   });
 
   it('hands the run\'s project to a platform tool', async () => {

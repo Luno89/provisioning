@@ -1,8 +1,20 @@
 import { asPerson, type Principal } from '../../platform/lib/permissions.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { RunGrantService } from '../services/RunGrantService.js';
+import { RunGrantService, type RunGrantDeps } from '../services/RunGrantService.js';
+import { RunTokens, type RunTokenStore } from '../services/RunTokens.js';
 
-export const grantsHeldInMemory = (): RunGrantService => new RunGrantService({ store: memoryDatabase().engine });
+export const tokensNotAsked = (store: RunTokenStore): RunTokens =>
+  new RunTokens({ store, root: { none: 'these tests ask root for no run token' }, dataKey: 'run-grants-test-key', log: () => undefined });
+
+export const grantsOver = (store: RunGrantDeps['store'] & RunTokenStore, over: Omit<Partial<RunGrantDeps>, 'store'> = {}): RunGrantService =>
+  new RunGrantService({ store, tokens: tokensNotAsked(store), ...over });
+
+export const grantsActingAsOwner = (store: RunGrantDeps['store'] & RunTokenStore) => ({
+  grants: grantsOver(store),
+  principal: async (ownerId: string): Promise<Principal> => asPerson(ownerId),
+});
+
+export const grantsHeldInMemory =(): RunGrantService => grantsOver(memoryDatabase().engine);
 
 export async function grantHeld(grants: RunGrantService, over: { ownerId?: string; runId?: string; principal?: Principal } = {}): Promise<string> {
   const ownerId = over.ownerId ?? 'user-1';

@@ -1,5 +1,5 @@
 import type { AreaStore } from '../platform/index.js';
-import type { Collection, Db } from 'mongodb';
+import { MongoServerError, type Collection, type Db } from 'mongodb';
 import { fieldChanges } from '../platform/lib/collection.js';
 import { keepWrittenDocuments, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord } from './lib/instances.js';
@@ -37,6 +37,7 @@ export interface InstancesStore extends AreaStore {
   dropClientSessionsOf(subject: string): Promise<void>;
   recordRevocation(revocation: SessionRevocation): Promise<void>;
   getRevocations(): Promise<SessionRevocation[]>;
+  takeLogoutToken(jti: string, until: Date): Promise<boolean>;
   getWatches(): Promise<InstanceWatchRecord[]>;
   getWatch(instanceId: string): Promise<InstanceWatchRecord | undefined>;
   saveReach(instance: { id: string; ownerId: string }, reach: Reach): Promise<void>;
@@ -287,6 +288,16 @@ export class MongoInstancesStore implements InstancesStore {
       [{ $set: { before: { $cond: [{ $gt: ['$before', revocation.before] }, '$before', revocation.before] } } }],
       { upsert: true },
     );
+  }
+
+  async takeLogoutToken(jti: string, until: Date): Promise<boolean> {
+    try {
+      await this.oidcArtifacts.insertOne({ _id: `LogoutTaken:${jti}` as never, model: 'LogoutTaken', payload: '{}', expiresAt: until });
+      return true;
+    } catch (err) {
+      if (err instanceof MongoServerError && err.code === 11000) return false;
+      throw err;
+    }
   }
 
   async getRevocations(): Promise<SessionRevocation[]> {

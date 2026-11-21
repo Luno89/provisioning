@@ -432,6 +432,14 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       ]);
     });
 
+    it('takes a logout token\'s id once, even when it arrives twice at the same moment', async () => {
+      const store = await make();
+      const until = new Date(Date.now() + 120_000);
+      expect(await Promise.all([store.takeLogoutToken('jti-1', until), store.takeLogoutToken('jti-1', until)])).toEqual(expect.arrayContaining([true, false]));
+      expect(await store.takeLogoutToken('jti-1', until)).toBe(false);
+      expect(await store.takeLogoutToken('jti-2', until)).toBe(true);
+    });
+
     it('lets two revocations at once both count', async () => {
       const store = await make();
       await Promise.all(['2026-10-03', '2026-10-05', '2026-10-04'].map((day) => store.recordRevocation({ subject: 'p', before: `${day}T00:00:00.000Z` })));

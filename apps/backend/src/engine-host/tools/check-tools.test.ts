@@ -26,8 +26,9 @@ function world() {
     { id: 'r1', state: 'done', scenarios: ['executor-does-one-task'], startedAt: '2026-10-07T10:00:00Z', results: [result('executor-does-one-task', false)] },
     { id: 'r2', state: 'running', scenarios: ['mine-writes'], startedAt: '2026-10-07T11:00:00Z', results: [] },
   ];
+  const callers: unknown[] = [];
   const access: CheckAccess = {
-    scenarios: async () => scenarios,
+    scenarios: async (who) => { callers.push(who); return scenarios; },
     runs: async () => runs,
     run: async (_owner, id) => runs.find((run) => run.id === id),
     save: async (_owner, check) => {
@@ -37,13 +38,22 @@ function world() {
     remove: async (_owner, id) => scenarios.some((one) => one.id === id && one.mine),
     start: async (_owner, input) => { started.push(input); return { runId: 'r3' }; },
   };
-  return { tools: createCheckTools(access, { pollMs: 1 }), saved, started, runs, access };
+  return { tools: createCheckTools(access, { pollMs: 1 }), saved, started, runs, access, callers };
 }
 
 const call = (tools: ReturnType<typeof createCheckTools>, name: string, parsed: Record<string, unknown>, signal?: AbortSignal) =>
-  tools[name]!({ parsed, caller: { ownerId: 'bo', runId: 'run-1' }, ...(signal ? { signal } : {}) } as never);
+  tools[name]!({ parsed, caller: { ownerId: 'bo', runId: 'run-1', grantId: 'grant-1' }, ...(signal ? { signal } : {}) } as never);
 
 describe('the check writer\'s tools', () => {
+  it('act as the run that calls them, holding its grant, and refuse a run that holds none', async () => {
+    const { tools, callers } = world();
+    await call(tools, 'list_checks', { agent: 'executor' });
+    expect(callers).toEqual([{ ownerId: 'bo', grantId: 'grant-1' }]);
+    const refused = await tools.list_checks!({ parsed: { agent: 'executor' }, caller: { ownerId: 'bo', runId: 'run-1' } } as never);
+    expect(refused).toMatchObject({ ok: false, content: 'this run holds no grant to act with, so it cannot reach the checks' });
+    expect(callers).toHaveLength(1);
+  });
+
   it('lists the checks of one agent or tool, with level, model, whose it is and how it last went', async () => {
     const { tools } = world();
     expect((await call(tools, 'list_checks', { agent: 'executor' })).content).toBe('executor-does-one-task · run · their model · executor · built-in · last failed · executor-does-one-task');

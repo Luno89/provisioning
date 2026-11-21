@@ -13,7 +13,7 @@ export type { TurnReply } from './lib/turn-check.js';
 export { CHECKS_OPEN, checksRouter } from './routes/checks.js';
 export { evalsLevel2Router } from './routes/evals-level2.js';
 export { BenchService } from './services/BenchService.js';
-export { httpCheckAccess } from './services/CheckToolAccess.js';
+export { bearerApi, httpCheckAccess } from './services/CheckToolAccess.js';
 export { Level2Service, temporalCheckRunner } from './services/Level2Service.js';
 export { ScriptedModelService } from './services/ScriptedModelService.js';
 export type { ChecksStore } from './store.js';

@@ -4,6 +4,8 @@ import { clientKeysFrom, OIDC_PATH } from '../lib/oidc.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
+import { RunBearers } from '../services/RunBearers.js';
+import type { BearerSignIn, ClaimSettings } from '../../platform/index.js';
 
 const currentOf = (key: PlatformKeys['session']): string => (typeof key === 'string' ? key : key.current);
 
@@ -33,6 +35,12 @@ export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: stri
     }, deps.db, deps.revocations);
   }
   return undefined;
+}
+
+export function runBearersFor(signIn: RootSignIn | undefined, db: Database, claims: ClaimSettings): ((token: string) => Promise<BearerSignIn>) | undefined {
+  if (!signIn) return undefined;
+  const bearers = new RunBearers({ tokens: signIn, grantOfRun: (runId) => db.engine.getRunGrantOfRun(runId), accounts: db.accounts, claims });
+  return (token) => bearers.signIn(token);
 }
 
 export function rootTokenOf(signIn: Pick<RootSignIn, 'serviceToken'> | undefined): (() => Promise<string>) | undefined {

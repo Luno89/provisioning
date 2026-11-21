@@ -58,6 +58,8 @@ export { extensionServiceFor } from './services/ExtensionService.js';
 export { mcpReachFrom } from './services/McpReach.js';
 export type { McpReach } from './services/McpReach.js';
 export { RunGrantService } from './services/RunGrantService.js';
+export { RunTokens, type RunToken, type RunTokenRoot } from './services/RunTokens.js';
+export type { RunGrant } from './lib/run-grants.js';
 export { HANDOVER_TOOL, noGrantProblem } from './lib/run-grants.js';
 export { TurnLogWriter } from './services/TurnLogWriter.js';
 export { WorkspaceBuildService } from './services/WorkspaceBuildService.js';

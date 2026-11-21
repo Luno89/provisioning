@@ -51,7 +51,7 @@ export class RootProvider {
   ) {
     this.provider = new Provider(settings.issuer, this.configuration());
     this.provider.proxy = true;
-    this.provider.registerGrantType(TOKEN_EXCHANGE, (ctx) => this.exchange(ctx), ['subject_token', 'subject_token_type', 'resource', 'koala_run']);
+    this.provider.registerGrantType(TOKEN_EXCHANGE, (ctx) => this.exchange(ctx), ['subject_token', 'subject_token_type', 'resource', 'koala_run', 'koala_space']);
   }
 
   private runServer(resource: string): InstanceType<Provider['ResourceServer']> {
@@ -72,6 +72,8 @@ export class RootProvider {
     if (params.resource !== resource) throw new errors.CustomOIDCProviderError('invalid_target', 'a run token is only for the instance asking for it');
     const runId = params.koala_run;
     if (typeof runId !== 'string' || !runId) throw new errors.CustomOIDCProviderError('invalid_request', 'name the run as koala_run');
+    const space = params.koala_space;
+    if (space !== undefined && (typeof space !== 'string' || !space)) throw new errors.CustomOIDCProviderError('invalid_request', 'name the check space as koala_space, or leave it out');
     const kind = kindOf(client);
     const accountId = String(params.subject_token ?? '');
     if (!accountId || kind.owner !== accountId) throw new errors.CustomOIDCProviderError('invalid_grant', 'an instance asks run tokens only for its owner');
@@ -82,7 +84,7 @@ export class RootProvider {
     const grant = new this.provider.Grant({ accountId, clientId: client.clientId });
     grant.addResourceScope(resource, RUN_SCOPE);
     const grantId = await grant.save();
-    await this.store.instances.oidcUpsert('KoalaRun', grantId, { grantId, accountId, clientId: client.clientId, runId, claims: claimsFor(user, kind) }, SESSION_SECONDS);
+    await this.store.instances.oidcUpsert('KoalaRun', grantId, { grantId, accountId, clientId: client.clientId, runId, ...(space ? { space } : {}), claims: claimsFor(user, kind) }, SESSION_SECONDS);
 
     const at = new this.provider.AccessToken({ accountId, client, grantId, gty: 'token_exchange', scope: RUN_SCOPE });
     at.resourceServer = this.runServer(resource);
@@ -182,7 +184,7 @@ export class RootProvider {
         if (token.kind !== 'AccessToken' || !token.grantId) return undefined;
         const run = await this.store.instances.oidcFind('KoalaRun', token.grantId);
         if (!run) return undefined;
-        return { koala_run: run.runId, [KOALA_CLAIMS]: run.claims, act: { sub: run.clientId } };
+        return { koala_run: run.runId, ...(run.space ? { koala_space: run.space } : {}), [KOALA_CLAIMS]: run.claims, act: { sub: run.clientId } };
       },
       rotateRefreshToken: true,
       loadExistingGrant: async (ctx: KoaContextWithOIDC) => {

@@ -19,6 +19,7 @@ export const SERVICE_TOKEN_SECONDS = 5 * 60;
 export const SIGNING_ALG = 'Ed25519';
 export const LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
 export const LOGOUT_TYP = 'logout+jwt';
+export const LOGOUT_TOKEN_SECONDS = 120;
 export const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 export const OWNER_TOKEN_TYPE = 'urn:koala:params:oauth:token-type:owner';
 export const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -123,6 +124,7 @@ export interface LogoutClaims {
   aud: string;
   sub: string;
   iat: number;
+  exp: number;
   jti: string;
   events: Record<string, Record<string, never>>;
   koala_revoked_at: string;
@@ -134,6 +136,7 @@ export const logoutClaims = (issuer: string, clientId: string, revoked: { subjec
   aud: clientId,
   sub: revoked.subject,
   iat: now,
+  exp: now + LOGOUT_TOKEN_SECONDS,
   jti: crypto.randomUUID(),
   events: { [LOGOUT_EVENT]: {} },
   koala_revoked_at: revoked.at,

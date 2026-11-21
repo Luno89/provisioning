@@ -13,6 +13,9 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
+import { RunBearers } from '../services/RunBearers.js';
+import { grantsOver } from '../../engine/testing/run-grants.js';
+import { SignJWT } from 'jose';
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import { signInRouter } from '../routes/sign-in.js';
@@ -26,6 +29,9 @@ const rootSigning = identityKeysFrom(generateIdentityKey());
 const ROOT_SESSION = 'root-session-key-for-the-round-trip';
 const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
 const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
+
+export const signedByRoot = (claims: Record<string, unknown>, typ: string): Promise<string> =>
+  new SignJWT(claims).setProtectedHeader({ alg: 'Ed25519', typ, kid: rootSigning.kid }).sign(rootSigning.privateKey);
 
 export type Jar = Map<string, string>;
 
@@ -64,6 +70,7 @@ export interface SignInWorld<S extends Served> {
   readonly instanceAuth: Auth;
   readonly rootService: InstanceService;
   readonly heard: readonly AccessRevoked[];
+  breakRevocations(why: string | undefined): void;
   readonly alias: string;
   offset: number;
   signInAs(userId: string, at?: S): Promise<{ instanceJar: Jar; landed: Response }>;
@@ -84,6 +91,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
   let rootService: InstanceService;
   let offset = 0;
   const heard: AccessRevoked[] = [];
+  let broken: string | undefined;
 
   beforeEach(async () => {
     rootDb = await options.databases.root();
@@ -92,6 +100,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     instance = await options.serve('instance');
     offset = 0;
     heard.length = 0;
+    broken = undefined;
 
     await rootDb.accounts.saveUser({ id: 'u1', email: 'u1@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
     await rootDb.accounts.saveUser({ id: 'u2', email: 'u2@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
@@ -109,6 +118,9 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
 
     const revocations = new AccessRevocations();
     revocations.listen(async (event) => { heard.push(event); });
+    revocations.listen(async () => { if (broken) throw new Error(broken); });
+    const runGrants = grantsOver(instanceDb.engine);
+    revocations.listen(async (event) => { await runGrants.revokeGrantsOf(event); });
     signIn = new RootSignIn({
       kind: 'instance',
       clientId: 'inst-u1',
@@ -122,7 +134,8 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
       announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': 'inst-u1', authorization: 'Bearer the-instance-credential' } },
     }, instanceDb, revocations, () => Date.now() + offset);
     await signIn.load();
-    instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: 'u1', clientSessions: signIn, sessionEnds: new SessionEnds(instanceDb.platform) });
+    const bearers = new RunBearers({ tokens: signIn, grantOfRun: (runId) => instanceDb.engine.getRunGrantOfRun(runId), accounts: instanceDb.accounts, claims: { role: 'instance', instanceOwnerId: 'u1' } });
+    instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: 'u1', clientSessions: signIn, bearer: (token) => bearers.signIn(token), sessionEnds: new SessionEnds(instanceDb.platform) });
     const identity = new IdentityService({ role: 'instance', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]), instance: { id: 'inst-u1', ownerId: 'u1', rootUrl: root.url } }, instanceDb);
     instance.app.use('/api/auth', signInRouter({ signIn, identity, auth: instanceAuth, publicUrl: instance.url, landing: '/chat' }));
     instance.app.use('/api', instanceAuth.requireAuth);
@@ -165,6 +178,7 @@ export function rootSignInWorld<S extends Served>(options: SignInWorldOptions<S>
     get offset() { return offset; },
     set offset(next: number) { offset = next; },
     heard,
+    breakRevocations: (why) => { broken = why; },
     signInAs,
     whoami,
     revokedAt: options.revokedAt,
@@ -308,6 +322,15 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
     expect(await runTokenOf(renewed.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'run-1', koala_claims: atStart });
   });
 
+  it('names the check space a run token was asked for, through every renewal, and names none when none was asked for', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    const inSpace = await world.signIn.runToken('check-1', 'space-a');
+    expect(await runTokenOf(inSpace.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'check-1', koala_space: 'space-a' });
+    expect(await runTokenOf((await world.signIn.renewRunToken(inSpace.refreshToken)).accessToken)).toMatchObject({ koala_run: 'check-1', koala_space: 'space-a' });
+    expect(await runTokenOf((await world.signIn.runToken('run-1')).accessToken)).not.toHaveProperty('koala_space');
+  });
+
   it('gives no run token for a person not signed in to this instance, none once they sign out everywhere, and none for a run that ended', async () => {
     await world.signIn.announce();
     await expect(world.signIn.runToken('run-1')).rejects.toThrow(/not signed in to this Koala/);
@@ -321,5 +344,74 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
     await world.provider.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
     await expect(world.signIn.renewRunToken(live.refreshToken)).rejects.toThrow();
     await expect(world.signIn.runToken('run-after')).rejects.toThrow(/not signed in to this Koala/);
+  });
+}
+
+export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): void {
+  const liveGrant = (runId: string, principal: Principal = { kind: 'person', id: 'u1', claims: [{ role: 'person' }] }) =>
+    world.instanceDb.engine.saveRunGrant({ id: `grant-${runId}`, ownerId: principal.id, personId: principal.id, runId, principal, scope: {}, startedBy: 'person', state: 'live', issuedAt: new Date().toISOString() });
+  const asBearer = (token: string, cookie?: string) => fetch(`${world.instance.url}/api/whoami`, { headers: { authorization: `Bearer ${token}`, ...(cookie ? { cookie } : {}) } });
+
+  it('takes a run\'s token on this instance as the run\'s person with the claims they had as it started, only while the run\'s grant is live here', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    await liveGrant('run-1');
+    const run = await world.signIn.runToken('run-1');
+    const me = await asBearer(run.accessToken);
+    expect(me.status).toBe(200);
+    expect(await me.json()).toMatchObject({ id: 'u1', claims: claimsFor((await world.rootDb.accounts.getUserById('u1'))!, { kind: 'instance', owner: 'u1' }) });
+
+    await world.instanceDb.engine.saveRunGrant({ ...(await world.instanceDb.engine.getRunGrantOfRun('run-1'))!, state: 'ended' });
+    const after = await asBearer(run.accessToken);
+    expect([after.status, (await after.json() as { error: string }).error]).toEqual([401, 'Unauthorized: run run-1 has ended']);
+    const unknown = await asBearer((await world.signIn.runToken('run-never')).accessToken);
+    expect([unknown.status, (await unknown.json() as { error: string }).error]).toEqual([401, 'Unauthorized: run run-never is not known here']);
+  });
+
+  it('refuses a run\'s token once root takes its person\'s access away, as soon as the logout lands', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    await liveGrant('run-1');
+    const run = await world.signIn.runToken('run-1');
+    expect((await asBearer(run.accessToken)).status).toBe(200);
+    await world.provider.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
+    await world.provider.deliverLogouts();
+    const after = await asBearer(run.accessToken);
+    expect([after.status, (await after.json() as { error: string }).error]).toEqual([401, 'Unauthorized: run run-1\'s access was taken away']);
+  });
+
+  it('refuses a token root did not sign, one for another audience, and one that is not an access token, and never reads the cookie beside a bearer', async () => {
+    await world.signIn.announce();
+    const { instanceJar } = await world.signInAs('u1');
+    await liveGrant('run-1');
+    const claims = { sub: 'u1', koala_run: 'run-1', koala_claims: [{ role: 'person' }] };
+    const signed = (over: { aud?: string; typ?: string; key?: typeof rootSigning }) => new SignJWT(claims)
+      .setProtectedHeader({ alg: 'Ed25519', typ: over.typ ?? 'at+jwt', kid: (over.key ?? rootSigning).kid })
+      .setIssuer(`${world.root.url}/oidc`).setAudience(over.aud ?? runResourceOf('inst-u1')).setIssuedAt().setExpirationTime('5m')
+      .sign((over.key ?? rootSigning).privateKey);
+    const refusedFor = async (token: string, cookie?: string) => {
+      const answer = await asBearer(token, cookie);
+      return [answer.status, (await answer.json() as { error: string }).error];
+    };
+    expect(await refusedFor(await signed({}))).toEqual([200, undefined]);
+    expect(await refusedFor(await signed({ key: identityKeysFrom(generateIdentityKey()) }))).toEqual([401, matching(/^Unauthorized: the run token could not be checked/)]);
+    expect(await refusedFor(await signed({ aud: runResourceOf('inst-u2') }))).toEqual([401, matching(/^Unauthorized: the run token could not be checked: .*aud/)]);
+    expect(await refusedFor(await signed({ typ: 'JWT' }))).toEqual([401, matching(/^Unauthorized: the run token could not be checked: .*typ/)]);
+    expect(await refusedFor('not-a-token', cookieOf(instanceJar))).toEqual([401, matching(/^Unauthorized: the run token could not be checked/)]);
+  });
+
+  it('acts as a check space a run token names only when the space is the token\'s person\'s', async () => {
+    await world.signIn.announce();
+    await world.signInAs('u1');
+    await liveGrant('check-1');
+    const space = (id: string, person: string) => world.instanceDb.accounts.saveUser({ id, email: `${id}@spaces.koala`, emailVerified: true, twoFactorEnabled: false, createdAt: '2026-11-21T00:00:00.000Z', space: { person } } as never);
+    await space('space-a', 'u1');
+    await space('space-x', 'u2');
+    const mine = await asBearer((await world.signIn.runToken('check-1', 'space-a')).accessToken);
+    expect(await mine.json()).toMatchObject({ id: 'space-a', claims: [{ role: 'person' }, { role: 'space-of', person: 'u1' }] });
+    const theirs = await asBearer((await world.signIn.runToken('check-1', 'space-x')).accessToken);
+    expect([theirs.status, (await theirs.json() as { error: string }).error]).toEqual([401, 'Unauthorized: space-x is not a check space of this run\'s person']);
+    const gone = await asBearer((await world.signIn.runToken('check-1', 'space-gone')).accessToken);
+    expect([gone.status, (await gone.json() as { error: string }).error]).toEqual([401, 'Unauthorized: space-gone is not a check space of this run\'s person']);
   });
 }

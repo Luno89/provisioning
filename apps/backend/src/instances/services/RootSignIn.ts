@@ -1,16 +1,17 @@
 import crypto from 'crypto';
 import * as client from 'openid-client';
-import { importJWK, jwtVerify, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, customFetch as joseFetch, importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
+  answerUnlimited, decryptValue, encryptValue, keepTrying, refusedByServer, reopening, revocationShaped, signJWT, verifyJWT, withAnswerUnlimited, type Reopening,
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
+import type { RunToken, RunTokenRoot } from '../../engine/index.js';
 import {
   CLAIMS_SECONDS, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, privateJwkOf, publicJwkOf, runResourceOf, safeNextPath, SERVICE_SCOPE, SESSION_SECONDS, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
-import { instanceMadeSession, RevocationList, signedInSession, type SignedInSession } from '../lib/sign-in-state.js';
+import { RevocationList, signedInSession, type SignedInSession } from '../lib/sign-in-state.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -38,11 +39,14 @@ export type SignedIn =
 
 export type Renewed = { token: string; session: SignedInSession } | 'kept' | 'ended';
 
-export interface RunToken {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
+export interface CheckedRunToken {
+  personId: string;
+  runId: string;
+  claims: SignedInSession['claims'];
+  space?: string | undefined;
 }
+
+const RUN_TOKEN_TYP = 'at+jwt';
 
 export const SIGN_IN_COOKIE = 'koala_sign_in';
 
@@ -54,8 +58,9 @@ const reasonOf = (err: unknown): string => {
 };
 const SIGN_IN_COOKIE_SECONDS = 10 * 60;
 
-export class RootSignIn {
+export class RootSignIn implements RunTokenRoot {
   private configured: Promise<client.Configuration> | undefined;
+  private keys: Promise<ReturnType<typeof createRemoteJWKSet>> | undefined;
   private readonly refreshing = new Map<string, Promise<Renewed>>();
   private markAnnounced: () => void = () => undefined;
   readonly announced: Promise<void> = new Promise((resolve) => { this.markAnnounced = resolve; });
@@ -156,12 +161,8 @@ export class RootSignIn {
   }
 
   private sessionToken(session: SignedInSession, seconds = SESSION_SECONDS): string {
-    const { userId, email, sid, sessionAt, freshUntil, claims, madeBy } = session;
-    return signJWT('client-session', { userId, email, sid, sessionAt, freshUntil, claims, ...(madeBy ? { madeBy } : {}) }, this.settings.sessionKey, seconds);
-  }
-
-  madeHere(person: { id: string; email: string }, claims: SignedInSession['claims'], seconds = SESSION_SECONDS): string {
-    return this.sessionToken(instanceMadeSession(person, claims, this.now(), seconds, crypto.randomUUID()), seconds);
+    const { userId, email, sid, sessionAt, freshUntil, claims } = session;
+    return signJWT('client-session', { userId, email, sid, sessionAt, freshUntil, claims }, this.settings.sessionKey, seconds);
   }
 
   async callback(currentUrl: URL, heldCookie: string | undefined): Promise<SignedIn> {
@@ -215,7 +216,6 @@ export class RootSignIn {
   }
 
   renew(session: SignedInSession): Promise<Renewed> {
-    if (session.madeBy === 'instance') return Promise.resolve('kept');
     const running = this.refreshing.get(session.sid);
     if (running) return running;
     const renewing = this.refresh(session).finally(() => this.refreshing.delete(session.sid));
@@ -258,17 +258,19 @@ export class RootSignIn {
         const key = typeof header.kid === 'string' ? this.settings.trusted.get(header.kid) : undefined;
         if (!key) throw new Error('signed by a key this server does not trust');
         return key;
-      }, { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG], typ: LOGOUT_TYP }));
+      }, { issuer: this.issuer, audience: this.settings.clientId, algorithms: [SIGNING_ALG], typ: LOGOUT_TYP, requiredClaims: ['exp', 'jti'] }));
     } catch (err) {
       return { ok: false, error: `the logout token could not be checked: ${(err as Error).message}` };
     }
     const events = payload.events as Record<string, unknown> | undefined;
     const event: AccessRevoked = { personId: String(payload.sub ?? ''), at: String(payload.koala_revoked_at ?? ''), because: payload.koala_why as AccessRevoked['because'] };
     if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event)) return { ok: false, error: 'that is not a logout token' };
+    if (!(await this.store.instances.takeLogoutToken(String(payload.jti), new Date(Number(payload.exp) * 1000)))) return { ok: false, error: 'that logout token was already taken' };
     await this.store.instances.recordRevocation({ subject: event.personId, before: event.at });
     this.revoked.revoke(event.personId, event.at);
     await this.store.instances.dropClientSessionsOf(event.personId);
-    await this.revocations.revoked(event);
+    const failed = await this.revocations.revoked(event);
+    if (failed.length) return { ok: false, error: `not everything ${event.personId} held here could be revoked yet: ${failed.join('; ')}` };
     return { ok: true };
   }
 
@@ -277,15 +279,39 @@ export class RootSignIn {
     return { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, expiresAt: this.now() + (tokens.expires_in ?? 0) * 1000 };
   }
 
-  async runToken(runId: string): Promise<RunToken> {
+  async runToken(runId: string, space?: string): Promise<RunToken> {
     if (!this.settings.owner) throw new Error(`this ${this.settings.kind} serves no owner to act for`);
     const tokens = await client.genericGrantRequest(await this.config(), TOKEN_EXCHANGE, {
       subject_token: this.settings.owner,
       subject_token_type: OWNER_TOKEN_TYPE,
       resource: runResourceOf(this.settings.clientId),
       koala_run: runId,
+      ...(space ? { koala_space: space } : {}),
     }).catch((err: unknown) => { throw new Error(`root gave run ${runId} no token: ${reasonOf(err)}`); });
     return this.runTokenOf(tokens);
+  }
+
+  private rootKeys(): Promise<ReturnType<typeof createRemoteJWKSet>> {
+    this.keys ??= (async () => {
+      const uri = (await this.config()).serverMetadata().jwks_uri;
+      if (!uri) throw new Error('root names no keys in its discovery');
+      return createRemoteJWKSet(new URL(uri), { [joseFetch]: answerUnlimited() as never });
+    })();
+    this.keys.catch(() => { this.keys = undefined; });
+    return this.keys;
+  }
+
+  async checkRunToken(token: string): Promise<CheckedRunToken | string> {
+    let payload: JWTPayload;
+    try {
+      ({ payload } = await jwtVerify(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), typ: RUN_TOKEN_TYP }));
+    } catch (err) {
+      return `the run token could not be checked: ${(err as Error).message}`;
+    }
+    const claims = payload[KOALA_CLAIMS];
+    const space = payload.koala_space;
+    if (typeof payload.sub !== 'string' || typeof payload.koala_run !== 'string' || !claimsShaped(claims) || (space !== undefined && typeof space !== 'string')) return 'the run token does not say whose run it is';
+    return { personId: payload.sub, runId: payload.koala_run, claims, ...(typeof space === 'string' ? { space } : {}) };
   }
 
   async renewRunToken(refreshToken: string): Promise<RunToken> {

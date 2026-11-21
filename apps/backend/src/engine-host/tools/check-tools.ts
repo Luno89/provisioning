@@ -1,4 +1,4 @@
-import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolCallerContext, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import { levelOf, scenarioSubjects, within, type Scope } from '../../checks/lib/check-subjects.js';
@@ -16,14 +16,24 @@ export interface CheckRunView {
 
 const POLL_MS = 3_000;
 
-export interface CheckAccess {
-  scenarios(ownerId: string): Promise<(Scenario & { mine: boolean })[]>;
-  runs(ownerId: string): Promise<CheckRunView[]>;
-  run(ownerId: string, runId: string): Promise<CheckRunView | undefined>;
-  save(ownerId: string, scenario: unknown): Promise<{ saved: string } | { problems: string[] }>;
-  remove(ownerId: string, id: string): Promise<boolean>;
-  start(ownerId: string, input: { only: string[]; modelId?: string | undefined }): Promise<{ runId: string } | { problem: string }>;
+export interface RunCaller {
+  ownerId: string;
+  grantId: string;
 }
+
+export interface CheckAccess {
+  scenarios(who: RunCaller): Promise<(Scenario & { mine: boolean })[]>;
+  runs(who: RunCaller): Promise<CheckRunView[]>;
+  run(who: RunCaller, runId: string): Promise<CheckRunView | undefined>;
+  save(who: RunCaller, scenario: unknown): Promise<{ saved: string } | { problems: string[] }>;
+  remove(who: RunCaller, id: string): Promise<boolean>;
+  start(who: RunCaller, input: { only: string[]; modelId?: string | undefined }): Promise<{ runId: string } | { problem: string }>;
+}
+
+const NO_GRANT = 'this run holds no grant to act with, so it cannot reach the checks';
+
+const runOf = (caller: ToolCallerContext): RunCaller | undefined =>
+  (caller.ownerId && caller.grantId ? { ownerId: caller.ownerId, grantId: caller.grantId } : undefined);
 
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 const done = (said: string): ToolOutcome => ({ ok: true, digest: said.split('\n')[0]!.slice(0, 200), content: said });
@@ -58,27 +68,30 @@ const pace = (scenario: Scenario): string => {
 
 export function createCheckTools(access: CheckAccess, options: { pollMs?: number | undefined } = {}): Record<string, ToolHandler> {
   const pollMs = options.pollMs ?? POLL_MS;
-  const save = async (parsed: Record<string, unknown>, ownerId: string | undefined, how: 'new' | 'replace'): Promise<ToolOutcome> => {
-    if (!ownerId) return refuse('this run has no owner to save a check for');
+  const save = async (parsed: Record<string, unknown>, caller: ToolCallerContext, how: 'new' | 'replace'): Promise<ToolOutcome> => {
+    if (!caller.ownerId) return refuse('this run has no owner to save a check for');
+    const who = runOf(caller);
+    if (!who) return refuse(NO_GRANT);
     const check = parsed.check;
     if (!check || typeof check !== 'object' || Array.isArray(check)) return refuse('send the whole check as an object under "check"');
     const id = typeof (check as { id?: unknown }).id === 'string' ? (check as { id: string }).id : '';
-    const existing = id ? (await access.scenarios(ownerId)).find((one) => one.id === id) : undefined;
+    const existing = id ? (await access.scenarios(who)).find((one) => one.id === id) : undefined;
     if (how === 'new' && existing) return refuse(`there is already a ${existing.mine ? 'check of the person\'s' : 'built-in check'} called "${id}" — change the person's own with update_check, or give yours its own id`);
     if (how === 'replace' && !existing?.mine) return refuse(`the person has no check of their own called "${id}"${existing ? ' — it is built in, so save your version under its own id with write_check' : ''}`);
-    const outcome = await access.save(ownerId, check);
+    const outcome = await access.save(who, check);
     if ('problems' in outcome) return refuse(`nothing was saved — fix these and send the whole check again:\n${outcome.problems.map((problem) => `- ${problem}`).join('\n')}`);
     return done(`${how === 'new' ? 'saved' : 'replaced'} ${outcome.saved}; run it with run_check to see it pass or fail`);
   };
 
   return {
     async list_checks({ parsed, caller }) {
-      const ownerId = caller.ownerId;
-      if (!ownerId) return refuse('this run has no owner whose checks to list');
+      if (!caller.ownerId) return refuse('this run has no owner whose checks to list');
+      const who = runOf(caller);
+      if (!who) return refuse(NO_GRANT);
       const given = (['agent', 'tool', 'procedure'] as const).filter((key) => text(parsed, key));
       if (given.length > 1) return refuse('narrow it by one of agent, tool or procedure, not several');
       const scope = given[0] ? ({ [given[0]]: text(parsed, given[0]) } as Scope) : undefined;
-      const [scenarios, runs] = await Promise.all([access.scenarios(ownerId), access.runs(ownerId)]);
+      const [scenarios, runs] = await Promise.all([access.scenarios(who), access.runs(who)]);
       const shown = scenarios.filter((scenario) => !scope || within(scenarioSubjects(scenario), scope));
       if (shown.length === 0) return done(scope ? `no check covers that ${given[0]} yet` : 'there are no checks yet');
       return done(shown.map((scenario) => {
@@ -96,10 +109,11 @@ export function createCheckTools(access: CheckAccess, options: { pollMs?: number
     },
 
     async read_check({ parsed, caller }) {
-      const ownerId = caller.ownerId;
       const id = text(parsed, 'id');
-      if (!ownerId || !id) return refuse('give the id of the check to read');
-      const [scenarios, runs] = await Promise.all([access.scenarios(ownerId), access.runs(ownerId)]);
+      if (!caller.ownerId || !id) return refuse('give the id of the check to read');
+      const who = runOf(caller);
+      if (!who) return refuse(NO_GRANT);
+      const [scenarios, runs] = await Promise.all([access.scenarios(who), access.runs(who)]);
       const scenario = scenarios.find((one) => one.id === id);
       if (!scenario) return refuse(`there is no check called "${id}"`);
       const { mine, ownerId: _owner, updatedAt: _updated, ...check } = scenario;
@@ -112,34 +126,36 @@ export function createCheckTools(access: CheckAccess, options: { pollMs?: number
     },
 
     async write_check({ parsed, caller }) {
-      return save(parsed, caller.ownerId, 'new');
+      return save(parsed, caller, 'new');
     },
 
     async update_check({ parsed, caller }) {
-      return save(parsed, caller.ownerId, 'replace');
+      return save(parsed, caller, 'replace');
     },
 
     async run_check({ parsed, caller }) {
-      const ownerId = caller.ownerId;
       const id = text(parsed, 'id');
-      if (!ownerId || !id) return refuse('give the id of the check to run');
-      const scenario = (await access.scenarios(ownerId)).find((one) => one.id === id);
+      if (!caller.ownerId || !id) return refuse('give the id of the check to run');
+      const who = runOf(caller);
+      if (!who) return refuse(NO_GRANT);
+      const scenario = (await access.scenarios(who)).find((one) => one.id === id);
       if (!scenario) return refuse(`there is no check called "${id}"`);
       const modelId = text(parsed, 'modelId');
-      const started = await access.start(ownerId, { only: [id], ...(modelId ? { modelId } : {}) });
+      const started = await access.start(who, { only: [id], ...(modelId ? { modelId } : {}) });
       if ('problem' in started) return refuse(`it did not start: ${started.problem}`);
       return done(`started run ${started.runId} of ${id} ${pace(scenario)}; read it with read_check_result, which waits for it`);
     },
 
     async read_check_result({ parsed, caller, signal }) {
-      const ownerId = caller.ownerId;
       const runId = text(parsed, 'runId');
-      if (!ownerId || !runId) return refuse('give the run id run_check returned');
-      let run = await access.run(ownerId, runId);
+      if (!caller.ownerId || !runId) return refuse('give the run id run_check returned');
+      const who = runOf(caller);
+      if (!who) return refuse(NO_GRANT);
+      let run = await access.run(who, runId);
       if (!run) return refuse(`there is no check run called "${runId}"`);
       while (run.state === 'running' && !signal?.aborted) {
         await new Promise((settle) => setTimeout(settle, pollMs));
-        run = (await access.run(ownerId, runId)) ?? run;
+        run = (await access.run(who, runId)) ?? run;
       }
       if (run.state === 'running') return refuse(`stopped while waiting for ${runId} (${run.results.length} of ${run.scenarios.length} finished)`);
       if (run.results.length === 0) return done(`it ended ${run.state} without a result${run.error ? `: ${run.error}` : ''}`);
@@ -147,10 +163,11 @@ export function createCheckTools(access: CheckAccess, options: { pollMs?: number
     },
 
     async delete_check({ parsed, caller }) {
-      const ownerId = caller.ownerId;
       const id = text(parsed, 'id');
-      if (!ownerId || !id) return refuse('give the id of the check to delete');
-      if (!(await access.remove(ownerId, id))) return refuse(`the person has no check of their own called "${id}"`);
+      if (!caller.ownerId || !id) return refuse('give the id of the check to delete');
+      const who = runOf(caller);
+      if (!who) return refuse(NO_GRANT);
+      if (!(await access.remove(who, id))) return refuse(`the person has no check of their own called "${id}"`);
       return done(`deleted ${id}`);
     },
   };

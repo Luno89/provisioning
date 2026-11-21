@@ -34,20 +34,15 @@ export interface SignedInSession {
   sessionAt: number;
   freshUntil: number;
   claims: Claim[];
-  madeBy?: 'instance' | undefined;
 }
 
 export function signedInSession(decoded: Record<string, unknown> | null | undefined): SignedInSession | undefined {
   if (!decoded) return undefined;
-  const { userId, email, sid, sessionAt, freshUntil, claims, madeBy } = decoded;
+  const { userId, email, sid, sessionAt, freshUntil, claims } = decoded;
   if (typeof userId !== 'string' || !userId || typeof email !== 'string' || typeof sid !== 'string' || !sid) return undefined;
   if (typeof sessionAt !== 'number' || typeof freshUntil !== 'number' || !claimsShaped(claims)) return undefined;
-  if (madeBy !== undefined && madeBy !== 'instance') return undefined;
-  return { userId, email, sid, sessionAt, freshUntil, claims, ...(madeBy ? { madeBy } : {}) };
+  return { userId, email, sid, sessionAt, freshUntil, claims };
 }
-
-export const instanceMadeSession = (person: { id: string; email: string }, claims: Claim[], now: number, seconds: number, sid: string): SignedInSession =>
-  ({ userId: person.id, email: person.email, sid, sessionAt: now, freshUntil: now + seconds * 1000, claims, madeBy: 'instance' });
 
 export const claimsStale = (session: SignedInSession, now: number): boolean => now >= session.freshUntil;
 

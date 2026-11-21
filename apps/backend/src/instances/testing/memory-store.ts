@@ -36,6 +36,7 @@ export class MemoryInstancesStore implements InstancesStore {
   private readonly logouts = new Map<string, LogoutDelivery>();
   private readonly sessions: Map<string, StoredSession>;
   private readonly revocations = new Map<string, string>();
+  private readonly logoutsTaken = new Set<string>();
   private readonly findings = new Map<string, Omit<DependencyFinding, 'key'>>();
   private check: DependencyCheck | undefined;
   private readonly withdrawalNotices: Map<string, { ownerId: string; at: string }>;
@@ -261,6 +262,12 @@ export class MemoryInstancesStore implements InstancesStore {
   async recordRevocation(revocation: SessionRevocation): Promise<void> {
     const held = this.revocations.get(revocation.subject);
     this.revocations.set(revocation.subject, held !== undefined && held > revocation.before ? held : revocation.before);
+  }
+
+  async takeLogoutToken(jti: string, _until: Date): Promise<boolean> {
+    if (this.logoutsTaken.has(jti)) return false;
+    this.logoutsTaken.add(jti);
+    return true;
   }
 
   async getRevocations(): Promise<SessionRevocation[]> {

@@ -19,7 +19,7 @@ function set(delivery: ReturnType<AuthService['codeDelivery']> = { kind: 'mail' 
   const auth = mock<Auth>();
   auth.codeDelivery.mockReturnValue(delivery);
   const revoked: AccessRevoked[] = [];
-  const service = new PasswordService({ db, auth, breached: breachedFrom('password1234\n'), revocations: { revoked: async (event) => { revoked.push(event); } }, now });
+  const service = new PasswordService({ db, auth, breached: breachedFrom('password1234\n'), revocations: { revoked: async (event) => { revoked.push(event); return []; } }, now });
   const mailed = () => auth.mailInBackground.mock.calls.map(([to, message]) => ({ to, subject: message.subject, code: /\b(\d{6})\b/.exec(message.text)?.[1] }));
   return { db, auth, service, revoked, mailed };
 }
