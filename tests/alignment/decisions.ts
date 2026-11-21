@@ -297,6 +297,28 @@ export const DECISIONS: Decision[] = [
     ],
   },
   {
+    id: 'sharing',
+    subject: 'Shared projects and the hub',
+    terms: ['hub', 'shared project', 'sharing', 'project invite', 'group address'],
+    words: [
+      { at: '2026-11-21T01:11', text: 'alrighty, then we can shelve sharing a project functionality and address it then' },
+      { at: '2026-11-21T01:13', text: 'archive it like the pool' },
+      { at: '2026-11-21T01:40', text: 'So the hub is probably where we would put the pool as well, and it should be its own image, so yeah I think that makes sense to archive it, I don\'t really like it just being the same thing with a flag that seems like a bad pattern and we didn\'t think that one out' },
+      { at: '2026-11-21T01:36', asked: 'Root\'s admin page has \'Project invites\' limits', text: 'Keep them' },
+      { at: '2026-11-21T01:36', asked: 'Records the hub left in databases', text: 'Leave them, no migration (Recommended)' },
+      { at: '2026-11-21T01:36', asked: 'An app in a shared project is served at a group address', text: 'Its temporary lets not blow it away if it works' },
+      { at: '2026-10-25T04:29', asked: 'anyone who shares a project can create unlimited root accounts', text: 'Quota + rate limit (Recommended)' },
+      { at: '2026-10-27T02:23', asked: 'how many project invites may one person send per hour?', text: 'a setting somewhere, 20 per hour sounds reasonable' },
+    ],
+    reading: 'Sharing a project, and the hub that held shared projects, are shelved and archived on 2026-11-20 like the pool, to be addressed again later. A future hub is an image of its own, never the backend started with a role flag, so ROLE is root or instance. Root\'s project invite limits stay with their admin page. Records the hub left in databases stay, with no migration. Group addresses (<group>.<domain>) keep working.',
+    replaced: [
+      { words: { at: '2026-10-21T19:59', asked: 'What roles should invited people have?', text: 'Owner, Collaborator, Client' }, by: 'archived with sharing on 2026-11-20: "archive it like the pool"' },
+      { words: { at: '2026-10-26T23:10', text: 'Members probably should have access to whatever is in the project, I don\'t really see any reason not to let them, we can pair it down later' }, by: 'archived with sharing on 2026-11-20: "archive it like the pool"' },
+      { words: { at: '2026-10-27T15:20', text: 'I don\'t think thats what I intended for shared projects, I believe we talked about contributors able to pull a copy of the project to be able to work right?' }, by: 'archived with sharing on 2026-11-20: "archive it like the pool"' },
+      { words: { at: '2026-11-20T10:21', asked: 'refusedOn (frontend, hub-waiting.ts:27) looks like half a feature', text: 'Wire it up (Recommended)' }, by: 'tabled with sharing on 2026-11-20: "we can shelve sharing a project functionality and address it then"' },
+    ],
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
@@ -401,7 +423,7 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-07T00:30', text: 'Yeah didn\'t we already decide how dev would work? we just need to look at what each test is testing and fill out the ROLE' },
       { at: '2026-11-07T00:30', text: 'I wouldn\'t expect us needed to create clusters that often in a test suite?' },
     ],
-    reading: 'ROLE says which process this is (root, an instance or the hub) and is required, with no default; the combined role goes. Each test runs as the role it tests. Tests reach no real cluster except the one testing the door to a cluster itself.',
+    reading: 'ROLE says which process this is (root or an instance; the hub was archived with sharing on 2026-11-20) and is required, with no default; the combined role goes. Each test runs as the role it tests. Tests reach no real cluster except the one testing the door to a cluster itself.',
   },
   {
     id: 'one-reverse-proxy',
