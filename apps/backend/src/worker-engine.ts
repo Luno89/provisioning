@@ -20,7 +20,7 @@ import { InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterPr
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
-import { createProjectDeletionActivities, temporalProjectWork } from './activities/DeleteProjectActivities.js';
+import { createProjectDeletionActivities, temporalProjectArchive, temporalProjectWork } from './activities/DeleteProjectActivities.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
 import { CustomizationsService } from './releases/services/CustomizationsService.js';
@@ -108,7 +108,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: settings.role.instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
-  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: settings.dataDir, dependencies });
+  const instanceFiles = storedFilesFor({ db, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId), minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: DEFAULT_ENGINE_TASK_QUEUE, dataDir: settings.dataDir, dependencies });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -449,7 +449,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const projectRemoval = createProjectRemovalActivities({
     store: db,
     apps: appTeardown,
-    workflows: removalWorkflows,
     kube: sandboxKube,
     repositories: gitea,
     secrets: infisical,
@@ -469,7 +468,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       files: instanceFiles.storedFiles,
     }),
     ...projectRemoval,
-    ...createProjectDeletionActivities({ work: temporalProjectWork(async () => temporal), removal: projectRemoval }),
+    ...createProjectDeletionActivities({ work: temporalProjectWork(async () => temporal), removal: projectRemoval, archive: temporalProjectArchive(async () => temporal, db.projects, QUEUES.engine) }),
     ...createWorkspaceProjectActivities(db),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({

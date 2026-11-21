@@ -38,7 +38,7 @@ describe('deleting a project from its page', () => {
     vi.mocked(projectsApi.getProjectRemoval).mockRejectedValue({ response: { status: 404 } })
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'shop' } })
     fireEvent.click(confirm)
-    await waitFor(() => expect(projectsApi.deleteProject).toHaveBeenCalledWith('p1', 'shop'))
+    await waitFor(() => expect(projectsApi.deleteProject).toHaveBeenCalledWith('p1', 'shop', 'permanent'))
 
     fireEvent.click(await screen.findByRole('button', { name: 'Done' }, { timeout: 8_000 }))
     expect(onDeleted).toHaveBeenCalled()

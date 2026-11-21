@@ -62,6 +62,7 @@ import { collectorEndpoint, collectorSink, NotificationService, PushService, vap
 import { holdFences } from './platform/wiring/fences.js';
 import { stopBackend } from './platform/wiring/shutdown.js';
 import { openRoutesOf } from './open-routes.js';
+import { appsToName } from './projects/index.js';
 
 const startsHere = process.env.NODE_ENV !== 'test';
 if (startsHere) dotenv.config({ quiet: true });
@@ -114,6 +115,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await operatorsFromAdmins(db, new Date().toISOString());
   await migrateLegacyOwnership(db, claimSettings, new Date().toISOString());
   await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
+  await runOnce(db.platform, 'apps-name-their-project', new Date().toISOString(), async () => {
+    const named = appsToName(await db.projects.getProjects(), await db.infrastructure.getDeployments());
+    for (const { deploymentId, projectId } of named) await db.infrastructure.saveDeploymentInfo({ id: deploymentId, gitappProjectId: projectId });
+    return { named: named.length };
+  });
   await seedAll(db);
 
   const revocations = new AccessRevocations();
@@ -134,7 +140,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const tenants = servesTenants(role);
   const engineTaskQueue = QUEUES.engine;
   const tenantServices = settings.tenant;
-  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: settings.dataDir, dependencies }) : undefined;
+  const instanceFiles = tenantServices ? storedFilesFor({ db, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId), minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: settings.dataDir, dependencies }) : undefined;
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);

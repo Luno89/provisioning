@@ -27,5 +27,5 @@ export const promoteRun = (projectId: string, runId: string, body?: unknown) =>
 export const getProjectRemoval = (id: string): Promise<ProjectRemovalPreview> =>
   api.get<ProjectRemovalPreview>(`/projects/${encodeURIComponent(id)}/removal`).then((r) => r.data)
 
-export const deleteProject = (id: string, confirm: string): Promise<ProjectRemovalState> =>
-  api.delete<{ state: ProjectRemovalState }>(`/projects/${encodeURIComponent(id)}`, { data: { confirm } }).then((r) => r.data.state)
+export const deleteProject = (id: string, confirm: string, mode: 'archive' | 'permanent'): Promise<ProjectRemovalState> =>
+  api.delete<{ state: ProjectRemovalState }>(`/projects/${encodeURIComponent(id)}`, { data: { confirm, mode } }).then((r) => r.data.state)

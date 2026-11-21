@@ -4,6 +4,7 @@ import { mock, type MockProxy } from 'vitest-mock-extended';
 import { CONCLUDE_WORKSPACE_WORKFLOW, concludeWorkspaceId } from '../../engine-host/temporal/contracts.js';
 import type { SavedDocuments } from '../../engine-host/sandboxes/workspace-documents.js';
 import { startedFor } from '../../platform/index.js';
+import { workFor } from '@koala/engine-core/work-for';
 import { WorkspaceConclusionService, WorkspaceNotConcludedError, type ConclusionWorkflows } from './WorkspaceConclusionService.js';
 
 type Handle = ReturnType<ConclusionWorkflows['getHandle']>;
@@ -20,7 +21,7 @@ beforeEach(() => {
   workflows.start.mockResolvedValue(undefined);
   workflows.getHandle.mockReturnValue(handle);
   handle.result.mockResolvedValue(saved);
-  service = new WorkspaceConclusionService({ workflows: async () => workflows, taskQueue: 'engine-queue' });
+  service = new WorkspaceConclusionService({ workflows: async () => workflows, taskQueue: 'engine-queue', projectOf: async (_ownerId, workspace) => (workspace.id === 't1' ? 'p1' : undefined) });
 });
 
 describe('concluding a workspace', () => {
@@ -33,6 +34,15 @@ describe('concluding a workspace', () => {
       ...startedFor('u1'),
     });
     expect(workflows.getHandle).toHaveBeenCalledWith(concludeWorkspaceId({ kind: 'tree', id: 't1' }));
+  });
+
+  it('starts it as the work of the project its workspace belongs to, so a deletion of that project stops it', async () => {
+    let named: unknown;
+    workflows.start.mockImplementation(async () => { named = workFor(); });
+    await service.conclude('u1', { kind: 'tree', id: 't1' });
+    expect(named).toEqual({ project: 'p1' });
+    await service.conclude('u1', { kind: 'conversation', id: 'loose' });
+    expect(named).toBeUndefined();
   });
 
   it('joins a conclusion already under way for the same workspace rather than running a second one', async () => {

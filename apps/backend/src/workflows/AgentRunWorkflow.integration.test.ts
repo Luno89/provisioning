@@ -1,3 +1,4 @@
+import { nodeStreams } from '@koala/engine-core/node-processes';
 import { testKeys } from '../platform/testing/keys.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { createCompactContextNode } from '../engine-host/nodes/model-nodes.js';
@@ -94,7 +95,7 @@ beforeEach(async () => {
   world = await newWorld(env);
 });
 
-type Scripted = Partial<ModelReply> | Error | 'hang';
+type Scripted = Partial<ModelReply> | Error | 'hang' | 'runs-a-program';
 
 const MACHINE: RunEnvironment = { kind: 'machine', deviceId: 'desk', deviceName: 'Desk', path: 'projects/thing', egressMode: 'declared' };
 
@@ -121,6 +122,7 @@ function activities(options: {
   let valueCalledOnce!: () => void;
   const valueCalled = new Promise<void>((done) => { valueCalledOnce = done; });
   const aborted: string[] = [];
+  const died: string[] = [];
   let turn = 0;
   const launched: { runId: string; modelId?: string | undefined }[] = [];
 
@@ -154,6 +156,17 @@ function activities(options: {
     const next = options.script[Math.min(turn, options.script.length - 1)]!;
     turn += 1;
     if (next instanceof Error) throw next;
+    if (next === 'runs-a-program') {
+      const program = nodeStreams.start({ command: 'sleep', args: ['600'] });
+      return new Promise<never>((_, reject) => {
+        run.signal?.addEventListener('abort', () => {
+          void program.exited.then((ended) => {
+            died.push(ended.signal ?? `exit ${ended.code}`);
+            reject(new Error('the model call was aborted'));
+          });
+        });
+      });
+    }
     if (next === 'hang') {
       return new Promise<never>((_, reject) => {
         run.signal?.addEventListener('abort', () => {
@@ -182,6 +195,7 @@ function activities(options: {
     valueCalled,
     launched,
     aborted,
+    died,
     efforts,
     conversations,
     engine: {
@@ -608,6 +622,19 @@ describe('AgentRunWorkflow', () => {
     expect(acts.aborted).toEqual([`${args.ticket.runId}-research-1`]);
     const child = await testClient(env, { namespace: world.namespace }).workflow.getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+  });
+
+  it('closes a stopped run only once its step has really stopped, the program it ran killed', async () => {
+    const acts = activities({ script: ['runs-a-program'] });
+    let diedBeforeClose: string[] | undefined;
+    const result = await runWorkflow(input('research', RESEARCH_V2), acts, async (handle) => {
+      await Promise.race([acts.called, handle.result()]);
+      await handle.signal(cancelSignal);
+      await handle.result().catch(() => undefined);
+      diedBeforeClose = [...acts.died];
+    });
+    expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+    expect(diedBeforeClose).toEqual(['SIGKILL']);
   });
 
   it('records the model call a stop catches in flight as stopped by it, not as failed', async () => {

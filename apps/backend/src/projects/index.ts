@@ -7,7 +7,6 @@ export { CONFLICT_TASK_TITLE } from './lib/landing.js';
 export type { Branch, Leaf } from './lib/leaves.js';
 export { parsePlan } from './lib/plan-proposals.js';
 export type { AdoptedPlan, ItemChange, PlanProposal, PlanStatus } from './lib/plan-proposals.js';
-export { projectWorkflowIds } from './lib/project-removal.js';
 export { koalasClusterFor, webhookUrlAt } from './lib/project-shipping.js';
 export { deploymentForProject } from './lib/project-status.js';
 export { giteaUsernameFor, sanitiseNamespaceName } from './lib/projects.js';
@@ -36,4 +35,8 @@ export { createSecretVault, SecretRequestService } from './services/SecretReques
 export { TreeHomeService } from './services/TreeHomeService.js';
 export { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
 export { groveRecordsOf } from './store.js';
+export { appsToName } from './lib/project-removal.js';
+export { projectOfWork } from './services/project-of-work.js';
+export type { ProjectOfWork } from './services/project-of-work.js';
+export { ARCHIVE_DAYS, PURGE_PROJECT_WORKFLOW, keptUntil, purgeNow, purgeProjectWorkflowId, purgeStart, restoreProject } from './lib/project-archive.js';
 export type { ProjectsStore } from './store.js';

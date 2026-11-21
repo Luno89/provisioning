@@ -2,8 +2,7 @@ import { defineQuery, proxyActivities, setHandler, workflowInfo } from '@tempora
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { destroyEach } from './project-apps.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
-import type { RemoveProjectArgs } from '../activities/RemoveProjectActivities.js';
-import type { FrozenWorkActivities, ProjectDeletionActivities } from '../activities/DeleteProjectActivities.js';
+import type { DeleteProjectArgs, FrozenWorkActivities, ProjectDeletionActivities } from '../activities/DeleteProjectActivities.js';
 import { QUEUES } from '../platform/lib/work-places.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
@@ -27,14 +26,15 @@ export interface ProjectDeleted {
   restarted: string[];
   apps: number;
   sweeps: number;
+  archived: boolean;
   repositories: string[];
   files: number;
   records: Record<string, number>;
 }
 
-const destroyApps = async (args: RemoveProjectArgs): Promise<number> => destroyEach(await steps.RemoveProjectAppsActivity(args), steps);
+const destroyApps = async (args: DeleteProjectArgs): Promise<number> => destroyEach(await steps.RemoveProjectAppsActivity(args), steps);
 
-export async function DeleteProjectWorkflow(args: RemoveProjectArgs): Promise<ProjectDeleted> {
+export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<ProjectDeleted> {
   const done: ProjectRemovalStep[] = [];
   setHandler(projectDeletionProgressQuery, () => [...done]);
 
@@ -60,13 +60,23 @@ export async function DeleteProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
     if (pass.open.length === 0 && pass.apps === 0 && pass.deleted === 0) break;
   }
 
+  const ran = { stopped, restarted: [...new Set(restarted)], apps, sweeps };
+  if (args.mode === 'archive') {
+    await steps.ArchiveProjectActivity(args);
+    await tellOwner();
+    return { ...ran, archived: true, repositories: [], files: 0, records: {} };
+  }
   const repositories = await steps.RemoveProjectRepositoriesActivity(args);
   done.push('repositories');
   const files = await steps.RemoveProjectFilesActivity(args);
   done.push('files');
   const records = await steps.RemoveProjectRecordsActivity(args);
   done.push('records');
+  await tellOwner();
+  return { ...ran, archived: false, repositories, files, records };
+}
+
+async function tellOwner(): Promise<void> {
   const owner = ownerIn(workflowInfo().typedSearchAttributes);
   if (owner) await told.EngineGroveChangedActivity({ ownerId: owner }).catch(ignore('the browser reads its trees again when it next looks; this only tells it sooner'));
-  return { stopped, restarted: [...new Set(restarted)], apps, sweeps, repositories, files, records };
 }

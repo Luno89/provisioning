@@ -1,3 +1,4 @@
+import type { HoldOpen } from '../store.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { Database, DependencyReporter, ProjectMetadata, Workflows } from '../../platform/index.js';
 import { keepTrying, PLATFORM_OWNER, runOnce, startedFor, type ClusterMetadata, type Principal } from '../../platform/index.js';
@@ -32,6 +33,7 @@ export interface InstanceFiles {
 
 export interface InstanceFilesDeps {
   db: Pick<Database, 'files'>;
+  holdOpen: HoldOpen;
   minio: MinioSettings;
   workflows: () => Promise<Pick<Workflows, 'start'>>;
   engineTaskQueue: string;
@@ -45,7 +47,7 @@ export function storedFilesFor(deps: InstanceFilesDeps): InstanceFiles {
   const storedFiles = new StoredFiles({ records, objects, commits: temporalStoredFileCommits(deps.workflows, deps.engineTaskQueue), room: roomOn(deps.dataDir) });
   return {
     storedFiles,
-    activities: createStoredFilesActivities({ records, objects }),
+    activities: createStoredFilesActivities({ records, objects, holdOpen: deps.holdOpen }),
     fileService: new FileService({ files: storedFiles, shares: records }),
     artifacts: new ArtifactService({ files: storedFiles }),
   };

@@ -1,3 +1,4 @@
+import { EVERY_PROJECT_OPEN } from './stored-files-twin.js';
 import { describe, expect, it } from 'vitest';
 import type { FileShare } from '../lib/file-shares.js';
 import type { StoredFileRecord } from '../lib/stored-files.js';
@@ -23,7 +24,7 @@ const folder = (id: string, path: string): StoredFileRecord => ({ ...upload(id, 
 
 const kept = async (store: FilesStore, id: string, path: string, size = 1, extra: Partial<StoredFileRecord> = {}): Promise<void> => {
   await store.beginStoredFile(upload(id, path, extra));
-  const done = await store.commitStoredFiles([{ id, size }], { replace: true }, AT);
+  const done = await store.commitStoredFiles([{ id, size }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, AT);
   if (!done.ok) throw new Error(done.why);
 };
 
@@ -36,7 +37,7 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       await store.beginStoredFile(upload('f1', 'notes/a.txt'));
       expect(await store.storedFilesIn('u1', PROJECT)).toEqual([]);
       expect((await store.storedFileById('f1'))?.state).toBe('uploading');
-      const done = await store.commitStoredFiles([{ id: 'f1', size: 12 }], { replace: false }, LATER);
+      const done = await store.commitStoredFiles([{ id: 'f1', size: 12 }], { replace: false, holdOpen: EVERY_PROJECT_OPEN }, LATER);
       expect(done).toMatchObject({ ok: true, replaced: [] });
       expect(await store.storedFilesIn('u1', PROJECT)).toEqual([{ ...upload('f1', 'notes/a.txt'), state: 'stored', size: 12, version: 1, changedAt: LATER, touchedAt: LATER }]);
     });
@@ -45,7 +46,7 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       const store = await make();
       await kept(store, 'old', 'a.txt');
       await store.beginStoredFile(upload('new', 'a.txt', { madeAt: LATER, contentType: 'text/markdown' }));
-      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true }, LATER)).toMatchObject({ ok: true, replaced: ['old'], absorbed: ['new'] });
+      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, LATER)).toMatchObject({ ok: true, replaced: ['old'], absorbed: ['new'] });
       const records = await store.storedFilesIn('u1', PROJECT);
       expect(records.map((record) => [record.id, record.objectId, record.version, record.madeAt, record.changedAt, record.size, record.contentType])).toEqual([['old', 'new', 2, AT, LATER, 5, 'text/markdown']]);
       expect(await store.storedFileById('new')).toBeUndefined();
@@ -57,9 +58,9 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       const store = await make();
       await kept(store, 'old', 'a.txt');
       await store.beginStoredFile(upload('new', 'a.txt'));
-      const first = await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true }, LATER);
+      const first = await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, LATER);
       const before = await store.storedFilesIn('u1', PROJECT);
-      const again = await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true }, '2026-11-07T12:00:00.000Z');
+      const again = await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, '2026-11-07T12:00:00.000Z');
       expect(again).toMatchObject({ ok: true, replaced: [], absorbed: [] });
       expect(again.ok && again.stored).toEqual(first.ok && first.stored);
       expect(await store.storedFilesIn('u1', PROJECT)).toEqual(before);
@@ -72,7 +73,7 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       await store.saveFileShare({ id: 's1', token: TOKEN, ownerId: 'u1', fileId: 'old', path: 'a.txt', name: 'a.txt', createdAt: AT, expiresAt: LATER });
       await store.saveFileShare({ id: 's2', token: OTHER_TOKEN, ownerId: 'u1', fileId: 'b', path: 'b.txt', name: 'b.txt', createdAt: AT, expiresAt: LATER });
       await store.beginStoredFile(upload('new', 'a.txt'));
-      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true }, LATER)).toMatchObject({ ok: true });
+      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, LATER)).toMatchObject({ ok: true });
       expect((await store.getFileShare('s1'))?.fileId).toBe('old');
       expect((await store.getFileShare('s2'))?.fileId).toBe('b');
     });
@@ -81,7 +82,7 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       const store = await make();
       await kept(store, 'old', 'a.txt');
       await store.beginStoredFile(upload('new', 'a.txt'));
-      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: false }, LATER)).toMatchObject({ ok: false, status: 409 });
+      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: false, holdOpen: EVERY_PROJECT_OPEN }, LATER)).toMatchObject({ ok: false, status: 409 });
       expect((await store.storedFilesIn('u1', PROJECT)).map((record) => record.id)).toEqual(['old']);
       expect((await store.storedFileById('new'))?.state).toBe('uploading');
     });
@@ -91,24 +92,24 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       await kept(store, 'there', 'taken.txt');
       await store.beginStoredFile(upload('a', 'a.txt'));
       await store.beginStoredFile(upload('b', 'taken.txt'));
-      expect(await store.commitStoredFiles([{ id: 'a', size: 1 }, { id: 'b', size: 1 }], { replace: false }, LATER)).toMatchObject({ ok: false, status: 409 });
+      expect(await store.commitStoredFiles([{ id: 'a', size: 1 }, { id: 'b', size: 1 }], { replace: false, holdOpen: EVERY_PROJECT_OPEN }, LATER)).toMatchObject({ ok: false, status: 409 });
       expect(await paths(store)).toEqual(['taken.txt']);
-      expect(await store.commitStoredFiles([{ id: 'a', size: 1 }, { id: 'b', size: 2 }], { replace: true }, LATER)).toMatchObject({ ok: true, replaced: ['there'] });
+      expect(await store.commitStoredFiles([{ id: 'a', size: 1 }, { id: 'b', size: 2 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, LATER)).toMatchObject({ ok: true, replaced: ['there'] });
       expect(await paths(store)).toEqual(['a.txt', 'taken.txt']);
     });
 
     it('takes committing a kept file again as done, and refuses an upload it does not hold, the same path twice at once, or a file where a folder is', async () => {
       const store = await make();
-      expect(await store.commitStoredFiles([{ id: 'never', size: 1 }], { replace: true }, AT)).toMatchObject({ ok: false, status: 404 });
+      expect(await store.commitStoredFiles([{ id: 'never', size: 1 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, AT)).toMatchObject({ ok: false, status: 404 });
       await kept(store, 'done', 'done.txt', 7);
-      expect(await store.commitStoredFiles([{ id: 'done', size: 99 }], { replace: false }, LATER)).toMatchObject({ ok: true, replaced: [] });
+      expect(await store.commitStoredFiles([{ id: 'done', size: 99 }], { replace: false, holdOpen: EVERY_PROJECT_OPEN }, LATER)).toMatchObject({ ok: true, replaced: [] });
       expect((await store.storedFileById('done'))).toMatchObject({ size: 7, version: 1, changedAt: AT });
       await store.beginStoredFile(upload('x', 'same.txt'));
       await store.beginStoredFile(upload('y', 'same.txt'));
-      expect(await store.commitStoredFiles([{ id: 'x', size: 1 }, { id: 'y', size: 1 }], { replace: true }, AT)).toMatchObject({ ok: false, status: 409 });
+      expect(await store.commitStoredFiles([{ id: 'x', size: 1 }, { id: 'y', size: 1 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, AT)).toMatchObject({ ok: false, status: 409 });
       await store.makeStoredFolder(folder('dir', 'docs'));
       await store.beginStoredFile(upload('z', 'docs'));
-      expect(await store.commitStoredFiles([{ id: 'z', size: 1 }], { replace: true }, AT)).toMatchObject({ ok: false, status: 409 });
+      expect(await store.commitStoredFiles([{ id: 'z', size: 1 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, AT)).toMatchObject({ ok: false, status: 409 });
     });
 
     it('keeps each place apart: the same path in another scope or for another person is another file', async () => {
@@ -177,7 +178,7 @@ export function filesStoreContract(make: () => Promise<FilesStore>): void {
       await store.deleteStoredFiles(['a', 'stale']);
       await store.deleteStoredFiles([]);
       expect(await store.storedObjectIdsAmong(['a', 'stale', 'live'])).toEqual(['live']);
-      await store.commitStoredFiles([{ id: 'live', size: 1 }], { replace: true }, LATER);
+      await store.commitStoredFiles([{ id: 'live', size: 1 }], { replace: true, holdOpen: EVERY_PROJECT_OPEN }, LATER);
       await kept(store, 'next', 'live.txt');
       expect((await store.storedObjectIdsAmong(['live', 'next'])).sort()).toEqual(['next']);
       expect(await store.getFileShares('u1')).toEqual([]);

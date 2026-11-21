@@ -29,7 +29,7 @@ describe('the Running section', () => {
       items: [
         { workflowId: 'check-run-b1', kind: 'bench', title: 'The bench, checking Koala: 14 of 22 checks', since, opens: { kind: 'checks', id: 'b1' }, cancel: { via: 'check' } },
         { workflowId: 'run-r1', kind: 'chat', title: 'Koala answering in "Labels"', since, opens: { kind: 'chat', id: 'c1' }, cancel: { via: 'run' }, asking: ['call-1'] },
-        { workflowId: 'remove-project-p1', kind: 'removal', title: 'Deleting the project Shop', since, opens: { kind: 'temporal' }, cancel: { via: 'none', why: 'deleting cannot be stopped part way' } },
+        { workflowId: 'delete-project-p1', kind: 'removal', title: 'Deleting the project Shop', since, opens: { kind: 'temporal' }, cancel: { via: 'none', why: 'deleting cannot be stopped part way' } },
       ],
       bench: { paused: false },
       keeper: { paused: true, held: 2 },

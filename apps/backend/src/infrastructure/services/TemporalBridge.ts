@@ -32,7 +32,7 @@ export type GroveRunStatus =
   | { state: 'running'; startedAt: string; turnId?: string | undefined; asking?: WaitingAsk[] | undefined }
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult; turnId?: string | undefined }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
-import { deploymentForProject } from '../../projects/index.js'
+import { deploymentForProject, projectOfWork } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { AppStackUnknown, appStackOf } from '../lib/deployment-id.js'
 import { keepEveryOwner, type ConsolidationReport } from '../../memory/index.js'
@@ -434,13 +434,16 @@ export class TemporalBridge {
   async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
     if (!this.client) return undefined
     const workflowId = `adopt-plan-${proposalId}`
-    await this.client.workflow.start(AdoptPlanWorkflow, {
+    const proposal = await this.db.projects.getPlanProposal(ownerId, proposalId)
+    const project = proposal ? await projectOfWork(this.db)(ownerId, { projectId: proposal.projectId, treeId: proposal.plan?.treeId, conversationId: proposal.conversationId }) : undefined
+    const client = this.client
+    await this.forProject(project, () => client.workflow.start(AdoptPlanWorkflow, {
       workflowId,
       taskQueue: DEFAULT_ENGINE_TASK_QUEUE,
       args: [{ ownerId, proposalId }],
       ...startedFor(ownerId),
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
-    })
+    }))
     return workflowId
   }
 

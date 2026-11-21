@@ -111,7 +111,7 @@ describe('what runs, for the person, against Temporal and the stored settings', 
     await start(owner, 'executePipelineRunWorkflow', `pipeline-run-${owner}`);
     await start(owner, 'AgentRunWorkflow', `run-${owner}`, { runId: `run-${owner}` });
     await start(owner, 'AgentRunWorkflow', 'grove-run-t2');
-    await start(owner, 'RemoveProjectWorkflow', `remove-project-${owner}`);
+    await start(owner, 'DeleteProjectWorkflow', `delete-project-${owner}`);
     await start(`${owner}-other`, 'executePipelineRunWorkflow', `pipeline-run-${owner}-other`);
     await until(async () => {
       const seen = await service.view(owner);
@@ -124,8 +124,8 @@ describe('what runs, for the person, against Temporal and the stored settings', 
     expect(await service.cancel(owner, 'grove-run-t2')).toEqual({ ok: true, value: { cancelling: true } });
     expect(done).toEqual([`run run-${owner}`, 'tree t2']);
     expect(await cancelRequested(`run-${owner}`)).toBe(false);
-    expect(await service.cancel(owner, `remove-project-${owner}`)).toMatchObject({ ok: false, status: 409 });
-    expect(await cancelRequested(`remove-project-${owner}`)).toBe(false);
+    expect(await service.cancel(owner, `delete-project-${owner}`)).toMatchObject({ ok: false, status: 409 });
+    expect(await cancelRequested(`delete-project-${owner}`)).toBe(false);
     expect(await service.cancel(owner, `pipeline-run-${owner}-other`)).toEqual({ ok: false, status: 404, error: 'Nothing of yours is running under that id' });
     expect(await cancelRequested(`pipeline-run-${owner}-other`)).toBe(false);
   });

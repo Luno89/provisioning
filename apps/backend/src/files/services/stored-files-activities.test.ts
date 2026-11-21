@@ -24,7 +24,8 @@ const setUp = (bytes: readonly string[] = []) => {
   records.deadStoredUploads.mockResolvedValue([]);
   records.expiredStoredFiles.mockResolvedValue([]);
   records.storedObjectIdsAmong.mockResolvedValue([]);
-  return { records, objects, activities: createStoredFilesActivities({ records, objects, now: () => T0 }) };
+  const holdOpen = async () => true;
+  return { records, objects, holdOpen, activities: createStoredFilesActivities({ records, objects, holdOpen, now: () => T0 }) };
 };
 
 const ids = (count: number, from = 0): string[] => Array.from({ length: count }, (_, index) => `o${index + from}`);
@@ -39,23 +40,23 @@ describe('committing stored files', () => {
   });
 
   it('commits once every upload\'s bytes are there at the size it was kept with, at the time now', async () => {
-    const { records, objects, activities } = setUp();
+    const { records, objects, holdOpen, activities } = setUp();
     objects.stat.calledWith('a').mockResolvedValue({ size: 3 });
     objects.stat.calledWith('b').mockResolvedValue({ size: 0 });
     const plan = { ok: true as const, stored: [record('a'), record('b')], replaced: [], absorbed: [] };
     records.commitStoredFiles.mockResolvedValue(plan);
     const commits = [{ id: 'a', size: 3 }, { id: 'b', size: 0 }];
     expect(await activities.StoredFilesCommitActivity({ commits, replace: true })).toBe(plan);
-    expect(records.commitStoredFiles).toHaveBeenCalledWith(commits, { replace: true }, AT);
+    expect(records.commitStoredFiles, 'the save holds each project open in its own transaction').toHaveBeenCalledWith(commits, { replace: true, holdOpen }, AT);
   });
 
   it('passes on that replacing is not allowed, and the store\'s refusal', async () => {
-    const { records, objects, activities } = setUp();
+    const { records, objects, holdOpen, activities } = setUp();
     objects.stat.mockResolvedValue({ size: 1 });
     records.commitStoredFiles.mockResolvedValue({ ok: false, status: 409, why: 'a is already there, and it may not be replaced' });
     expect(await activities.StoredFilesCommitActivity({ commits: [{ id: 'a', size: 1 }], replace: false }))
       .toEqual({ ok: false, status: 409, why: 'a is already there, and it may not be replaced' });
-    expect(records.commitStoredFiles).toHaveBeenCalledWith([{ id: 'a', size: 1 }], { replace: false }, AT);
+    expect(records.commitStoredFiles).toHaveBeenCalledWith([{ id: 'a', size: 1 }], { replace: false, holdOpen }, AT);
   });
 
   it('refuses when an upload\'s bytes are not there, stopping at the first and committing nothing', async () => {
@@ -89,7 +90,7 @@ describe('committing stored files', () => {
   it('reads the time from the clock when none is handed to it', async () => {
     const records = mock<StoredFilesActivityDeps['records']>();
     records.commitStoredFiles.mockResolvedValue({ ok: true, stored: [], replaced: [], absorbed: [] });
-    await createStoredFilesActivities({ records, objects: mock<ObjectStore>() }).StoredFilesCommitActivity({ commits: [], replace: true });
+    await createStoredFilesActivities({ records, objects: mock<ObjectStore>(), holdOpen: async () => true }).StoredFilesCommitActivity({ commits: [], replace: true });
     const at = records.commitStoredFiles.mock.calls[0]![2];
     expect(Math.abs(Date.parse(at) - Date.now())).toBeLessThan(60_000);
   });

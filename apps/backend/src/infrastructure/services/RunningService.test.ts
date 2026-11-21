@@ -49,11 +49,11 @@ describe('what runs, for the person', () => {
       { workflowId: 'grove-run-t1', type: 'AgentRunWorkflow', startedAt: at },
       { workflowId: 'run-r1', type: 'AgentRunWorkflow', startedAt: at, memo: { runId: 'run-r1' } },
       { workflowId: 'pipeline-run-x', type: 'executePipelineRunWorkflow', startedAt: at },
-      { workflowId: 'remove-project-p1', type: 'RemoveProjectWorkflow', startedAt: at },
+      { workflowId: 'delete-project-p1', type: 'DeleteProjectWorkflow', startedAt: at },
     ]);
     for (const id of ['check-run-b1', 'grove-run-t1', 'run-r1', 'pipeline-run-x']) expect(await service.cancel('u1', id)).toEqual({ ok: true, value: { cancelling: true } });
     expect(done).toEqual(['check b1', 'tree t1', 'run run-r1', 'workflow pipeline-run-x']);
-    expect(await service.cancel('u1', 'remove-project-p1')).toEqual({ ok: false, status: 409, error: 'Deleting the project cannot be cancelled: deleting cannot be stopped part way' });
+    expect(await service.cancel('u1', 'delete-project-p1')).toEqual({ ok: false, status: 409, error: 'Deleting the project cannot be cancelled: deleting cannot be stopped part way' });
     expect(await service.cancel('u1', 'someone-elses')).toEqual({ ok: false, status: 404, error: 'Nothing of yours is running under that id' });
   });
 

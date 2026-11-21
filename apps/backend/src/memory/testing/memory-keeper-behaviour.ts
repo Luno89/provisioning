@@ -132,6 +132,14 @@ export function memoryKeeperBehaviour(database: () => Promise<Database>): void {
       expect(started.map((request) => request.runId)).toEqual(['memory-run-r-failed', 'memory-run-r-research', 'memory-leaf-leaf-1-2026-10-03T12-00-00Z']);
       expect(started[2]!.bound).toEqual({ treeId: 't1' });
     });
+
+    it('names the project the leaf\'s tree is homed in, so the keeper\'s run is that project\'s work', async () => {
+      await db.projects.saveTree({ id: 't1', ownerId: 'u1', name: 'Shop', type: 'software', projectIds: ['p1'], createdAt: 'x', updatedAt: 'x' } as never);
+      await db.projects.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'b', createdAt: 'x', updatedAt: 'x' } as never);
+      await db.projects.saveLeaf({ id: 'leaf-1', ownerId: 'u1', branchId: 'b1', title: 'versions.txt', status: 'failed', review: { verdict: 'unsound', model: 'leaf-judge', at: '2026-10-03T12:00:00Z', reason: 'frobnicate is missing' }, createdAt: 'x', updatedAt: 'x' });
+      await keeper().handle(turnEnded({ runId: 'r-judge', agentSlug: 'leaf-judge', depth: 1, leafId: 'leaf-1' }));
+      expect(started[0]!.bound).toEqual({ treeId: 't1', projectId: 'p1' });
+    });
   });
 
   describe('accounts nothing should be remembered for', () => {

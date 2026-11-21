@@ -153,6 +153,9 @@ export class MemoryKeeperService {
   }
 
   private async startNow(conclusion: Conclusion, report: ConclusionReport): Promise<void> {
+    const projectId = conclusion.projectId ?? (conclusion.treeId
+      ? (await this.deps.store.projects.getTrees()).find((tree) => tree.id === conclusion.treeId && tree.ownerId === conclusion.ownerId)?.projectIds?.[0]
+      : undefined);
     try {
       await this.deps.start({
         startedBy: 'person',
@@ -162,7 +165,7 @@ export class MemoryKeeperService {
         runId: conclusion.runId,
         ...(conclusion.about ? { about: conclusion.about } : {}),
         bound: {
-          ...(conclusion.projectId ? { projectId: conclusion.projectId } : {}),
+          ...(projectId ? { projectId } : {}),
           ...(conclusion.treeId ? { treeId: conclusion.treeId } : {}),
         },
       });

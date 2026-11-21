@@ -9,7 +9,7 @@ import { startBackend } from '../../../test/backend/site'
 import { projectsOf, type ProjectsSide } from '../../../test/backend/projects'
 import type { Wire } from '../../../test/backend/wire'
 import { anyOf, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
-import { removeProjectWorkflowId, type ProjectRemovalPreview as BackendPreview } from '../../../../../backend/src/projects/lib/project-removal'
+import { deleteProjectWorkflowId, type ProjectRemovalPreview as BackendPreview } from '../../../../../backend/src/projects/lib/project-removal'
 import type { ProjectRemovalState as BackendState } from '../../../../../backend/src/projects/services/ProjectRemovalService'
 
 let side: ProjectsSide | undefined
@@ -75,9 +75,9 @@ describe('a project, as the projects pages ask for it', () => {
   })
 
   it('refuses a delete whose typed name is wrong, and starts the removal when it is right', async () => {
-    await expect(deleteProject(projectId, 'Desk wrk')).rejects.toMatchObject({ response: { status: 400 } })
-    expect(await deleteProject(projectId, 'Desk work')).toEqual({ state: 'running', done: [] })
-    expect(side!.temporal.workflows.get(removeProjectWorkflowId(projectId))).toMatchObject({ status: 'RUNNING', args: [{ projectId }] })
+    await expect(deleteProject(projectId, 'Desk wrk', 'permanent')).rejects.toMatchObject({ response: { status: 400 } })
+    expect(await deleteProject(projectId, 'Desk work', 'permanent')).toEqual({ state: 'running', done: [] })
+    expect(side!.temporal.workflows.get(deleteProjectWorkflowId(projectId))).toMatchObject({ status: 'RUNNING', args: [{ projectId }] })
   })
 
   it('refuses a change to the project once its deletion has started, in the words the person reads, and still shows the deletion', async () => {

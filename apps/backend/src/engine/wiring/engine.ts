@@ -75,6 +75,8 @@ import { PoisoningService } from '../services/PoisoningService.js';
 import { poisoningRouter } from '../routes/poisoning.js';
 import type { MachineClusterRecords } from '../../engine-host/temporal/activities.js';
 import { temporalWorkflowStarter } from '../../engine-host/temporal/workflow-starter.js';
+import { withWorkFor } from '@koala/engine-core/work-for';
+import { projectOfWork } from '../../projects/index.js';
 
 
 export interface EngineCoreDeps {
@@ -196,9 +198,11 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     hidden: (ownerId: string) => extensions.hidden(ownerId),
   });
   const workspaceRepos = createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username });
+  const projectOf = projectOfWork(db);
   const workspaceConclusions = new WorkspaceConclusionService({
     workflows: async () => (await getTemporalClient()).workflow,
     taskQueue: engineQueue,
+    projectOf: (ownerId, workspace) => projectOf(ownerId, workspace.kind === 'tree' ? { treeId: workspace.id } : { conversationId: workspace.id }),
   });
   const memoryKeeper = new MemoryKeeperService({
     store: db,
@@ -211,8 +215,9 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
         args: [{ ownerId, conversationId }],
         ...startedFor(ownerId),
       };
-      if (signal === 'turnEnded') await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [{ quietMs: quietMs ?? 0 }] });
-      else await workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [] });
+      await withWorkFor({ project: await projectOf(ownerId, { conversationId }) }, () => (signal === 'turnEnded'
+        ? workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [{ quietMs: quietMs ?? 0 }] })
+        : workflows.signalWithStart(CONVERSATION_CONCLUSION_WORKFLOW, { ...where, signal, signalArgs: [] })));
     },
     concludeAfterMinutes: async (ownerId, agentSlug) => (await engineRegistry.agent(ownerId, agentSlug))?.concludeAfterMinutes,
     remembersFor: async (ownerId: string) => {

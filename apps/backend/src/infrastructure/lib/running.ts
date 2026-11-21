@@ -37,7 +37,7 @@ export interface RunningItem {
   waitsFor?: string[] | undefined;
 }
 
-export const HIDDEN_TYPES: readonly string[] = ['ConversationConclusionWorkflow', 'BenchIdleWorkflow', 'StoredFilesWorkflow', 'StoredFilesSweepWorkflow'];
+export const HIDDEN_TYPES: readonly string[] = ['ConversationConclusionWorkflow', 'BenchIdleWorkflow', 'StoredFilesWorkflow', 'StoredFilesSweepWorkflow', 'PurgeProjectWorkflow'];
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
 const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -99,8 +99,8 @@ export const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: Runnin
   AgentRunWorkflow: agentRun,
   CheckRunWorkflow: checkRun,
   AdoptPlanWorkflow: () => ({ kind: 'plan', title: 'Applying a plan you approved', opens: { kind: 'temporal' }, cancel: { via: 'none', why: 'an approved plan is applied in one go, in moments' } }),
-  RemoveProjectWorkflow: (workflow, records) => {
-    const id = afterPrefix(workflow.workflowId, 'remove-project-');
+  DeleteProjectWorkflow: (workflow, records) => {
+    const id = afterPrefix(workflow.workflowId, 'delete-project-');
     const name = id ? records.projects.find((entry) => entry.id === id)?.name : undefined;
     return { kind: 'removal', title: `Deleting the project${name ? ` ${name}` : ''}`, opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'deleting cannot be stopped part way' } };
   },

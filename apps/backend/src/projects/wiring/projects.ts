@@ -10,7 +10,8 @@ import { ItemChatService } from '../services/ItemChatService.js';
 import { ConversationNoticeService, type WorkspaceBuildService, type extensionServiceFor } from '../../engine/index.js';
 import { projectSecretsFor } from '../services/ProjectSecretsService.js';
 import { TreeHomeService } from '../services/TreeHomeService.js';
-import { ProjectRemovalService } from '../services/ProjectRemovalService.js';
+import { ProjectRemovalService, temporalPurges } from '../services/ProjectRemovalService.js';
+import type { ProjectDeletionMode } from '../../platform/index.js';
 import { temporalRemovalWorkflows } from '../../accounts/index.js';
 import { TreeModelsService, treeAgentsFrom, type ModelService } from '../../models/index.js';
 import { GroveRunService } from '../services/GroveRunService.js';
@@ -164,7 +165,8 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
 
   const projectRemoval = new ProjectRemovalService({
     store: db,
-    workflows: temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporalBridge.client, engineQueue, PROJECT_REMOVAL_PROGRESS_QUERY),
+    workflows: temporalRemovalWorkflows<{ projectId: string; mode: ProjectDeletionMode }, ProjectRemovalStep>(() => temporalBridge.client, engineQueue, PROJECT_REMOVAL_PROGRESS_QUERY),
+    purges: temporalPurges(async () => temporalBridge.client, engineQueue),
   });
   tenant.use('/api/projects', projectsRouter({
     db, projectRepoService, temporalBridge, getOwnedProject: deps.getOwnedProject,

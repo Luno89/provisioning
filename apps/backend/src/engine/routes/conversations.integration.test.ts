@@ -216,16 +216,16 @@ describe('what Koala sees in a conversation', () => {
     await save('ctx-loose', {});
 
     const story = (await context('ctx-story')).body!;
-    expect(Object.keys(story.given)).toEqual(['treeId', 'leafId', 'story', 'project']);
+    expect(Object.keys(story.given)).toEqual(['treeId', 'leafId', 'story', 'projectId', 'project']);
     expect(story.given.story).toContain('Findings: the view did not load');
     expect(story.given.project).toContain('Live: aaaaaaaa in slot a');
-    expect(story.text).toBe(`treeId: ctx-t\n\nleafId: ctx-l\n\nstory: ${story.given.story}\n\nproject: ${story.given.project}`);
+    expect(story.text).toBe(`treeId: ctx-t\n\nleafId: ctx-l\n\nstory: ${story.given.story}\n\nprojectId: ctx-p\n\nproject: ${story.given.project}`);
     const feature = (await context('ctx-feature')).body!;
-    expect(Object.keys(feature.given)).toEqual(['treeId', 'branchId', 'feature', 'project']);
+    expect(Object.keys(feature.given)).toEqual(['treeId', 'branchId', 'feature', 'projectId', 'project']);
     expect(feature.given.feature).toContain('Feature "The field" (ctx-b)');
     expect(feature.given.project).toContain('Waiting for the person: bbbbbbbb');
     const channel = (await context('ctx-channel')).body!;
-    expect(Object.keys(channel.given)).toEqual(['treeId', 'tree', 'project']);
+    expect(Object.keys(channel.given)).toEqual(['treeId', 'tree', 'projectId', 'project']);
     expect(channel.given.tree).toContain('Tree "Shop" (ctx-t), type odoo-addons.');
     expect(channel.given.project).toContain('Live: aaaaaaaa in slot a, since 2026-10-09 10:05 UTC.');
     expect(channel.given.project).toContain('Waiting for the person: bbbbbbbb is ready to preview in slot b.');

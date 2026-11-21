@@ -2,11 +2,7 @@ import type { DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '.
 import type { Tree } from './trees.js';
 import { primaryProjectId } from './trees.js';
 import { deletionScope, type DeletionScope, type GroveWorld } from './grove-deletion.js';
-import { adoptionWorkflowId, concludeWorkspaceId, groveRunWorkflowId } from '../../platform/lib/workflow-ids.js';
-import { releaseRunWorkflowId } from '../../releases/lib/release-run.js';
 
-export const removeProjectWorkflowId = (projectId: string): string => `remove-project-${projectId}`;
-export const REMOVE_PROJECT_WORKFLOW = 'RemoveProjectWorkflow';
 export const deleteProjectWorkflowId = (projectId: string): string => `delete-project-${projectId}`;
 export const DELETE_PROJECT_WORKFLOW = 'DeleteProjectWorkflow';
 export const PROJECT_REMOVAL_PROGRESS_QUERY = 'projectRemovalProgress';
@@ -38,6 +34,14 @@ export function projectApps(project: Pick<ProjectMetadata, 'id' | 'name'>, deplo
     || (!deployment.gitappProjectId && deployment.appType === 'gitapp' && deployment.name === project.name));
 }
 
+export function appsToName(projects: readonly Pick<ProjectMetadata, 'id' | 'name' | 'ownerId'>[], deployments: readonly DeploymentMetadata[]): { deploymentId: string; projectId: string }[] {
+  return deployments.flatMap((deployment) => {
+    if (deployment.gitappProjectId || deployment.appType !== 'gitapp') return [];
+    const project = projects.find((entry) => entry.ownerId === deployment.ownerId && entry.name === deployment.name);
+    return project ? [{ deploymentId: deployment.id, projectId: project.id }] : [];
+  });
+}
+
 const RUNNING_BUILDS = ['queued', 'running'];
 
 export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name' | 'ownerId' | 'giteaOwner' | 'giteaRepo'>, world: ProjectWorld): ProjectRemovalScope {
@@ -57,18 +61,6 @@ export function projectRemovalScope(project: Pick<ProjectMetadata, 'id' | 'name'
     runningBuildWorkflowIds: runs.filter((run) => RUNNING_BUILDS.includes(run.status) && run.temporalWorkflowId).map((run) => run.temporalWorkflowId!),
     apps: projectApps(project, world.deployments.filter((deployment) => deployment.ownerId === project.ownerId)).map((deployment) => ({ id: deployment.id, name: deployment.name })),
   };
-}
-
-export function projectWorkflowIds(scope: ProjectRemovalScope): string[] {
-  return [...new Set([
-    releaseRunWorkflowId(scope.projectId),
-    ...scope.runningBuildWorkflowIds,
-    ...scope.trees.flatMap((tree) => [
-      groveRunWorkflowId(tree.id),
-      concludeWorkspaceId({ kind: 'tree', id: tree.id }),
-      ...tree.scope.adoptingProposalIds.map(adoptionWorkflowId),
-    ]),
-  ])];
 }
 
 export interface ProjectRemovalPreview {

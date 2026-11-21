@@ -21,7 +21,7 @@ function DeleteProjectPopup({ projectId, onClose, onDeleted }: { projectId: stri
   })
 
   const remove = useMutation({
-    mutationFn: () => deleteProject(projectId, typed),
+    mutationFn: () => deleteProject(projectId, typed, 'permanent'),
     onSuccess: () => setStarted(true),
   })
 

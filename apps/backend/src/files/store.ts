@@ -20,7 +20,7 @@ export interface FilesStore extends AreaStore {
   sealShareTokens(): Promise<number>;
   beginStoredFile(record: StoredFileRecord): Promise<void>;
   touchStoredFile(id: string, at: string): Promise<void>;
-  commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan>;
+  commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean; holdOpen: HoldOpen }, at: string): Promise<CommitPlan>;
   storedFilesIn(ownerId: string, scope: StoredScope): Promise<StoredFileRecord[]>;
   storedFileById(id: string): Promise<StoredFileRecord | undefined>;
   storedFileByObject(objectId: string): Promise<StoredFileRecord | undefined>;
@@ -36,6 +36,15 @@ export interface FilesStore extends AreaStore {
   oldArtifacts(): AsyncIterable<OldArtifact>;
   forgetOldArtifacts(): Promise<number>;
 }
+
+export const projectsOf = (records: readonly ({ scope: { kind: string; id: string } } | undefined)[]): string[] =>
+  [...new Set(records.flatMap((record) => (record?.scope.kind === 'project' ? [record.scope.id] : [])))];
+
+export type HoldOpen = (tx: Tx, projectId: string) => Promise<boolean>;
+
+export const DELETING_SAID = 'this project is being deleted';
+
+class HeldClosed extends Error {}
 
 export class MongoFilesStore implements FilesStore {
   constructor(private readonly db: () => Db, private readonly dataKey: SecretKey) {}
@@ -123,12 +132,15 @@ export class MongoFilesStore implements FilesStore {
     await this.stored.updateOne({ _id: id, state: 'uploading' }, { $set: { touchedAt: at } });
   }
 
-  async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan> {
+  async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean; holdOpen: HoldOpen }, at: string): Promise<CommitPlan> {
     return this.inTransaction(async (session) => {
       const uploading = await Promise.all(commits.map(async (commit) => {
         const doc = await this.stored.findOne({ _id: commit.id }, { session }) ?? await this.stored.findOne({ objectId: commit.id }, { session });
         return doc ? this.recordOf(doc) : undefined;
       }));
+      for (const projectId of projectsOf(uploading)) {
+        if (!(await options.holdOpen({ session }, projectId))) throw new HeldClosed(DELETING_SAID);
+      }
       const scopes = new Map<string, StoredFileRecord[]>();
       for (const record of uploading) {
         if (!record) continue;
@@ -143,6 +155,9 @@ export class MongoFilesStore implements FilesStore {
         await this.stored.replaceOne({ _id: id }, rest, { session });
       }
       return plan;
+    }).catch((err: unknown) => {
+      if (err instanceof HeldClosed) return { ok: false as const, status: 409, why: DELETING_SAID };
+      throw err;
     });
   }
 

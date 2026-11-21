@@ -12,7 +12,10 @@ const me = TEST_USER.id;
 async function world() {
   const db = memoryDatabase();
   for (const id of ['going', 'open']) await db.projects.saveProject({ id, name: id, ownerId: me, appType: 'gitapp', createdAt: at });
-  await db.projects.markDeleting('going', { startedAt: at, requestedBy: me });
+  await db.projects.saveProject({ id: 'kept', name: 'kept', ownerId: me, appType: 'gitapp', createdAt: at });
+  await db.projects.markDeleting('kept', { startedAt: at, requestedBy: me, mode: 'archive' });
+  await db.projects.archive('kept');
+  await db.projects.markDeleting('going', { startedAt: at, requestedBy: me, mode: 'permanent' });
   await db.projects.saveTree({ id: 't-going', ownerId: me, name: 't', type: 'odoo-addons', projectIds: ['going'], createdAt: at, updatedAt: at });
   await db.projects.saveTree({ id: 't-open', ownerId: me, name: 't', type: 'odoo-addons', projectIds: ['open'], createdAt: at, updatedAt: at });
   await db.projects.saveBranch({ id: 'b-going', ownerId: me, treeId: 't-going', title: 'b', createdAt: at, updatedAt: at });
@@ -125,6 +128,14 @@ describe('what a person may do with a project while it is being deleted', () => 
   it('names no project for a thing that is someone else\'s, leaving the route to answer it is not found', async () => {
     const routes = await world();
     expect((await routes.patch('/api/projects/going', {}, { user: { id: 'stranger', email: 's@example.com' } })).data).toEqual({ reached: null });
+  });
+
+  it('refuses everything but Restore and Delete now for a project kept after its deletion, its deletion included', async () => {
+    const routes = await world();
+    for (const [method, path] of [['PATCH', '/api/projects/kept'], ['DELETE', '/api/projects/kept'], ['POST', '/api/projects/kept/runs/r1/promote']] as const) {
+      expect((await routes.request(method, path)).status, `${method} ${path}`).toBe(409);
+    }
+    for (const path of ['/api/projects/kept/restore', '/api/projects/kept/purge']) expect((await routes.post(path)).data, path).toEqual({ reached: 'kept' });
   });
 
   it('answers Gitea\'s webhook for a project being deleted with 410', async () => {

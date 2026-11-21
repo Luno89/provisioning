@@ -56,7 +56,6 @@ export const WORKFLOWS: Record<string, Started> = {
   BenchIdleWorkflow: onInstance('engine'),
   ConcludeWorkspaceWorkflow: onInstance('engine'),
   RemoveAccountWorkflow: onInstance('engine'),
-  RemoveProjectWorkflow: onInstance('engine'),
   DeleteProjectWorkflow: onInstance('engine'),
   PurgeProjectWorkflow: onInstance('engine'),
   CheckRunWorkflow: onInstance('engine'),

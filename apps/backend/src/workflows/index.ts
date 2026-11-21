@@ -11,7 +11,6 @@ export { ConversationConclusionWorkflow } from './ConversationConclusionWorkflow
 export { BenchIdleWorkflow } from './BenchIdleWorkflow.js';
 export { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';
 export { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
-export { RemoveProjectWorkflow } from './RemoveProjectWorkflow.js';
 export { DeleteProjectWorkflow } from './DeleteProjectWorkflow.js';
 export { PurgeProjectWorkflow } from './PurgeProjectWorkflow.js';
 export { CheckRunWorkflow } from './CheckRunWorkflow.js';

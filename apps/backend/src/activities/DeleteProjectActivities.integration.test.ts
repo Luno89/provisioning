@@ -5,9 +5,11 @@ import { testClient } from '@koala/engine-core/testing/temporal';
 import { namesItsWork } from '../platform/lib/temporal-client.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { until, waiting } from '../platform/testing/three-roles.js';
+import { testDatabase } from '../platform/lib/test-database.js';
+import { ARCHIVE_DAYS, purgeProjectWorkflowId } from '../projects/lib/project-archive.js';
 import { realTemporalEnvironment } from '../workflows/testing/temporal-test-env.js';
 import { environmentForFile, testWorker, uniqueName } from '../workflows/testing/test-worker.js';
-import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectWork, type ProjectRemovalSteps } from './DeleteProjectActivities.js';
+import { createFrozenWorkActivities, createProjectDeletionActivities, temporalProjectWork, temporalProjectArchive, type ProjectArchive, type ProjectRemovalSteps } from './DeleteProjectActivities.js';
 
 const file = environmentForFile(() => realTemporalEnvironment());
 
@@ -20,7 +22,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
     const other = uniqueName('staying');
     const worker = await testWorker(env, { taskQueue, workflows: 'testing/project-probe-workflow.ts', workflowInterceptors: ['telemetry-interceptors.ts'], activities: {} });
     const restarts: string[] = [];
-    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>() });
+    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: mock<ProjectArchive>() });
     const frozen = createFrozenWorkActivities({ work: temporalProjectWork(async () => client), workers: { restart: async (identity) => { restarts.push(identity); return 'restarted'; } } });
     const going = uniqueName('run');
     const staying = uniqueName('run');
@@ -40,5 +42,25 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
       await client.workflow.getHandle(staying).cancel();
     });
     expect(restarts).toEqual([]);
+  });
+});
+
+describe('keeping a deleted project for its 90 days', () => {
+  it('archives it and leaves Temporal one purge of it, due 90 days on, however often it is asked', async () => {
+    const { env } = file;
+    const client = testClient(env, { interceptors: { workflow: [namesItsWork] } });
+    const db = await testDatabase();
+    const project = uniqueName('kept');
+    await db.projects.saveProject({ id: project, name: 'kept', ownerId: 'owner-1', appType: 'gitapp', createdAt: '2026-11-21T00:00:00.000Z' });
+    await db.projects.markDeleting(project, { startedAt: '2026-11-21T00:00:00.000Z', requestedBy: 'owner-1', mode: 'archive' });
+    const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: temporalProjectArchive(async () => client, db.projects, uniqueName('purges')) });
+    await deletion.ArchiveProjectActivity({ projectId: project });
+    await deletion.ArchiveProjectActivity({ projectId: project });
+    expect(await db.projects.deletion(project)).toMatchObject({ phase: 'archived' });
+    const described = await client.workflow.getHandle(purgeProjectWorkflowId(project)).describe();
+    expect(described.status.name).toBe('RUNNING');
+    expect(described.executionTime!.getTime() - described.startTime.getTime()).toBe(ARCHIVE_DAYS * 86_400_000);
+    expect(described.typedSearchAttributes.getAll().map((pair) => pair.key.name), 'the purge is the deletion\'s own work, not the project\'s').not.toContain('KoalaProject');
+    await client.workflow.getHandle(purgeProjectWorkflowId(project)).cancel();
   });
 });

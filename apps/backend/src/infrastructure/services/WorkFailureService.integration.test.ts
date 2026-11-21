@@ -91,10 +91,10 @@ describe('a workflow that fails tells the backend itself', () => {
     });
 
     await stream.runUntil(workflows.runUntil(async () => {
-      const failing = await env.client.workflow.start('RemoveProjectWorkflow', { taskQueue, workflowId: `remove-project-p1-${taskQueue}`, ...startedFor('u1') });
+      const failing = await env.client.workflow.start('DeleteProjectWorkflow', { taskQueue, workflowId: `delete-project-p1-${taskQueue}`, ...startedFor('u1') });
       await expect(failing.result()).rejects.toThrow();
       expect(await service.shown('u1')).toEqual([expect.objectContaining({
-        id: `workflow:remove-project-p1-${taskQueue}:${failing.firstExecutionRunId}`, kind: 'removal', reason: 'the project\'s cluster could not be reached',
+        id: `workflow:delete-project-p1-${taskQueue}:${failing.firstExecutionRunId}`, kind: 'removal', reason: 'the project\'s cluster could not be reached',
       })]);
 
       const cancelled = await env.client.workflow.start('waitsToBeCancelled', { taskQueue, workflowId: `cancelled-${taskQueue}`, ...startedFor('u1') });
@@ -102,6 +102,6 @@ describe('a workflow that fails tells the backend itself', () => {
       await expect(cancelled.result()).rejects.toThrow();
     }));
 
-    expect(reports.map((report) => report.type)).toEqual(['RemoveProjectWorkflow']);
+    expect(reports.map((report) => report.type)).toEqual(['DeleteProjectWorkflow']);
   });
 });

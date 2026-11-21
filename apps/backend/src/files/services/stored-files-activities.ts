@@ -1,11 +1,12 @@
 import { DEAD_AFTER_MS } from '../lib/stored-files.js';
 import { SWEEP_BATCH, type StoredFilesActivities } from '../lib/stored-files-work.js';
-import type { FilesStore } from '../store.js';
+import type { FilesStore, HoldOpen } from '../store.js';
 import type { ObjectStore } from './ObjectStore.js';
 
 export interface StoredFilesActivityDeps {
   records: Pick<FilesStore, 'commitStoredFiles' | 'deleteStoredFiles' | 'deadStoredUploads' | 'expiredStoredFiles' | 'storedObjectIdsAmong'>;
   objects: ObjectStore;
+  holdOpen: HoldOpen;
   now?: () => number;
 }
 
@@ -21,7 +22,7 @@ export function createStoredFilesActivities(deps: StoredFilesActivityDeps): Stor
         if (!stat) return { ok: false, status: 404, why: `the bytes of upload ${commit.id} are not in the instance's MinIO` };
         if (stat.size !== commit.size) return { ok: false, status: 400, why: `upload ${commit.id} holds ${stat.size} bytes, not the ${commit.size} it was kept with` };
       }
-      return deps.records.commitStoredFiles(commits, { replace }, new Date(now()).toISOString());
+      return deps.records.commitStoredFiles(commits, { replace, holdOpen: deps.holdOpen }, new Date(now()).toISOString());
     },
     async StoredFilesForgetActivity({ ids }) {
       await deps.records.deleteStoredFiles(ids);

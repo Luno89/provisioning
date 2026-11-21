@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { projectsRouter } from '../../projects/routes/projects.js';
-import { ProjectRemovalService, type ProjectRemovalState } from '../../projects/services/ProjectRemovalService.js';
+import { mock } from 'vitest-mock-extended';
+import { ProjectRemovalService, type ProjectPurges, type ProjectRemovalState } from '../../projects/services/ProjectRemovalService.js';
 
 let harness: Harness;
 let started: string[];
@@ -19,6 +20,7 @@ beforeEach(async () => {
       await db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Shop features', type: 'software', projectIds: ['p1'], createdAt: 'then', updatedAt: 'then' } as never);
       const removal = new ProjectRemovalService({
         store: db,
+        purges: mock<ProjectPurges>(),
         now: () => 'now',
         workflows: {
           start: async (_type, workflowId) => { started.push(workflowId); states.set(workflowId, { state: 'running', done: [] }); },
@@ -46,23 +48,23 @@ describe('deleting a project', () => {
     expect((await call('get', '/api/projects/p1/removal')).data).toEqual({
       name: 'shop', repository: 'koala-t/shop', trees: [{ id: 't1', name: 'Shop features', leaves: 0, conversations: 0 }], keptConversations: 0, builds: 0, apps: [], state: { state: 'none' },
     });
-    expect((await call('delete', '/api/projects/p1', { confirm: 'Shop' })).status).toBe(400);
+    expect((await call('delete', '/api/projects/p1', { confirm: 'Shop', mode: 'permanent' })).status).toBe(400);
 
-    const removed = await call('delete', '/api/projects/p1', { confirm: 'shop' });
+    const removed = await call('delete', '/api/projects/p1', { confirm: 'shop', mode: 'permanent' });
     expect(removed.status).toBe(202);
-    expect(started).toEqual(['remove-project-p1']);
-    expect((await harness.db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id });
+    expect(started).toEqual(['delete-project-p1']);
+    expect((await harness.db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: 'now', requestedBy: TEST_USER.id, mode: 'permanent', phase: 'deleting' });
   });
 
   it('lists the app built from it among what goes, and starts deleting it all the same', async () => {
     await harness.db.infrastructure.saveDeployment({ id: 'd1', name: 'shop-web', clusterId: 'c', strategy: 'helm', gitappProjectId: 'p1', ownerId: TEST_USER.id } as never);
     expect((await call('get', '/api/projects/p1/removal')).data.apps).toEqual(['shop-web']);
-    expect((await call('delete', '/api/projects/p1', { confirm: 'shop' })).status).toBe(202);
-    expect(started).toEqual(['remove-project-p1']);
+    expect((await call('delete', '/api/projects/p1', { confirm: 'shop', mode: 'permanent' })).status).toBe(202);
+    expect(started).toEqual(['delete-project-p1']);
   });
 
   it('is refused for someone else\'s project', async () => {
     expect((await call('get', '/api/projects/p2/removal')).status).toBe(404);
-    expect((await call('delete', '/api/projects/p2', { confirm: 'theirs' })).status).toBe(404);
+    expect((await call('delete', '/api/projects/p2', { confirm: 'theirs', mode: 'permanent' })).status).toBe(404);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { ProjectRemovalService } from './ProjectRemovalService.js';
+import { mock } from 'vitest-mock-extended';
+import { ProjectRemovalService, type ProjectPurges } from './ProjectRemovalService.js';
 
 const now = '2026-10-21T00:00:00Z';
 
@@ -11,6 +12,7 @@ async function setUp() {
   const service = new ProjectRemovalService({
     store: db,
     workflows: { state: async () => ({ state: 'none' as const }), start: async (_workflow: string, id: string) => { started.push(id); } } as never,
+    purges: mock<ProjectPurges>(),
     now: () => now,
   });
   return { db, service, started };
@@ -19,10 +21,10 @@ async function setUp() {
 describe('deleting a project on the instance\'s own database', () => {
   it('marks the project as being removed and starts its removal, once its name is typed', async () => {
     const { db, service, started } = await setUp();
-    expect((await service.remove('ann', 'p1', 'Not it')).ok).toBe(false);
+    expect((await service.remove('ann', 'p1', 'Not it', 'permanent')).ok).toBe(false);
     expect(started).toEqual([]);
-    expect((await service.remove('ann', 'p1', 'Shop')).ok).toBe(true);
+    expect((await service.remove('ann', 'p1', 'Shop', 'permanent')).ok).toBe(true);
     expect(started).toHaveLength(1);
-    expect((await db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: now, requestedBy: 'ann' });
+    expect((await db.projects.getProjects()).find((project) => project.id === 'p1')?.removal).toEqual({ startedAt: now, requestedBy: 'ann', mode: 'permanent', phase: 'deleting' });
   });
 });

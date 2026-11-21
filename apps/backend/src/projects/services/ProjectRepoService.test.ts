@@ -150,7 +150,7 @@ describe('pointing every project\'s build webhook at where Gitea reaches Koala n
     const made = await repos.createProject('u1', { id: 'p1', name: 'Shop', repo: 'shop', autoDeployOnBuild: true });
     await db.projects.saveProject({ id: 'local', name: 'L', ownerId: 'u1', appType: 'local', createdAt: 't' });
     await db.projects.saveProjectInfo({ ...made, id: 'going', giteaRepo: 'going' });
-    await db.projects.markDeleting('going', { startedAt: 't', requestedBy: 'u1' });
+    await db.projects.markDeleting('going', { startedAt: 't', requestedBy: 'u1', mode: 'permanent' });
     gitea.replaceWebhook.mockClear();
     expect(await repos.repointWebhooks()).toEqual({ repointed: 1 });
     expect(gitea.replaceWebhook).toHaveBeenCalledTimes(1);

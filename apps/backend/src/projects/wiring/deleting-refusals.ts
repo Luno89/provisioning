@@ -1,8 +1,7 @@
 import type { Request, Router } from 'express';
 import { fieldsOf, projectWork, type Database, type ProjectOf } from '../../platform/index.js';
-import { projectResolver } from '../../engine/index.js';
 import { projectApps } from '../lib/project-removal.js';
-import { groveRecordsOf } from '../store.js';
+import { projectOfWork } from '../services/project-of-work.js';
 
 type Scope = { projectId?: string | undefined; treeId?: string | undefined; conversationId?: string | undefined };
 
@@ -17,25 +16,21 @@ export function refuseWebhookOfDeletingProjects(tenant: Router, db: Database): v
 }
 
 export function refuseWorkOfDeletingProjects(tenant: Router, db: Database): void {
-  const resolver = projectResolver({
-    projects: () => db.projects.getProjects(),
-    ...groveRecordsOf(db.projects),
-    conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
-  });
+  const projectOf = projectOfWork(db);
 
   const named = (find: (req: Request, ownerId: string) => Promise<{ refs?: Record<string, unknown>; scope?: Scope } | undefined>): ProjectOf => async (req) => {
     const ownerId = ownerOf(req);
     if (!ownerId) return undefined;
     const found = await find(req, ownerId);
     if (!found) return undefined;
-    return (await resolver.project(ownerId, found.refs ?? {}, found.scope ?? {})).project?.id;
+    return projectOf(ownerId, found.scope ?? {}, found.refs ?? {});
   };
 
-  const refuse = (path: string, projectOf: ProjectOf, letThrough: string[] = []): void => {
-    tenant.use(path, projectWork(db.projects, projectOf, { letThrough }));
+  const refuse = (path: string, projectOf: ProjectOf, letThrough: string[] = [], whileArchived: string[] = []): void => {
+    tenant.use(path, projectWork(db.projects, projectOf, { letThrough, whileArchived }));
   };
 
-  refuse('/api/projects/:id', named(async (req) => ({ scope: { projectId: param(req) } })), ['DELETE /']);
+  refuse('/api/projects/:id', named(async (req) => ({ scope: { projectId: param(req) } })), ['DELETE /'], ['POST /restore', 'POST /purge']);
   refuse('/api/release-settings/projects/:id', named(async (req) => ({ scope: { projectId: param(req) } })));
   refuse('/api/trees/:id', named(async (req) => ({ refs: { treeId: param(req) } })), ['POST /run/stop', 'DELETE /workspace', 'DELETE /']);
   refuse('/api/branches/:id', named(async (req) => ({ refs: { branchId: param(req) } })), ['DELETE /']);

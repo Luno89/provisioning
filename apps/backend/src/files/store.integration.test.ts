@@ -9,6 +9,8 @@ import { filesStoreContract } from './testing/store-contract.js';
 
 const fresh = await emptiedEachTime();
 
+const OPEN = async () => true;
+
 filesStoreContract(async () => (await fresh()).files);
 
 const key = loadKey({ DATA_KEY: 'k'.repeat(64) }, 'data');
@@ -71,8 +73,8 @@ describe('the records of stored files on a real Mongo replica set', () => {
     await store.beginStoredFile(upload('r1', 'race.txt'));
     await store.beginStoredFile(upload('r2', 'race.txt'));
     const outcomes = await Promise.allSettled([
-      store.commitStoredFiles([{ id: 'r1', size: 1 }], { replace: false }, AT),
-      store.commitStoredFiles([{ id: 'r2', size: 1 }], { replace: false }, AT),
+      store.commitStoredFiles([{ id: 'r1', size: 1 }], { replace: false, holdOpen: OPEN }, AT),
+      store.commitStoredFiles([{ id: 'r2', size: 1 }], { replace: false, holdOpen: OPEN }, AT),
     ]);
     const kept = outcomes.filter((outcome) => outcome.status === 'fulfilled' && outcome.value.ok);
     expect(kept).toHaveLength(1);
@@ -82,7 +84,7 @@ describe('the records of stored files on a real Mongo replica set', () => {
   it('leaves every record as it was when a move fails part way through', async () => {
     for (const [id, path] of [['m1', 'dir/a.txt'], ['m2', 'dir/b.txt'], ['m3', 'dir/c.txt']] as const) {
       await store.beginStoredFile(upload(id, path));
-      expect((await store.commitStoredFiles([{ id, size: 1 }], { replace: false }, AT)).ok).toBe(true);
+      expect((await store.commitStoredFiles([{ id, size: 1 }], { replace: false, holdOpen: OPEN }, AT)).ok).toBe(true);
     }
     await db.command({ collMod: 'storedFiles', validator: { path: { $ne: 'moved/c.txt' } }, validationAction: 'error' });
     try {
@@ -92,6 +94,46 @@ describe('the records of stored files on a real Mongo replica set', () => {
     }
     const paths = (await store.storedFilesIn('u1', scope)).map((record) => record.path).filter((path) => !path.startsWith('race')).sort();
     expect(paths).toEqual(['dir/a.txt', 'dir/b.txt', 'dir/c.txt']);
+  });
+});
+
+describe('an upload into a project that is being deleted', () => {
+  const AT = '2026-11-21T10:00:00.000Z';
+  const upload = (id: string, projectId: string) => ({ id, objectId: id, ownerId: 'u1', scope: { kind: 'project' as const, id: projectId }, path: `${id}.txt`, kind: 'file' as const, size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading' as const, touchedAt: AT });
+
+  it('is refused at its final save once the project is marked, and keeps nothing of it', async () => {
+    const db = await fresh();
+    await db.projects.saveProject({ id: 'going', name: 'going', ownerId: 'u1', appType: 'gitapp', createdAt: AT });
+    await db.projects.markDeleting('going', { startedAt: AT, requestedBy: 'u1', mode: 'archive' });
+    await db.files.beginStoredFile(upload('late', 'going'));
+    expect(await db.files.commitStoredFiles([{ id: 'late', size: 1 }], { replace: false, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId) }, AT)).toEqual({ ok: false, status: 409, why: 'this project is being deleted' });
+    expect(await db.files.storedFilesIn('u1', { kind: 'project', id: 'going' })).toEqual([]);
+  });
+
+  it('is kept when its save holds the project open first, and the deletion\'s mark lands after it, never both and never neither', async () => {
+    const db = await fresh();
+    await db.projects.saveProject({ id: 'racing', name: 'racing', ownerId: 'u1', appType: 'gitapp', createdAt: AT });
+    await db.files.beginStoredFile(upload('first', 'racing'));
+    let held!: () => void;
+    const holding = new Promise<void>((done) => { held = done; });
+    let letGo!: () => void;
+    const released = new Promise<void>((done) => { letGo = done; });
+    const saving = db.files.commitStoredFiles([{ id: 'first', size: 1 }], {
+      replace: false,
+      holdOpen: async (tx, projectId) => {
+        const open = await db.projects.holdOpenIn(tx, projectId);
+        held();
+        await released;
+        return open;
+      },
+    }, AT);
+    await holding;
+    const marking = db.projects.markDeleting('racing', { startedAt: AT, requestedBy: 'u1', mode: 'archive' });
+    letGo();
+    expect((await saving).ok).toBe(true);
+    expect(await marking).toBe(true);
+    expect((await db.files.storedFilesIn('u1', { kind: 'project', id: 'racing' })).map((record) => record.id)).toEqual(['first']);
+    expect(await db.projects.deletion('racing')).toMatchObject({ phase: 'deleting' });
   });
 });
 

@@ -237,6 +237,14 @@ describe('engine routes', () => {
     expect(project.project).toContain('Project "gateway" (proj-1)');
     expect(project.treeId).toBeUndefined();
 
+    await db!.projects.saveTree({ id: 'tree-2', ownerId: TEST_USER.id, name: 'Shop', type: 'software', goal: 'sells', projectIds: ['proj-1'], createdAt: stamp, updatedAt: stamp });
+    await db!.projects.saveBranch({ id: 'b2', ownerId: TEST_USER.id, treeId: 'tree-2', title: 'Pay', createdAt: stamp, updatedAt: stamp });
+    await db!.engine.saveConversation({ id: 'about-homed-tree', ownerId: TEST_USER.id, title: 't', treeId: 'tree-2', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db!.engine.saveConversation({ id: 'about-feature', ownerId: TEST_USER.id, title: 't', branchId: 'b2', messages: [], createdAt: stamp, updatedAt: stamp });
+    expect((await inputsOf('about-homed-tree', { conversationId: 'about-homed-tree' })).projectId, 'a chat about a tree is the work of the project the tree is homed in').toBe('proj-1');
+    expect((await inputsOf('about-feature', { conversationId: 'about-feature' })).projectId, 'and so is a chat about one of its features').toBe('proj-1');
+    expect((await inputsOf('about-tree', { conversationId: 'about-tree' })).projectId, 'a tree homed in no project names none').toBeUndefined();
+
     await h.close();
   });
 

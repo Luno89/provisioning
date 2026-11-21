@@ -6,7 +6,7 @@ const projects = async () => {
   const store = new MemoryProjectsStore();
   await store.saveProject({ id: 'p1', name: 'one', appType: 'gitapp', createdAt: 't' });
   await store.saveProject({ id: 'p2', name: 'two', appType: 'gitapp', createdAt: 't' });
-  await store.markDeleting('p1', { startedAt: 't', requestedBy: 'u1' });
+  await store.markDeleting('p1', { startedAt: 't', requestedBy: 'u1', mode: 'permanent' });
   return store;
 };
 

@@ -7,6 +7,7 @@ import type { Task } from '../lib/tasks.js';
 import type { Tree } from '../lib/trees.js';
 import type { TreeTypeSpec } from '../lib/tree-types.js';
 import type { ProjectsStore } from '../store.js';
+import { NO_TX } from '../../platform/lib/transaction.js';
 
 const at = (minute: number): string => `2026-10-10T00:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -89,19 +90,45 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
       const store = await make();
       await store.saveProject(project('a'));
       expect(await store.deletion('a')).toBeUndefined();
-      expect(await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1' })).toBe(true);
-      expect(await store.markDeleting('a', { startedAt: at(2), requestedBy: 'owner-2' })).toBe(false);
+      expect(await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1', mode: 'permanent' })).toBe(true);
+      expect(await store.markDeleting('a', { startedAt: at(2), requestedBy: 'owner-2', mode: 'archive' })).toBe(false);
       await store.saveProject(project('a', { name: 'saved over' }));
       await store.saveProjectInfo({ id: 'a', removal: undefined });
-      expect(await store.deletion('a')).toEqual({ startedAt: at(1), requestedBy: 'owner-1' });
+      expect(await store.deletion('a')).toEqual({ startedAt: at(1), requestedBy: 'owner-1', mode: 'permanent', phase: 'deleting' });
       expect((await store.getProjects()).find((stored) => stored.id === 'a')).toMatchObject({ name: 'saved over', removal: { startedAt: at(1) } });
-      expect(await store.markDeleting('missing', { startedAt: at(1), requestedBy: 'owner-1' })).toBe(false);
+      expect(await store.markDeleting('missing', { startedAt: at(1), requestedBy: 'owner-1', mode: 'permanent' })).toBe(false);
       expect(await store.deletion('missing')).toBeUndefined();
+    });
+
+    it('keeps a project archived once its deletion is done, gives it back only while archived, and lists what an owner has archived', async () => {
+      const store = await make();
+      await store.saveProject(project('a'));
+      await store.saveProject(project('b', { giteaRepo: 'b-repo' }));
+      expect(await store.archive('a')).toBe(false);
+      await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1', mode: 'archive' });
+      await store.markDeleting('b', { startedAt: at(1), requestedBy: 'owner-1', mode: 'archive' });
+      expect(await store.deletion('a')).toEqual({ startedAt: at(1), requestedBy: 'owner-1', mode: 'archive', phase: 'deleting' });
+      expect(await store.restore('a', 'a again')).toBe(false);
+      expect(await store.archive('a')).toBe(true);
+      expect((await store.deletedProjects('owner-1')).map((entry) => entry.id)).toEqual(['a']);
+      expect(await store.restore('a', 'a again')).toBe(true);
+      expect(await store.deletion('a')).toBeUndefined();
+      expect((await store.getProjects()).find((stored) => stored.id === 'a')).toMatchObject({ name: 'a again' });
+      expect(await store.deletedProjects('owner-1')).toEqual([]);
+    });
+
+    it('holds a project open for an upload being kept, and not once it is being deleted or is not there', async () => {
+      const store = await make();
+      await store.saveProject(project('a'));
+      expect(await store.holdOpenIn(NO_TX, 'a')).toBe(true);
+      await store.markDeleting('a', { startedAt: at(1), requestedBy: 'owner-1', mode: 'archive' });
+      expect(await store.holdOpenIn(NO_TX, 'a')).toBe(false);
+      expect(await store.holdOpenIn(NO_TX, 'missing')).toBe(false);
     });
 
     it('writes no deletion mark through saving a project', async () => {
       const store = await make();
-      await store.saveProject(project('a', { removal: { startedAt: at(1), requestedBy: 'owner-1' } }));
+      await store.saveProject(project('a', { removal: { startedAt: at(1), requestedBy: 'owner-1', mode: 'permanent', phase: 'deleting' } }));
       expect(await store.deletion('a')).toBeUndefined();
     });
 
