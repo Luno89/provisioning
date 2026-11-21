@@ -77,6 +77,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     });
     expect(await call('memory-keeper', 'forget_memory', { id: 'mem-dns', why: 'they moved to Porkbun' }), 'a memory is retired and taken out of the memory index').toMatchObject({ ok: true, content: 'Retired mem-dns.' });
     expect((await db.memory.getMemories('owner-tools')).find((item) => item.id === 'mem-dns')).toMatchObject({ invalidAt: anyOf(String) });
+    expect(dependencies.down().map((down) => down.dependency), 'the index that answered is not shown down').not.toEqual(expect.arrayContaining(['quickwit']));
 
     worker.shutdown();
     await running;
