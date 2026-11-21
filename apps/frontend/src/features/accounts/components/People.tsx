@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { errorMessage } from '../../../api/client'
 import type { PersonEntry } from '../types'
 import { goesWith, instanceLine } from '../lib/person-instance'
-import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from '../shared'
+import { EmailConfirm, RemovalBlockers } from './RemovalConfirm'
+import { confirmMatches, dangerButton, dangerPanel, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from '../shared'
 
 function RemovePerson({ person, onClose }: { person: PersonEntry; onClose: () => void }) {
   const [typed, setTyped] = useState('')
@@ -12,18 +13,11 @@ function RemovePerson({ person, onClose }: { person: PersonEntry; onClose: () =>
 
   return (
     <div className="mt-3 space-y-3" data-testid={`remove-${person.id}`}>
-      {blockers.length > 0 && (
-        <ul className="text-sm text-amber-300 list-disc pl-5 space-y-1">
-          {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
-        </ul>
-      )}
+      {blockers.length > 0 && <RemovalBlockers blockers={blockers} />}
       {preview.data && blockers.length === 0 && (
         <>
           {goesWith(person.instance) && <p className="text-xs text-amber-200">{goesWith(person.instance)}</p>}
-          <label className="block text-xs text-slate-400">
-            Type <span className="font-mono text-slate-200">{person.email}</span> to remove this account and everything in it
-            <input className={`${emailField} mt-1`} value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" />
-          </label>
+          <EmailConfirm email={person.email} typed={typed} onType={setTyped} purpose="to remove this account and everything in it" />
           {remove.isError && <div className="text-sm text-red-300">{errorMessage(remove.error)}</div>}
           <div className="flex gap-2">
             <button type="button" className={dangerButton} disabled={!confirmMatches(typed, person.email) || remove.isPending} onClick={() => remove.mutate({ id: person.id, confirm: typed }, { onSuccess: onClose })}>

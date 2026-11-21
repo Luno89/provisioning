@@ -47,6 +47,14 @@ describe('deleting your own account', () => {
     expect(accountApi.removeMyAccount).toHaveBeenCalledWith('BO@example.com', { password: 'my-own-password' })
   })
 
+  it('says plainly that the projects in Deleted projects go for good with it', async () => {
+    vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [], deletedProjects: 2 })
+    renderSection()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete account…' }))
+    expect(await screen.findByText('This also deletes for good the 2 projects in Deleted projects.')).toBeInTheDocument()
+  })
+
   it('shows what still stands in the way instead of the confirmation', async () => {
     vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: ['the app "odoo" is still deployed; remove it first'] })
     renderSection()

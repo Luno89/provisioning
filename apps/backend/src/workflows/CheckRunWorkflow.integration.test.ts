@@ -21,9 +21,10 @@ function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], le
     CheckNoticedActivity: async () => noticing,
   };
   const removal: AccountRemovalActivities = {
-    RemoveAccountFenceActivity: async ({ ownerId }) => { log.push(`fence ${ownerId.startsWith('space-') ? 'space' : ownerId}`); return []; },
-    RemoveAccountFenceEndActivity: async () => [],
-    RemoveAccountWorkflowsActivity: async () => { log.push('stop'); return 0; },
+    MarkAccountRemovingActivity: async ({ ownerId }) => { log.push(`mark ${ownerId.startsWith('space-') ? 'space' : ownerId}`); },
+    StopAccountWorkActivity: async () => { log.push('stop'); return []; },
+    RemoveAccountProjectsActivity: async () => [],
+    DeleteAccountProjectActivity: async () => undefined,
     RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { log.push(`keep for ${keepRunsFor}`); return 0; },
     RemoveAccountAppsActivity: async () => [],
     RemoveAccountAppStartedActivity: async () => undefined,
@@ -63,7 +64,7 @@ describe('running checks through Temporal', () => {
         ['b', false, 'the run would not start: there is no agent called "research"'],
       ]);
     });
-    expect(log).toEqual(['space a', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?', 'space b', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?']);
+    expect(log).toEqual(['space a', 'mark space', 'stop', 'keep for bo', 'stop', 'removed space', 'gone?', 'space b', 'mark space', 'stop', 'keep for bo', 'stop', 'removed space', 'gone?']);
     expect(progress.map((entry) => entry.running ?? entry.result?.scenarioId)).toEqual(['a', 'a', 'b', 'b']);
   });
 
@@ -89,7 +90,7 @@ describe('running checks through Temporal', () => {
       const outcome = await handle.result() as CheckRunOutcome;
       expect(outcome).toEqual({ cancelled: true, results: [] });
     });
-    expect(log).toEqual(['space a', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?']);
+    expect(log).toEqual(['space a', 'mark space', 'stop', 'keep for bo', 'stop', 'removed space', 'gone?']);
   });
 
   it('repeats a turn check in one space, and passes it when enough attempts pass', async () => {
@@ -118,7 +119,7 @@ describe('running checks through Temporal', () => {
       ]);
     });
     expect(spaces.size).toBe(1);
-    expect(log).toEqual(['space t', 'fence space', 'stop', 'keep for bo', 'removed space', 'gone?']);
+    expect(log).toEqual(['space t', 'mark space', 'stop', 'keep for bo', 'stop', 'removed space', 'gone?']);
   });
 
   it('gives each attempt of a repeated run its own space, and fails it when any space leaks, whatever passAt allows', async () => {

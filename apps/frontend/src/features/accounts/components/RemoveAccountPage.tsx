@@ -2,20 +2,15 @@ import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { yoursGoes } from '../lib/person-instance'
-import { useShellStore } from '../../platform'
-import { confirmMatches, dangerButton, emailField, proofReady, proofSent, quietButton, refusalBlockers, useRemovalPreview, useRemoveMyAccount } from '../shared'
-import type { Proof } from '../types'
-import { ProofField } from './ProofField'
+import { quietButton, refusalBlockers, useRemovalPreview, useRemoveMyAccount } from '../shared'
+import { MyRemovalConfirm, RemovalBlockers } from './RemovalConfirm'
 
 export interface RemoveAccountPageProps {
   onRemoved: () => void
 }
 
 export default function RemoveAccountPage({ onRemoved }: RemoveAccountPageProps) {
-  const [typed, setTyped] = useState('')
   const [removed, setRemoved] = useState(false)
-  const [proof, setProof] = useState<Proof>({})
-  const confirmWith = useShellStore((s) => s.user?.confirmWith)
   const preview = useRemovalPreview(true)
   const remove = useRemoveMyAccount(() => setRemoved(true))
 
@@ -42,26 +37,9 @@ export default function RemoveAccountPage({ onRemoved }: RemoveAccountPageProps)
                   {yoursGoes(preview.data.instance).map((line) => <li key={line}>{line}</li>)}
                 </ul>
                 <p className="text-xs text-slate-500">It cannot be undone.</p>
-                {blockers.length > 0 ? (
-                  <ul className="text-sm text-amber-300 list-disc pl-5 space-y-1">
-                    {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
-                  </ul>
-                ) : (
-                  <>
-                    <label className="block text-xs text-slate-400">
-                      Type <span className="font-mono text-slate-200">{email}</span> to confirm
-                      <input className={`${emailField} mt-1`} value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" />
-                    </label>
-                    <ProofField confirmWith={confirmWith} value={proof} onChange={setProof} />
-                    {remove.isError && <div role="alert" className="text-sm text-red-300">{errorMessage(remove.error)}</div>}
-                    <div className="flex gap-2">
-                      <button type="button" className={dangerButton} disabled={!confirmMatches(typed, email) || !proofReady(confirmWith, proof) || remove.isPending} onClick={() => remove.mutate({ confirm: typed, proof: proofSent(confirmWith, proof) })}>
-                        {remove.isPending ? 'Removing…' : 'Delete my account'}
-                      </button>
-                      <a href="#/" className={quietButton}>Keep it</a>
-                    </div>
-                  </>
-                )}
+                {blockers.length > 0
+                  ? <RemovalBlockers blockers={blockers} />
+                  : <MyRemovalConfirm email={email} remove={remove} keep={<a href="#/" className={quietButton}>Keep it</a>} />}
               </>
             )}
           </>

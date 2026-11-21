@@ -23,12 +23,12 @@ describe('the people an admin can remove', () => {
   it('lists everyone, with how a removal under way or stopped is going', async () => {
     vi.mocked(accountApi.listPeople).mockResolvedValue([
       { id: 'ana', email: 'ana@example.com', operator: true, createdAt: '2026-10-01T00:00:00.000Z' },
-      { id: 'bo', email: 'bo@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'running', done: ['workflows', 'repositories', 'apps'] } } },
+      { id: 'bo', email: 'bo@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'running', done: ['workflows', 'projects', 'repositories', 'apps'] } } },
       { id: 'cy', email: 'cy@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'failed', reason: 'Gitea would not delete the user' } } },
     ])
     renderSection()
 
-    expect(await screen.findByText('deleting its workspaces (4 of 7)')).toBeInTheDocument()
+    expect(await screen.findByText('deleting its workspaces (5 of 8)')).toBeInTheDocument()
     expect(screen.getByText('Stopped: Gitea would not delete the user')).toBeInTheDocument()
     vi.mocked(accountApi.removePerson).mockResolvedValue({ state: 'running', done: [] })
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))

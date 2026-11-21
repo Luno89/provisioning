@@ -4,7 +4,7 @@
  * `InviteMetadata` in apps/backend/src/platform/lib/types.ts,
  * `RemovalStep` in apps/backend/src/accounts/lib/account-removal.ts.
  */
-export type RemovalStep = 'workflows' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance'
+export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance'
 
 export type RemovalState =
   | { state: 'running'; done: RemovalStep[] }
@@ -65,6 +65,7 @@ export interface RemovalPreview {
   email: string
   blockers: string[]
   instance?: PersonInstance
+  deletedProjects?: number
 }
 
 export interface RemovalRefusal {

@@ -10,7 +10,7 @@ export { AgentRunWorkflow } from './AgentRunWorkflow.js';
 export { ConversationConclusionWorkflow } from './ConversationConclusionWorkflow.js';
 export { BenchIdleWorkflow } from './BenchIdleWorkflow.js';
 export { ConcludeWorkspaceWorkflow } from './ConcludeWorkspaceWorkflow.js';
-export { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
+export { DeleteAccountWorkflow } from './DeleteAccountWorkflow.js';
 export { DeleteProjectWorkflow } from './DeleteProjectWorkflow.js';
 export { PurgeProjectWorkflow } from './PurgeProjectWorkflow.js';
 export { CheckRunWorkflow } from './CheckRunWorkflow.js';

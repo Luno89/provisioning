@@ -58,8 +58,8 @@ export interface ProjectDeletionActivities extends ProjectRemovalSteps {
 
 const openWork = (projectId: string): string => `${projectQuery(projectId)} AND ExecutionStatus = "Running"`;
 
-const cancelOpen = async (work: ProjectWork, projectId: string): Promise<OpenWork[]> => {
-  const open = await work.open(openWork(projectId));
+export const cancelOpen = async (work: ProjectWork, query: string): Promise<OpenWork[]> => {
+  const open = await work.open(query);
   const sent = await Promise.all(open.map(async (found) => ((await cancelIfRunning(work.handle(found.workflowId))) === 'cancelled' ? found : undefined)));
   return sent.filter((found): found is OpenWork => found !== undefined);
 };
@@ -163,10 +163,10 @@ export function createProjectDeletionActivities(deps: ProjectDeletionDeps): Proj
   return tellingWhenDown<ProjectDeletionActivities>({
     ...deps.removal,
 
-    StopProjectWorkActivity: ({ projectId }) => cancelOpen(deps.work, projectId),
+    StopProjectWorkActivity: ({ projectId }) => cancelOpen(deps.work, openWork(projectId)),
 
     async SweepProjectActivity(args) {
-      const open = await cancelOpen(deps.work, args.projectId);
+      const open = await cancelOpen(deps.work, openWork(args.projectId));
       const apps = (await deps.removal.RemoveProjectAppsActivity(args)).length;
       const workspaces = await deps.removal.RemoveProjectWorkspacesActivity(args);
       const secrets = await deps.removal.RemoveProjectSecretsActivity(args);

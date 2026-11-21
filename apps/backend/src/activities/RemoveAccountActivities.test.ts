@@ -8,7 +8,6 @@ import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { roleFromEnv, type RoleConfig } from '../platform/index.js';
 import { createAccountRemovalActivities, removalMeshFor, type AccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
 
-type Workflows = AccountRemovalDeps['workflows'];
 type Repositories = AccountRemovalDeps['repositories'];
 type Mesh = AccountRemovalDeps['mesh'];
 type Secrets = AccountRemovalDeps['secrets'];
@@ -17,7 +16,6 @@ type Files = AccountRemovalDeps['files'];
 const at = 'then';
 
 let db: Database;
-let workflows: ReturnType<typeof mock<Workflows>>;
 let kube: ReturnType<typeof mockFn<KubeRunner>>;
 let repositories: ReturnType<typeof mock<Repositories>>;
 let mesh: ReturnType<typeof mock<Mesh>>;
@@ -27,9 +25,10 @@ let files: ReturnType<typeof mock<Files>>;
 const done = (over: Partial<KubeResult> = {}): KubeResult => ({ stdout: 'namespace "koala-run-conversation-c1" deleted', stderr: '', exitCode: 0, ...over });
 
 const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities => createAccountRemovalActivities({
-  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, infrastructure: db.infrastructure, platform: db.platform },
+  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, infrastructure: db.infrastructure },
   now: () => Date.parse('2026-11-13T10:00:00.000Z'),
-  workflows,
+  work: mock<AccountRemovalDeps['work']>(),
+  projects: { purge: async () => undefined },
   kube,
   repositories,
   mesh,
@@ -41,8 +40,6 @@ const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities
 
 beforeEach(async () => {
   db = memoryDatabase();
-  workflows = mock<Workflows>();
-  workflows.stopIfRunning.mockImplementation(async (id) => id === 'run-live');
   kube = mockFn<KubeRunner>();
   kube.mockResolvedValue(done());
   repositories = mock<Repositories>();
@@ -69,57 +66,40 @@ beforeEach(async () => {
 });
 
 describe('the steps that remove an account', () => {
-  it('marks the account closing as a check\'s space never was, raises its fence, and goes on only once every live process holds it', async () => {
-    await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
-    let finished = false;
-    const fenced = new MockActivityEnvironment().run(steps().RemoveAccountFenceActivity, { ownerId: 'bo', keepRunsFor: 'ana' }).then(() => { finished = true; });
-    await new Promise((resolve) => setImmediate(resolve));
+  it('marks the account being removed as a check\'s space never was, once, in the step', async () => {
+    await steps().MarkAccountRemovingActivity({ ownerId: 'bo', keepRunsFor: 'ana' });
     expect((await db.accounts.getUserById('bo'))?.removal).toEqual({ startedAt: '2026-11-13T10:00:00.000Z', requestedBy: 'ana' });
-    expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'owner', id: 'bo' }, at: '2026-11-13T10:00:00.000Z', confirmed: false }]);
-    expect(finished).toBe(false);
-    await db.platform.ackFence({ kind: 'owner', id: 'bo' }, 'engine-1', '2026-11-13T10:00:01.000Z');
-    await fenced;
-    expect(await db.platform.fencesRaised()).toEqual([{ closing: { kind: 'owner', id: 'bo' }, at: '2026-11-13T10:00:00.000Z', confirmed: true }]);
-  });
-
-  it('ends the account\'s fence with the processes live as it ends, so it goes once each of them has started again', async () => {
-    await db.platform.raiseFence({ kind: 'owner', id: 'bo' }, '2026-11-13T09:00:00.000Z');
-    await db.platform.beatProcess({ id: 'engine-1', name: 'worker-engine' }, '2026-11-13T09:59:55.000Z');
-    expect(await new MockActivityEnvironment().run(steps().RemoveAccountFenceEndActivity, { ownerId: 'bo' })).toEqual([]);
-    expect((await db.platform.fencesRaised())[0]?.endedWith).toEqual(['engine-1']);
-    await db.platform.forgetProcess('engine-1');
-    expect(await new MockActivityEnvironment().run(steps().RemoveAccountFenceEndActivity, { ownerId: 'bo' })).toEqual([{ kind: 'owner', id: 'bo' }]);
-    expect(await db.platform.fencesRaised()).toEqual([]);
   });
 
   it('keeps the mark a removal asked from Settings already set', async () => {
     await db.accounts.saveUser({ ...(await db.accounts.getUserById('bo'))!, removal: { startedAt: 'earlier', requestedBy: 'bo' } });
-    await new MockActivityEnvironment().run(steps().RemoveAccountFenceActivity, { ownerId: 'bo' });
+    await steps().MarkAccountRemovingActivity({ ownerId: 'bo' });
     expect((await db.accounts.getUserById('bo'))?.removal).toEqual({ startedAt: 'earlier', requestedBy: 'bo' });
   });
 
-  it('stops every workflow it could have running, including the turn still live in a conversation', async () => {
-    const stopped = await steps().RemoveAccountWorkflowsActivity({ ownerId: 'bo' });
-
-    expect(stopped).toBe(1);
-    const asked = workflows.stopIfRunning.mock.calls.map(([id]) => id);
-    expect(asked).toEqual(expect.arrayContaining([
-      'bench-idle-bo', 'run-live', 'grove-run-bo-t1', 'conclude-conversation-bo-c1', 'conclude-workspace-conversation-bo-c1', 'release-bo-shop', 'release-bo-blog', 'pipeline-r1',
-    ]));
-    expect(workflows.stopIfRunning).toHaveBeenCalledWith('run-live', 'the account was removed');
-    expect(asked).not.toContain('pipeline-r2');
+  it('cancels every open workflow Temporal lists as the account\'s, but not its own removal, and says which it stopped', async () => {
+    const asked: string[] = [];
+    const cancelled: string[] = [];
+    const work = mock<AccountRemovalDeps['work']>();
+    work.open.mockImplementation(async (query) => { asked.push(query); return [{ workflowId: 'run-live', type: 'AgentRunWorkflow', startedAt: at }, { workflowId: 'done-already', type: 'AgentRunWorkflow', startedAt: at }]; });
+    work.handle.mockImplementation((workflowId) => ({
+      describe: async () => ({ status: { name: workflowId === 'run-live' ? 'RUNNING' : 'COMPLETED' } }),
+      cancel: async () => { cancelled.push(workflowId); },
+      result: async () => undefined,
+      history: async () => [],
+    }));
+    expect(await steps({ work }).StopAccountWorkActivity({ ownerId: 'bo' })).toEqual([{ workflowId: 'run-live', type: 'AgentRunWorkflow', startedAt: at }]);
+    expect(asked).toEqual(['KoalaOwner = "bo" AND ExecutionStatus = "Running" AND WorkflowId != "remove-account-bo"']);
+    expect(cancelled).toEqual(['run-live']);
   });
 
-  it('stops them in batches and heartbeats after each', async () => {
-    for (let index = 0; index < 45; index += 1) {
-      await db.releases.savePipelineRun({ id: `build-${index}`, projectId: 'bo-shop', status: 'queued', temporalWorkflowId: `build-${index}`, startedAt: at } as never);
-    }
-    const env = new MockActivityEnvironment();
-    let beats = 0;
-    env.on('heartbeat', () => { beats += 1; });
-    await env.run(() => steps().RemoveAccountWorkflowsActivity({ ownerId: 'bo' }));
-    expect(workflows.stopIfRunning.mock.calls.length).toBeGreaterThan(45);
-    expect(beats).toBe(Math.ceil(workflows.stopIfRunning.mock.calls.length / 20));
+  it('deletes each of its projects for good, the ones in Deleted projects too, through the project\'s own deletion', async () => {
+    await db.projects.markDeleting('bo-blog', { startedAt: at, requestedBy: 'bo', mode: 'archive' });
+    await db.projects.archive('bo-blog');
+    expect((await steps().RemoveAccountProjectsActivity({ ownerId: 'bo' })).sort()).toEqual(['bo-blog', 'bo-shop']);
+    const purge = mockFn<AccountRemovalDeps['projects']['purge']>().mockResolvedValue(undefined);
+    await steps({ projects: { purge } }).DeleteAccountProjectActivity({ ownerId: 'bo', projectId: 'bo-blog' });
+    expect(purge).toHaveBeenCalledExactlyOnceWith('bo-blog', 'bo');
   });
 
   it('hands its runs over to another account when asked to keep them', async () => {

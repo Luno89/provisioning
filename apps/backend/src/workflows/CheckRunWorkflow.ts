@@ -7,7 +7,7 @@ import type { ScenarioResult } from '../eval/level2/results.js';
 import type { Check } from '../eval/level2/score.js';
 import type { PromptChange } from '../checks/index.js';
 import type { ToolDefinition } from '@koala/agent-engine';
-import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
+import { DeleteAccountWorkflow } from './DeleteAccountWorkflow.js';
 import { combineAttempts } from '../checks/lib/check-attempts.js';
 import { NOTICED_PATCH, noticedChecks, type Noticed } from '../checks/lib/check-noticed.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
@@ -101,7 +101,7 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
       if (patched(NOTICED_PATCH)) noticed.push(...await space.CheckNoticedActivity({ spaceIds: removed }));
       const leftovers: string[] = [];
       for (const accountId of removed) {
-        await executeChild(RemoveAccountWorkflow, { workflowId: removeAccountWorkflowId(accountId), args: [{ ownerId: accountId, keepRunsFor: input.person }], ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? input.person) });
+        await executeChild(DeleteAccountWorkflow, { workflowId: removeAccountWorkflowId(accountId), args: [{ ownerId: accountId, keepRunsFor: input.person }], ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? input.person) });
         leftovers.push(...await space.CheckSpaceGoneActivity({ spaceId: accountId }));
       }
       return leftovers;

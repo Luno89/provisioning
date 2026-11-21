@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import { InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor, ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth, savedHuggingFaceTokenOf } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
-import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
+import { createAccountRemovalActivities, removalMeshFor, temporalAccountProjects } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
 import { createProjectDeletionActivities, deletionToldThrough, temporalProjectArchive, temporalProjectWork } from './activities/DeleteProjectActivities.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
@@ -441,9 +441,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
 
   const temporal = await getTemporalClient();
   workflowStarter = temporalWorkflowStarter(temporal.workflow);
-  const removalWorkflows = {
-    stopIfRunning: async (workflowId: string) => (await cancelIfRunning(temporal.workflow.getHandle(workflowId))) !== 'not-running',
-  };
+  const projectWork = temporalProjectWork(async () => temporal);
   const appTeardown: AppTeardown = {
     clusterById: (id) => clusterService.getByIdUnscoped(id),
     handOver: (id) => clusterService.access.handOver(id),
@@ -465,7 +463,8 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     ...createAccountRemovalActivities({
       store: db,
       apps: appTeardown,
-      workflows: removalWorkflows,
+      work: projectWork,
+      projects: temporalAccountProjects(async () => temporal, QUEUES.engine),
       kube: sandboxKube,
       repositories: gitea,
       mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, settings.mesh, settings.dataDir)),
@@ -473,7 +472,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       files: instanceFiles.storedFiles,
     }),
     ...projectRemoval,
-    ...createProjectDeletionActivities({ work: temporalProjectWork(async () => temporal), removal: projectRemoval, archive: temporalProjectArchive(async () => temporal, db.projects, QUEUES.engine), told: deletionToldThrough(async () => temporal) }),
+    ...createProjectDeletionActivities({ work: projectWork, removal: projectRemoval, archive: temporalProjectArchive(async () => temporal, db.projects, QUEUES.engine), told: deletionToldThrough(async () => temporal) }),
     ...createWorkspaceProjectActivities(db),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({

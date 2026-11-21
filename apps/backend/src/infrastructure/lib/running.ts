@@ -104,7 +104,7 @@ export const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: Runnin
     const name = id ? records.projects.find((entry) => entry.id === id)?.name : undefined;
     return { kind: 'removal', title: `Deleting the project${name ? ` ${name}` : ''}`, opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'deleting cannot be stopped part way' } };
   },
-  RemoveAccountWorkflow: (workflow) => ({
+  DeleteAccountWorkflow: (workflow) => ({
     kind: 'removal',
     title: workflow.workflowId.startsWith('remove-account-space-') ? 'Clearing away a check\'s space' : 'Deleting an account',
     opens: { kind: 'temporal', id: workflow.workflowId },

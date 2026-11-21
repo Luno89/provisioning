@@ -2,6 +2,7 @@ import type { RemovalState, RemovalStep } from '../types'
 
 const STEP_NAMES: Record<RemovalStep, string> = {
   workflows: 'stopping its runs',
+  projects: 'deleting its projects for good, the ones in Deleted projects too',
   apps: 'removing its apps from their clusters',
   workspaces: 'deleting its workspaces',
   secrets: 'deleting its secrets',
@@ -11,7 +12,7 @@ const STEP_NAMES: Record<RemovalStep, string> = {
   instance: 'removing its instance',
 }
 
-const ORDER: RemovalStep[] = ['workflows', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']
+const ORDER: RemovalStep[] = ['workflows', 'projects', 'repositories', 'apps', 'workspaces', 'secrets', 'mesh', 'records']
 
 export function removalText(state: RemovalState, steps: readonly RemovalStep[] = ORDER): string {
   if (state.state === 'none') return 'Waiting to start'
