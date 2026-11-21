@@ -618,8 +618,6 @@
  "tests apps/frontend/src/features/infrastructure/components/HostKoala.test.tsx <-> apps/frontend/src/features/infrastructure/components/HostKoala.test.tsx #8cfdc936a444": 1,
  "tests apps/frontend/src/features/infrastructure/components/HostKoala.test.tsx <-> apps/frontend/src/features/infrastructure/components/HostKoala.test.tsx #c56bfc4f2e77": 1,
  "tests apps/frontend/src/features/instances/components/DependenciesSection.test.tsx <-> apps/frontend/src/features/instances/components/RootAdmin.test.tsx #47516eeb3d88": 1,
- "tests apps/frontend/src/features/instances/components/InstanceUpdates.test.tsx <-> apps/frontend/src/features/instances/components/InstanceWatch.test.tsx #1831159a9fd6": 1,
- "tests apps/frontend/src/features/instances/components/InstanceUpdates.test.tsx <-> apps/frontend/src/features/instances/components/InstanceWatch.test.tsx #b85cccf45cd2": 1,
  "tests apps/frontend/src/features/machines/components/AccountMachines.test.tsx <-> apps/frontend/src/features/machines/components/AccountMachines.test.tsx #e6f87116b96f": 1,
  "tests apps/frontend/src/features/platform/stores/socket.test.ts <-> apps/frontend/src/features/platform/stores/socket.test.ts #50e00e207dc1": 1,
  "tests apps/frontend/src/features/projects/components/NewProjectDialog.test.tsx <-> apps/frontend/src/features/projects/components/NewProjectDialog.test.tsx #1ebfb10b150d": 1,

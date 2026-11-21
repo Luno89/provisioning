@@ -4,12 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { InstanceWatch } from './InstanceWatch'
 import { api } from '../../../api/client'
 
-vi.mock('../../../api/client', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../api/client')>()
-  return { ...original, api: { get: vi.fn(), put: vi.fn() } }
-})
+vi.mock('../../../api/client', async (importOriginal) => (await import('../../../test/mocked-api')).mockedApi(importOriginal, 'get', 'put'))
 
-const show = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><InstanceWatch /></QueryClientProvider>)
+const show = () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return { client, ...render(<QueryClientProvider client={client}><InstanceWatch /></QueryClientProvider>) }
+}
 
 describe('an instance\'s Settings: when it cannot be reached', () => {
   beforeEach(() => { vi.clearAllMocks() })
@@ -27,8 +27,8 @@ describe('an instance\'s Settings: when it cannot be reached', () => {
 
   it('shows nothing where root watches no instance', async () => {
     vi.mocked(api.get).mockRejectedValue(Object.assign(new Error('nope'), { isAxiosError: true, response: { status: 404 } }))
-    const { container } = show()
-    await waitFor(() => expect(api.get).toHaveBeenCalled())
+    const { client, container } = show()
+    await waitFor(() => expect(client.getQueryCache().getAll().map((query) => [query.state.status, query.state.data])).toEqual([['success', null]]))
     expect(container).toBeEmptyDOMElement()
   })
 })
