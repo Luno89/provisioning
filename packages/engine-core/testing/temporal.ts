@@ -6,7 +6,7 @@ import { bundleWorkflowCode, type Worker, type WorkflowBundle } from '@temporali
 import { inject } from 'vitest';
 import type { BlobReach, SecretKey, StoredBlob } from '../src/payload-codec.js';
 import { createClient, createWorker, payloadConverter, type KoalaClientOptions, type KoalaWorkerOptions, type TemporalPayloads } from '../src/temporal.js';
-import { OWNER_ATTRIBUTE } from '../src/workflow-owner.js';
+import { OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE } from '../src/workflow-owner.js';
 import { temporalServerExecutable, temporalTestServerExecutable } from './shared.js';
 import { tlsInFrontOf, type ServingCertificate } from './temporal-tls.js';
 
@@ -49,7 +49,7 @@ const carrying = (env: TestWorkflowEnvironment, payloads: TemporalPayloads): Tes
 const sealing = (payloads: TemporalPayloads) => ({ client: { dataConverter: payloadConverter(payloads) } });
 
 export async function localTemporal(payloads: TemporalPayloads = testPayloads()): Promise<TestTemporal> {
-  const env = await TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE], executable: temporalServerExecutable() }, ...sealing(payloads) });
+  const env = await TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE], executable: temporalServerExecutable() }, ...sealing(payloads) });
   return carrying(env, payloads);
 }
 

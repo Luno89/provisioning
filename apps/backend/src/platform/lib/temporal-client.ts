@@ -3,9 +3,10 @@ import { connectTemporal, createClient } from '@koala/engine-core/temporal'
 import protos from '@temporalio/proto'
 import Long from 'long'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
+import { withProjectAttribute } from '@koala/engine-core/workflow-owner'
 import { WORK_HEADER, refuseWhileDeleting, workFor, workFromHeaders, workHeader, workIsUnnamed, type ReadDeletingMarks } from '@koala/engine-core/work-for'
 import type { Payload } from '@temporalio/common'
-import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
+import { OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
 import type { PlatformKeys } from './keys.js'
 import { temporalToken } from './temporal-auth.js'
@@ -95,7 +96,9 @@ function withItsWork<T extends { headers: Record<string, Payload>; options: { ty
   const owner = ownerIn(input.options.typedSearchAttributes)
   const project = workFor()?.project
   if (!owner && !project) return input
-  return { ...input, headers: { ...input.headers, [WORK_HEADER]: workHeader({ owner, project, removing: workFor()?.removing }) } }
+  const headers = { ...input.headers, [WORK_HEADER]: workHeader({ owner, project, removing: workFor()?.removing }) }
+  if (!project) return { ...input, headers }
+  return { ...input, headers, options: { ...input.options, typedSearchAttributes: withProjectAttribute(input.options.typedSearchAttributes, project) } }
 }
 
 export const namesItsWork: WorkflowClientInterceptor = {
@@ -105,14 +108,16 @@ export const namesItsWork: WorkflowClientInterceptor = {
 }
 
 export async function registerOwnerAttribute(connection: Connection, namespace: string, adminKey?: string): Promise<void> {
-  const add = () => connection.operatorService.addSearchAttributes({
-    namespace,
-    searchAttributes: { [OWNER_ATTRIBUTE.name]: protos.temporal.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD },
-  })
-  try {
-    await (adminKey ? connection.withApiKey(adminKey, add) : add())
-  } catch (err) {
-    if (!/already exists|AlreadyExists/i.test(String((err as Error)?.message ?? err))) throw err
+  for (const attribute of [OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE]) {
+    const add = () => connection.operatorService.addSearchAttributes({
+      namespace,
+      searchAttributes: { [attribute.name]: protos.temporal.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD },
+    })
+    try {
+      await (adminKey ? connection.withApiKey(adminKey, add) : add())
+    } catch (err) {
+      if (!/already exists|AlreadyExists/i.test(String((err as Error)?.message ?? err))) throw err
+    }
   }
 }
 

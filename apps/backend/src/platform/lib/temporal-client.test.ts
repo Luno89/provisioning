@@ -80,6 +80,12 @@ describe('every workflow the platform starts says whose work it is, so a removal
     expect(await headersOf(() => withWorkFor({ owner: 'someone', project: 'p1' }, () => namesItsWork.start!(input(true), next as never)), next)).toEqual({ owner: 'bo', project: 'p1' });
   });
 
+  it('names the project in Temporal itself, beside the owner, so a deletion lists the project\'s open work from Temporal', async () => {
+    const next = vi.fn(async (_input: { options: { typedSearchAttributes: { key: { name: string }; value: unknown }[] } }) => 'started');
+    await withWorkFor({ project: 'p1' }, () => namesItsWork.start!(input(true), next as never));
+    expect(next.mock.calls[0]![0].options.typedSearchAttributes.map((pair) => [pair.key.name, pair.value])).toEqual([['KoalaOwner', 'bo'], ['KoalaProject', 'p1']]);
+  });
+
   it('names nothing for a start made by a removal\'s own step, whose work must never be fenced', async () => {
     const next = vi.fn(async () => 'started');
     expect(await headersOf(() => unnamedWork(() => namesItsWork.start!(input(true), next as never)), next)).toBeUndefined();
