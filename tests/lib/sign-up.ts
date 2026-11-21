@@ -71,4 +71,4 @@ export async function signUp(apiBase: string, account: SignUpAccount, stack: Sta
 }
 
 export const sessionCookieOf = (signedUp: SignedUp): string | undefined =>
-  signedUp.cookies.find((pair) => /^(__Host-)?session=/.test(pair));
+  signedUp.cookies.find((pair) => /^(__Host-)?koala_sid=/.test(pair));

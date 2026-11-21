@@ -3,9 +3,10 @@ import type { Request, Response } from 'express';
 import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
 import { KOALA_INSTALL_FOLLOW_PATH, koalaInstallProgressPath } from '@koala/engine-core/koala-install';
 import { createAuth } from './platform/middleware/auth.js';
+import { BrowserSessions } from './platform/services/BrowserSessions.js';
+import { AccessRevocations } from './platform/services/AccessRevocations.js';
+import { memoryDatabase } from './platform/testing/memory-database.js';
 import { openRoutesOf } from './open-routes.js';
-
-const noEnds = { ended: () => false, end: async () => undefined };
 
 const underApi = (path: string): string => {
   if (!path.startsWith('/api/')) throw new Error(`${path} is not under /api, where root's guard stands`);
@@ -21,7 +22,11 @@ async function guarded(role: 'root' | 'instance', method: string, path: string) 
     status(code: number) { statusCode = code; return this; },
     json(payload: unknown) { body = payload; return this; },
   } as unknown as Response;
-  const auth = createAuth({ db: null as never, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), sessionEnds: noEnds });
+  const db = memoryDatabase();
+  const sessions = new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false });
+  const auth = role === 'root'
+    ? createAuth({ db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), own: { sessions, revocations: new AccessRevocations() } })
+    : createAuth({ db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), throughRoot: { sessions, signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } } });
   await auth.requireAuth(req, res, () => { nexted = true; });
   return { statusCode, body, nexted };
 }

@@ -4,7 +4,6 @@ import type { Store as SessionStore } from 'express-session';
 import { MongoStore } from 'connect-mongo';
 import { BROWSER_SESSION_SECONDS, type BrowserSessionsOf } from './lib/browser-session.js';
 import type { MigrationRecord } from './lib/migrations.js';
-import type { EndedSession } from './lib/ended-sessions.js';
 import { keepWrittenDocuments, watchNudges, watchWrites, type Watching } from './lib/change-streams.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from './lib/http-limits.js';
 import { isDependencyId, type DependencyStateRow } from './lib/dependencies.js';
@@ -13,9 +12,6 @@ import { closingOf, fenceIdOf, type Closing, type KoalaProcess, type RaisedFence
 export interface PlatformStore extends AreaStore {
   hasMigration(name: string): Promise<boolean>;
   recordMigration(record: MigrationRecord): Promise<void>;
-  endSession(ended: EndedSession): Promise<void>;
-  sessionsEndedSince(at: number): Promise<EndedSession[]>;
-  watchSessionEnds(on: (ended: EndedSession) => void): Watching;
   browserSessions(): SessionStore;
   endBrowserSessions(of: BrowserSessionsOf): Promise<string[]>;
   attemptsOf(key: string): Promise<SignInAttempts | undefined>;
@@ -84,10 +80,6 @@ export class MongoPlatformStore implements PlatformStore {
     return ids;
   }
 
-  private get endedSessions() {
-    return this.db().collection('endedSessions');
-  }
-
   private get dependencyStateRows() {
     return this.db().collection('dependencyStates');
   }
@@ -109,9 +101,7 @@ export class MongoPlatformStore implements PlatformStore {
   }
 
   async ensureIndexes(): Promise<void> {
-    await keepWrittenDocuments(this.db(), ['fences', 'endedSessions']);
-    await this.endedSessions.createIndex({ until: 1 }, { expireAfterSeconds: 0 });
-    await this.endedSessions.createIndex({ at: 1 });
+    await keepWrittenDocuments(this.db(), ['fences']);
     await this.signInAttempts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.fenceAckRows.createIndex({ fence: 1 });
     await this.processes.createIndex({ beatAt: 1 });
@@ -182,23 +172,6 @@ export class MongoPlatformStore implements PlatformStore {
   async recordMigration(record: MigrationRecord): Promise<void> {
     const { name, ...rest } = record;
     await this.db().collection('migrations').replaceOne({ _id: name as never }, rest, { upsert: true });
-  }
-
-  async endSession(ended: EndedSession): Promise<void> {
-    await this.endedSessions.updateOne(
-      { _id: ended.id as never },
-      { $max: { until: new Date(ended.until) }, $set: { at: new Date(ended.at) } },
-      { upsert: true },
-    );
-  }
-
-  async sessionsEndedSince(at: number): Promise<EndedSession[]> {
-    const docs = await this.endedSessions.find({ at: { $gte: new Date(at) }, until: { $gt: new Date() } }).toArray();
-    return docs.map((doc) => ({ id: String(doc._id), until: (doc.until as Date).getTime(), at: (doc.at as Date).getTime() }));
-  }
-
-  watchSessionEnds(on: (ended: EndedSession) => void): Watching {
-    return watchWrites(() => this.endedSessions, {}, (doc) => on({ id: String(doc._id), until: (doc.until as Date).getTime(), at: (doc.at as Date).getTime() }));
   }
 
   async attemptsOf(key: string): Promise<SignInAttempts | undefined> {

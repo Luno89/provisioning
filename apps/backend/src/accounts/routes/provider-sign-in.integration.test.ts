@@ -4,8 +4,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authRouter } from './auth.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
+import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import { PasswordService } from '../services/PasswordService.js';
 import { breachedFrom } from '../lib/passwords.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
@@ -75,7 +74,7 @@ async function standInGithub(): Promise<StandInGithub> {
 }
 
 async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[], returnUrl?: string) {
-  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+  const { auth } = rootAuthOver(db, { publicUrl: url, open: openRoutesOf('root'), setupCode: SETUP_CODE });
   const authService = new AuthService(db);
   const app = express();
   app.use(express.json());
@@ -90,7 +89,7 @@ async function serve(db: Database, { server, url }: { server: http.Server; url: 
 }
 
 const cookieOf = (answer: Response): string => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('oauth_state=')) ?? '';
-const sessionOf = (answer: Response): string | undefined => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^session=./.test(pair));
+const sessionOf = (answer: Response): string | undefined => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^koala_sid=./.test(pair));
 const errorOf = (answer: Response): string | null => new URL(answer.headers.get('location')!).searchParams.get('authError');
 
 describe('signing in with an OpenID provider and with GitHub', () => {

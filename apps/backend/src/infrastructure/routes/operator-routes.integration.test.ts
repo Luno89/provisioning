@@ -3,8 +3,7 @@ import axios from 'axios';
 import { http, HttpResponse, passthrough } from 'msw';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { interceptHttp } from '../../platform/testing/http.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
+import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { vultrAdapter } from '../lib/vps-catalog/adapters.js';
 import { VpsCatalogService } from '../services/VpsCatalogService.js';
@@ -13,7 +12,7 @@ import { vpsCatalogRouter } from './vps-catalog.js';
 import { workerRouter } from './worker.js';
 import { openRoutesOf } from '../../open-routes.js';
 
-const operatorOnly = (db: Database) => createAuth({ db, sessionKey: 'operator-routes-key', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) }).requireOperator('administer');
+const operatorOnly = (db: Database) => rootAuthOver(db, { open: openRoutesOf('root') }).auth.requireOperator('administer');
 
 let vultrFetches = 0;
 interceptHttp(

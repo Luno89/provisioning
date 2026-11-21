@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { verifyJWT } from '../../platform/lib/auth.js';
 import type { Auth } from '../../platform/middleware/auth.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
@@ -8,12 +7,10 @@ import type { PasswordService } from '../services/PasswordService.js';
 import { passwordRouter } from './password.js';
 import type { Devices } from './device.js';
 
-const KEY = 'test-secret';
-
 async function set(passwords = mock<PasswordService>()) {
   const auth = mock<Auth>();
   const devices = mock<Devices>();
-  const routes = await routesInProcess({ prefix: '/api/auth/password', router: () => passwordRouter({ passwords, auth, devices, sessionKey: KEY }), user: PERSON, open: true });
+  const routes = await routesInProcess({ prefix: '/api/auth/password', router: () => passwordRouter({ passwords, auth, devices }), user: PERSON, open: true });
   return { passwords, auth, devices, routes };
 }
 
@@ -69,16 +66,15 @@ describe('/api/auth/password', () => {
 
   it('changes the password for the person signed in and gives their browser a new session', async () => {
     const { passwords, auth, devices, routes } = await set();
-    const changed = { ...PERSON, sessionsEndedAt: 'now' } as UserMetadata;
+    const changed = { ...PERSON, passwordHash: 'the-new-hash' } as UserMetadata;
     const device = { account: PERSON.email, id: 'phone' };
     devices.known.mockReturnValue(device);
     passwords.change.mockResolvedValue({ ok: true, user: changed });
-    auth.setSessionCookie.mockImplementation(() => undefined);
+    auth.holdAccount.mockResolvedValue(undefined);
     const answer = await routes.post('/api/auth/password/', { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' });
     expect(answer.data).toEqual({ changed: true });
     expect(passwords.change).toHaveBeenCalledWith(expect.objectContaining({ id: PERSON.id }), { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' }, device, '127.0.0.1');
-    const [, token] = auth.setSessionCookie.mock.calls[0] ?? [];
-    expect(verifyJWT(token as string, 'session', KEY)).toMatchObject({ userId: PERSON.id });
+    expect(auth.holdAccount).toHaveBeenCalledWith(expect.anything(), changed);
   });
 
   it('keeps the session as it was and says why when the change is refused', async () => {
@@ -87,6 +83,6 @@ describe('/api/auth/password', () => {
     const answer = await routes.post('/api/auth/password/', { password: 'the-new-one-1' });
     expect(answer.status).toBe(403);
     expect(answer.data).toEqual({ error: 'Enter your current password to change it' });
-    expect(auth.setSessionCookie).not.toHaveBeenCalled();
+    expect(auth.holdAccount).not.toHaveBeenCalled();
   });
 });

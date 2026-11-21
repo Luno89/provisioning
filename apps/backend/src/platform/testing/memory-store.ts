@@ -1,5 +1,4 @@
 import session from 'express-session';
-import type { EndedSession } from '../lib/ended-sessions.js';
 import { heldBy, type BrowserSessionsOf } from '../lib/browser-session.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from '../lib/http-limits.js';
 import type { MigrationRecord } from '../lib/migrations.js';
@@ -17,7 +16,6 @@ interface Attempts {
 
 export class MemoryPlatformStore implements PlatformStore {
   private readonly migrations = new Map<string, Omit<MigrationRecord, 'name'>>();
-  private readonly endedSessions = new Map<string, { until: number; at: number }>();
   private readonly signInAttempts = new Map<string, Attempts>();
   private readonly dependencyStateRows = new Map<string, DependencyStateRow>();
 
@@ -54,26 +52,6 @@ export class MemoryPlatformStore implements PlatformStore {
   async recordMigration(record: MigrationRecord): Promise<void> {
     const { name, ...rest } = record;
     this.migrations.set(name, asStored(rest));
-  }
-
-  async endSession(ended: EndedSession): Promise<void> {
-    const until = Math.max(this.endedSessions.get(ended.id)?.until ?? ended.until, ended.until);
-    this.endedSessions.set(ended.id, { until, at: ended.at });
-    for (const watcher of this.sessionWatchers) queueMicrotask(() => watcher({ id: ended.id, until, at: ended.at }));
-  }
-
-  private readonly sessionWatchers = new Set<(ended: EndedSession) => void>();
-
-  watchSessionEnds(on: (ended: EndedSession) => void): Watching {
-    this.sessionWatchers.add(on);
-    return { ready: Promise.resolve(), close: async () => { this.sessionWatchers.delete(on); } };
-  }
-
-  async sessionsEndedSince(at: number): Promise<EndedSession[]> {
-    const now = Date.now();
-    return [...this.endedSessions.entries()]
-      .filter(([, ended]) => ended.at >= at && ended.until > now)
-      .map(([id, ended]) => ({ id, until: ended.until, at: ended.at }));
   }
 
   async attemptsOf(key: string): Promise<SignInAttempts | undefined> {

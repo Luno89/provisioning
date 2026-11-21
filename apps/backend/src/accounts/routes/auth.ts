@@ -1,7 +1,7 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { signJWT, verifyJWT, hashPassword, type Auth,
-  asyncRoute, cookieNamed, generateOTP, inviteCodeHash, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
+  asyncRoute, cookieNamed, generateOTP, inviteCodeHash, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS,
   type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal, type UserMetadata, type OpenRoute, } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthService } from '../services/AuthService.js';
@@ -38,7 +38,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
   const { db, authService, sessionKey, appUrl } = deps;
-  const { setSessionCookie, clearSession, checkAndConsumeInvite, inviteProblem, claimHeldInvite, sessionCookieOptions, getCookie } = deps.auth;
+  const { holdAccount, clearSession, checkAndConsumeInvite, inviteProblem, claimHeldInvite, sessionCookieOptions, getCookie } = deps.auth;
   const stateCookie = cookieNamed(OAUTH_STATE_COOKIE, sessionCookieOptions.secure);
   const devices = devicesFor({ auth: deps.auth, sessionKey, authService });
   const rememberDevice = devices.remember;
@@ -51,6 +51,11 @@ export function authRouter(deps: AuthRouterDeps): Router {
     ...(place.holdsAccounts ? { confirmWith: confirmWith(user), hasPassword: Boolean(user.passwordHash) } : {}),
   });
   const APP_URL = appUrl;
+  const signInHere = async (req: Request, res: Response, user: UserMetadata): Promise<void> => {
+    await holdAccount(req, user);
+    rememberDevice(req, res, user.email);
+    res.json({ success: true, user: signedIn(user, deps.auth.principalFor(user)) });
+  };
 
   accountRoutes.post('/register', asyncRoute(async (req, res) => {
     try {
@@ -146,9 +151,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         createdAt: new Date().toISOString(),
       };
       await db.accounts.saveUser(user);
-      setSessionCookie(res, sessionToken(user, sessionKey));
-      rememberDevice(req, res, user.email);
-      res.json({ success: true, user: signedIn(user, deps.auth.principalFor(user)) });
+      await signInHere(req, res, user);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -193,12 +196,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.json({ twoFactorRequired: true, challenge: signJWT('two-factor', { twoFactorFor: user.id }, sessionKey, TWO_FACTOR_SECONDS) });
       }
 
-      setSessionCookie(res, sessionToken(user, sessionKey));
-      rememberDevice(req, res, user.email);
-      res.json({
-        success: true,
-        user: signedIn(user, deps.auth.principalFor(user)),
-      });
+      await signInHere(req, res, user);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -220,12 +218,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (checked.kind === 'locked') return res.status(429).json({ error: checked.said });
       if (checked.kind === 'wrong') return res.status(400).json({ error: 'Invalid or expired 2FA code' });
 
-      setSessionCookie(res, sessionToken(user, sessionKey));
-      rememberDevice(req, res, user.email);
-      res.json({
-        success: true,
-        user: signedIn(user, deps.auth.principalFor(user)),
-      });
+      await signInHere(req, res, user);
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -255,10 +248,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
     try {
       const user = userOf(req);
       if (!user) return res.status(401).json({ error: 'Not authenticated' });
-      user.sessionsEndedAt = new Date().toISOString();
-      await db.accounts.saveUser(user);
-      await deps.revocations?.revoked({ personId: user.id, because: 'signed-out-everywhere', at: user.sessionsEndedAt });
-      setSessionCookie(res, sessionToken(user, sessionKey), req);
+      await deps.revocations?.revoked({ personId: user.id, because: 'signed-out-everywhere', at: new Date().toISOString() });
+      await holdAccount(req, user);
       res.json({ ended: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -290,14 +281,13 @@ export function authRouter(deps: AuthRouterDeps): Router {
       const refused = await devices.confirmed(req, user);
       if (refused) return res.status(refused.status).json({ error: refused.error });
 
-      user.sessionsEndedAt = new Date().toISOString();
       user.twoFactorEnabled = enabled;
       if (phone !== undefined) user.twoFactorPhone = phone;
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
       await db.accounts.saveUser(user);
-      await deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: user.sessionsEndedAt });
-      setSessionCookie(res, sessionToken(user, sessionKey), req);
+      await deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: new Date().toISOString() });
+      await holdAccount(req, user);
       res.json({
         id: user.id,
         email: user.email,
@@ -336,7 +326,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     res.clearCookie(stateCookie, sessionCookieOptions);
     if (outcome.kind === 'refused') return res.redirect(302, `${APP_URL}/?authError=${encodeURIComponent(outcome.why)}`);
     if (outcome.kind === 'second-factor') return res.redirect(302, `${APP_URL}/?twoFactor=${encodeURIComponent(signJWT('two-factor', { twoFactorFor: outcome.user.id }, sessionKey, TWO_FACTOR_SECONDS))}`);
-    setSessionCookie(res, sessionToken(outcome.user, sessionKey));
+    await holdAccount(req, outcome.user);
     return res.redirect(302, `${APP_URL}/`);
   }));
   return router;

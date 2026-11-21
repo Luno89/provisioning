@@ -4,10 +4,10 @@ import type { AddressInfo } from 'node:net'
 import express, { type Router } from 'express'
 import { Server as SocketServer } from 'socket.io'
 import { afterAll } from 'vitest'
-import { createAuth, type Auth } from '../../../../backend/src/platform/middleware/auth'
+import type { Auth } from '../../../../backend/src/platform/middleware/auth'
+import { rootAuthOver } from '../../../../backend/src/platform/testing/root-auth'
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
 import { refuseWorkOfDeletingProjects } from '../../../../backend/src/projects/wiring/deleting-refusals'
-import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
 import { AccessRevocations } from '../../../../backend/src/platform/services/AccessRevocations'
 import { testDatabase } from '../../../../backend/src/platform/lib/test-database'
 import { JSON_LIMITS } from '../../../../backend/src/platform/lib/http-limits'
@@ -23,7 +23,7 @@ import { seedAll } from '../../../../backend/src/scripts/seed-all'
 import { getMe, login, verifySignUp, type SessionUser } from '../../features/platform'
 import { openRoutesOf } from '../../../../backend/src/open-routes'
 import { InstanceReach } from '../../../../backend/src/instances/services/InstanceReach'
-import { SESSION_ID_COOKIE, rootSessionOf, servedThroughRoot, signInThroughRoot, type Served } from '../../../../backend/src/instances/testing/through-root'
+import { SESSION_ID_COOKIE, servedThroughRoot, signInThroughRoot, type Served } from '../../../../backend/src/instances/testing/through-root'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
 export const SETUP_CODE = 'frontend-integration-setup-code'
@@ -116,7 +116,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   if (throughRoot) await throughRoot.signIn.register()
   const auth = throughRoot
     ? throughRoot.instanceAuth
-    : createAuth({ db, sessionKey: SESSION_KEY, publicUrl: origin, role: 'root', open: openRoutesOf('root'), setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) })
+    : rootAuthOver(db, { publicUrl: origin, open: openRoutesOf('root'), setupCode: SETUP_CODE, revocations }).auth
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations })
@@ -125,7 +125,7 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   app.use('/api', auth.requireAuth)
   app.use(express.json({ limit: JSON_LIMITS.signedIn }))
   app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, appUrl: origin, accounts: !asInstance, revocations, passwords }))
-  if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: SESSION_KEY }))
+  if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }))
   refuseWorkOfDeletingProjects(app, db)
   const api = express.Router()
   app.use('/api', api)
@@ -135,10 +135,10 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   moveThePageTo(origin)
 
   const signIn = async (email = 'owner@koala.test'): Promise<SessionUser> => {
-    if (root) {
+    if (root && throughRoot) {
       const person = { id: email === 'owner@koala.test' ? INSTANCE_OWNER : `person-${(people += 1)}`, email }
       await root.db.accounts.saveUser({ ...person, emailVerified: true, twoFactorEnabled: false, createdAt: new Date().toISOString() })
-      const { instanceJar, landed } = await signInThroughRoot(root.url, origin, rootSessionOf(person))
+      const { instanceJar, landed } = await signInThroughRoot(root.url, origin, await throughRoot.signInAtRoot(person))
       const held = instanceJar.get(SESSION_ID_COOKIE)
       if (!held) throw new Error(`signing ${email} in through root ended on ${landed.status} at ${landed.url}: ${await landed.text()}`)
       thePage().cookieJar.setCookieSync(`${SESSION_ID_COOKIE}=${held}; Path=/; HttpOnly; SameSite=Lax`, `${origin}/`)
@@ -165,10 +165,10 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   }
 
   const turnedAway = async (email: string): Promise<string> => {
-    if (!root) throw new Error('only an instance turns people away at root; root itself signs up anyone it invites')
+    if (!root || !throughRoot) throw new Error('only an instance turns people away at root; root itself signs up anyone it invites')
     const person = { id: `person-${(people += 1)}`, email }
     await root.db.accounts.saveUser({ ...person, emailVerified: true, twoFactorEnabled: false, createdAt: new Date().toISOString() })
-    const { instanceJar, landed } = await signInThroughRoot(root.url, origin, rootSessionOf(person))
+    const { instanceJar, landed } = await signInThroughRoot(root.url, origin, await throughRoot.signInAtRoot(person))
     if (landed.status !== 403) throw new Error(`root let ${email} into someone else's instance: ${landed.status} at ${landed.url}`)
     const held = instanceJar.get(SESSION_ID_COOKIE)
     thePage().cookieJar.setCookieSync(held ? `${SESSION_ID_COOKIE}=${held}; Path=/; HttpOnly; SameSite=Lax` : `${SESSION_ID_COOKIE}=; Path=/; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT`, `${origin}/`)

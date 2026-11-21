@@ -62,7 +62,7 @@ export async function firstAdmin(rootUrl: string, root: SuiteRoot): Promise<Firs
   const signedIn = await post('/auth/login', { email, password });
   const body = await signedIn.json() as { user?: { id: string; email: string }; error?: string };
   if (signedIn.status !== 200 || !body.user) throw new Error(`the first admin could not sign in on ${rootUrl}: ${signedIn.status} ${body.error ?? ''}`);
-  const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair));
+  const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=/.test(pair));
   if (!cookie) throw new Error(`signing in on ${rootUrl} set no session cookie`);
   return { id: body.user.id, email: body.user.email, password, cookie };
 }

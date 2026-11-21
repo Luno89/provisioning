@@ -1,11 +1,12 @@
-import type express from 'express';
+import express from 'express';
 import type { Database } from '../../platform/index.js';
 import { createAuth, type Auth } from '../../platform/middleware/auth.js';
-import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { BrowserSessions } from '../../platform/services/BrowserSessions.js';
-import { arrivedOverHttps, sessionToken } from '../../platform/lib/auth.js';
+import { arrivedOverHttps } from '../../platform/lib/auth.js';
+import { signedInWithPassword } from '../../accounts/testing/password-sign-in.js';
 import type { DependencyId } from '../../platform/lib/dependencies.js';
-import type { AccessRevocations } from '../../platform/services/AccessRevocations.js';
+import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
+import { authRouter, AuthService, breachedFrom, PasswordService } from '../../accounts/index.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys, type IdentityKeyPair } from '../lib/identity-token.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
@@ -47,8 +48,6 @@ export const sessionIdOf = (jar: Jar): string | undefined => {
   return held ? /^s:([^.]+)\./.exec(decodeURIComponent(held))?.[1] : undefined;
 };
 
-export const rootSessionOf = (person: { id: string; email: string }): Jar => new Map([['session', sessionToken(person, ROOT_SESSION)]]);
-
 export interface ThroughRootOptions {
   rootDb: Database;
   instanceDb: Database;
@@ -70,6 +69,9 @@ export interface ThroughRoot {
   instanceAuth: Auth;
   clientKeys: IdentityKeyPair;
   registrationCode: string;
+  rootAuth: Auth;
+  rootRevocations: AccessRevocations;
+  signInAtRoot(person: { id: string; email: string }): Promise<Jar>;
 }
 
 export async function servedThroughRoot(options: ThroughRootOptions): Promise<ThroughRoot> {
@@ -78,8 +80,20 @@ export async function servedThroughRoot(options: ThroughRootOptions): Promise<Th
 
   const provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: PROVIDER_COOKIE_KEY, proxied: false, reach: options.reach }, rootDb);
   const rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token), registrationCode: (placed) => provider.registrationCode(placed) }, undefined);
-  const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(rootDb.platform) });
-  root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
+  const rootRevocations = new AccessRevocations();
+  const rootSessions = new BrowserSessions({ store: rootDb.platform, secret: ROOT_SESSION, securedFor: () => root.url.startsWith('https://') });
+  const rootAuth = createAuth({ db: rootDb, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), own: { sessions: rootSessions, revocations: rootRevocations } });
+  root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userOf(req) }));
+  const authService = new AuthService(rootDb);
+  root.app.use('/api/auth', express.json(), authRouter({
+    db: rootDb, authService, auth: rootAuth, sessionKey: ROOT_SESSION, appUrl: root.url, revocations: rootRevocations,
+    passwords: new PasswordService({ db: rootDb, auth: authService, breached: breachedFrom(''), revocations: rootRevocations }),
+  }));
+  const signInAtRoot = async (person: { id: string; email: string }): Promise<Jar> => {
+    const jar: Jar = new Map();
+    remember(jar, await signedInWithPassword(root.url, rootDb.accounts, person.id));
+    return jar;
+  };
   const registrationCode = await provider.registrationCode({ id: instanceId, ownerId });
   const clientKeys = identityKeysFrom(generateIdentityKey());
 
@@ -95,11 +109,11 @@ export async function servedThroughRoot(options: ThroughRootOptions): Promise<Th
     dataKey: DATA_KEY,
   }, { store: instanceDb, sessions, revocations: options.revocations, dependency: options.dependency }, options.now);
   const bearers = new RunBearers({ tokens: signIn, grantOfRun: (runId) => instanceDb.engine.getRunGrantOfRun(runId), accounts: instanceDb.accounts, claims: { role: 'instance', instanceOwnerId: ownerId } });
-  const instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: ownerId, throughRoot: { sessions, signIn }, bearer: (token) => bearers.signIn(token) });
+  const instanceAuth = createAuth({ db: instanceDb, publicUrl: instance.url, role: 'instance', open: openRoutesOf('instance'), instanceOwnerId: ownerId, throughRoot: { sessions, signIn }, bearer: (token) => bearers.signIn(token) });
   const identity = new IdentityService({ role: 'instance', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]), instance: { id: instanceId, ownerId, rootUrl: root.url } }, instanceDb);
   instance.app.use('/api/auth', signInRouter({ signIn, sessions, identity, publicUrl: instance.url, landing: '/chat' }));
 
-  return { provider, rootService, sessions, signIn, instanceAuth, clientKeys, registrationCode };
+  return { provider, rootService, sessions, signIn, instanceAuth, clientKeys, registrationCode, rootAuth, rootRevocations, signInAtRoot };
 }
 
 export async function signInThroughRoot(rootUrl: string, at: string, rootJar: Jar): Promise<{ instanceJar: Jar; landed: Response }> {

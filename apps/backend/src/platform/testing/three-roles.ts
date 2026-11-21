@@ -59,7 +59,7 @@ export interface ThreeRolesOptions {
 export type WorkerName = 'host' | 'engine' | 'cluster';
 
 const sessionOf = (headers: Headers): string | undefined =>
-  headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=./.test(pair));
+  headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=./.test(pair));
 
 async function signUpWith(rootUrl: string, mail: SmtpSink, email: string, inviteCode: string): Promise<Person> {
   const password = randomBytes(18).toString('base64url');

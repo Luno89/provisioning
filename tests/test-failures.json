@@ -131,5 +131,8 @@
  ],
  "apps/backend/src/engine-host/mcp-on-host.integration.test.ts": [
   "2026-11-21T20:40:00.000Z"
+ ],
+ "apps/backend/src/platform/middleware/auth.integration.test.ts": [
+  "2026-11-21T20:26:26.000Z"
  ]
 }

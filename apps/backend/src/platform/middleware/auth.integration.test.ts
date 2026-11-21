@@ -1,13 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import express, { type Request, type Response } from 'express';
 import { parseCookie, createAuth } from './auth.js';
 import { testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
-import { sessionToken, signJWT } from '../lib/auth.js';
-import { SessionEnds } from '../services/SessionEnds.js';
 import { BrowserSessions } from '../services/BrowserSessions.js';
-
-const noEnds = { ended: () => false, end: async () => undefined };
-import type { Request, Response } from 'express';
+import { memoryDatabase } from '../testing/memory-database.js';
+import { rootAuthOver } from '../testing/root-auth.js';
+import { serveInProcess } from '../../instances/testing/serve-in-process.js';
 import { inviteCodeHash } from '../lib/invite-codes.js';
 import { openRoutesOf } from '../../open-routes.js';
 
@@ -44,109 +43,110 @@ function fakeCall(headers: Record<string, string> = {}) {
   };
 }
 
-describe('requireAuth', () => {
-  const sessionKey = 'test-secret';
+function rootServed(db: Database, publicUrl = 'http://localhost:3001') {
+  const world = rootAuthOver(db, { publicUrl, open: openRoutesOf('root') });
+  const app = express();
+  app.post('/hold/:id', (req, res, next) => {
+    db.accounts.getUserById(String(req.params.id)).then(async (user) => {
+      if (!user) throw new Error(`no account ${String(req.params.id)} to sign in`);
+      await world.auth.holdAccount(req, user);
+      res.json({ held: true });
+    }).catch(next);
+  });
+  app.post('/out', (req, res, next) => { world.auth.endSession(req).then(() => { world.auth.clearSession(res); res.json({}); }, next); });
+  app.get('/socket', world.auth.sessionHandle, (req, res, next) => { world.auth.sessionOf(req).then((held) => res.json({ id: held?.user.id ?? null }), next); });
+  app.use('/api', world.auth.requireAuth);
+  app.get('/api/me', (req, res) => { res.json({ id: (req as { user?: { id: string } }).user?.id }); });
+  const ask = async (method: string, path: string, cookie?: string, https = publicUrl.startsWith('https://')) => {
+    const answer = await serveInProcess(app, new Request(`http://koala.test${path}`, { method, headers: { ...(cookie ? { cookie } : {}), ...(https ? { 'x-forwarded-proto': 'https' } : {}) } }));
+    const set = answer.headers.getSetCookie();
+    return { status: answer.status, body: await answer.json() as Record<string, unknown>, set, cookie: set[0]?.split(';')[0] };
+  };
+  const signIn = async (id: string): Promise<string> => {
+    const held = await ask('POST', `/hold/${id}`);
+    if (!held.cookie) throw new Error(`signing ${id} in set no cookie`);
+    return held.cookie;
+  };
+  return { ...world, ask, signIn };
+}
 
+describe('requireAuth on root', () => {
   async function build() {
     const db = await testDatabase();
     await db.init();
-    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: new SessionEnds(db.platform) }) };
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    await db.accounts.saveUser({ id: 'u2', email: 'u2@example.com', createdAt: new Date().toISOString() } as never);
+    return { db, root: rootServed(db) };
   }
 
   it('refuses a request with no session cookie', async () => {
-    const { auth } = await build();
-    const c = fakeCall();
-    await auth.requireAuth(c.req, c.res, c.next);
-    expect(c.result().statusCode).toBe(401);
-    expect(c.result().nexted).toBe(false);
+    const { root } = await build();
+    const asked = await root.ask('GET', '/api/me');
+    expect(asked.status).toBe(401);
+    expect(asked.body).toEqual({ error: 'Unauthorized: Session missing' });
   });
 
-  it('refuses a validly-signed token for a user who no longer exists', async () => {
-    const { auth } = await build();
-    const token = sessionToken({ id: 'deleted-user', email: 'deleted-user@example.com' }, sessionKey);
-    const c = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(c.req, c.res, c.next);
-    expect(c.result().statusCode).toBe(401);
+  it('refuses a cookie the session store never made, however it is named or signed', async () => {
+    const { root } = await build();
+    expect((await root.ask('GET', '/api/me', 'koala_sid=s%3Aforged.signature')).status).toBe(401);
+    expect((await root.ask('GET', '/api/me', 'session=anything')).status).toBe(401);
+    expect((await root.ask('GET', '/socket', 'koala_sid=s%3Aforged.signature')).body).toEqual({ id: null });
   });
 
-  it('refuses a token signed with a different secret', async () => {
-    const { db, auth } = await build();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, 'not-the-secret');
-    const c = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(c.req, c.res, c.next);
-    expect(c.result().statusCode).toBe(401);
+  it('holds only an id in the cookie, puts the account on the request, and the socket handshake resolves the same account', async () => {
+    const { root } = await build();
+    const cookie = await root.signIn('u1');
+    expect(cookie).toMatch(/^koala_sid=s%3A/);
+    expect(cookie).not.toContain('u1');
+    expect((await root.ask('GET', '/api/me', cookie)).body).toEqual({ id: 'u1' });
+    expect((await root.ask('GET', '/socket', cookie)).body).toEqual({ id: 'u1' });
   });
 
-  it('puts the resolved user on the request and continues', async () => {
-    const { db, auth } = await build();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
-    const c = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(c.req, c.res, c.next);
-    expect(c.result().nexted).toBe(true);
-    expect((c.result().user as { email: string }).email).toBe('u1@example.com');
-  });
-
-  it('refuses a still-valid session of an account being removed, for requests and sockets alike', async () => {
-    const { db, auth } = await build();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString(), removal: { startedAt: 'now', requestedBy: 'u1' } } as never);
-    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
-    const c = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(c.req, c.res, c.next);
-    expect(c.result().statusCode).toBe(401);
-    expect(await auth.userFromSessionCookie(`session=${token}`, false)).toBeUndefined();
-  });
-
-  it('resolves the same user the socket handshake would', async () => {
-    const { db, auth } = await build();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
-
-    const c = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(c.req, c.res, c.next);
-    const viaSocket = await auth.userFromSessionCookie(`session=${token}`, false);
-
-    expect(viaSocket?.id).toBe((c.result().user as { id: string }).id);
-    expect(await auth.userFromSessionCookie('session=garbage', false)).toBeUndefined();
-  });
-
-  it('refuses a session signed out of, for requests and sockets alike, while the account\'s other sessions go on', async () => {
-    const { db, auth } = await build();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const left = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
-    const kept = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
-    await auth.endSession({ headers: { cookie: `session=${left}` } } as unknown as Request);
-    const c = fakeCall({ cookie: `session=${left}` });
-    await auth.requireAuth(c.req, c.res, c.next);
-    expect(c.result().statusCode).toBe(401);
-    expect(await auth.userFromSessionCookie(`session=${left}`, false)).toBeUndefined();
-    expect((await auth.userFromSessionCookie(`session=${kept}`, false))?.id).toBe('u1');
-    const restarted = new SessionEnds(db.platform);
-    await restarted.load();
-    const again = createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: restarted });
-    expect(await again.userFromSessionCookie(`session=${left}`, false)).toBeUndefined();
-  });
-
-  it('refuses a session token that does not say when it began, and a token signed for another purpose', async () => {
-    const { db, auth } = await build();
-    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    for (const token of [
-      signJWT('session', { userId: 'u1', email: 'u1@example.com', jti: 'j1' }, sessionKey, 3600),
-      signJWT('two-factor', { userId: 'u1', twoFactorFor: 'u1', sessionAt: Date.now(), jti: 'j2' }, sessionKey, 3600),
-      signJWT('device', { userId: 'u1', deviceFor: 'u1@example.com', device: 'd', sessionAt: Date.now(), jti: 'j3' }, sessionKey, 3600),
-    ]) {
-      const c = fakeCall({ cookie: `session=${token}` });
-      await auth.requireAuth(c.req, c.res, c.next);
-      expect(c.result().statusCode).toBe(401);
+  it('refuses a held session whose account no longer exists or is being removed, for requests and sockets alike', async () => {
+    const { db, root } = await build();
+    const gone = await root.signIn('u1');
+    const leaving = await root.signIn('u2');
+    await db.accounts.deleteUser('u1');
+    await db.accounts.saveUser({ id: 'u2', email: 'u2@example.com', createdAt: new Date().toISOString(), removal: { startedAt: 'now', requestedBy: 'u2' } } as never);
+    for (const cookie of [gone, leaving]) {
+      expect((await root.ask('GET', '/api/me', cookie)).body).toEqual({ error: 'Unauthorized: Session invalid or expired' });
+      expect((await root.ask('GET', '/socket', cookie)).body).toEqual({ id: null });
     }
+  });
+
+  it('refuses a session signed out of, in this process and in another, while the account\'s other sessions go on', async () => {
+    const { db, root } = await build();
+    const left = await root.signIn('u1');
+    const kept = await root.signIn('u1');
+    const ended: string[] = [];
+    root.sessions.onEnd((sid) => ended.push(sid));
+    await root.ask('POST', '/out', left);
+    expect(ended).toHaveLength(1);
+    expect((await root.ask('GET', '/api/me', left)).status).toBe(401);
+    expect((await root.ask('GET', '/socket', left)).body).toEqual({ id: null });
+    expect((await root.ask('GET', '/api/me', kept)).body).toEqual({ id: 'u1' });
+    const another = rootServed(db);
+    expect((await another.ask('GET', '/api/me', left)).status).toBe(401);
+    expect((await another.ask('GET', '/api/me', kept)).body).toEqual({ id: 'u1' });
+  });
+
+  it('ends every session of a person at once when their access is revoked, and only theirs', async () => {
+    const { root } = await build();
+    const one = await root.signIn('u1');
+    const two = await root.signIn('u1');
+    const theirs = await root.signIn('u2');
+    const ended: string[] = [];
+    root.sessions.onEnd((sid) => ended.push(sid));
+    expect(await root.revocations.revoked({ personId: 'u1', because: 'signed-out-everywhere', at: new Date().toISOString() })).toEqual([]);
+    expect(ended).toHaveLength(2);
+    expect((await root.ask('GET', '/api/me', one)).status).toBe(401);
+    expect((await root.ask('GET', '/api/me', two)).status).toBe(401);
+    expect((await root.ask('GET', '/api/me', theirs)).body).toEqual({ id: 'u2' });
   });
 });
 
 describe('requireAdmin', () => {
-  const auth = createAuth({
-    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds,
-  });
+  const { auth } = rootAuthOver(memoryDatabase(), { open: openRoutesOf('root') });
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
     const c = fakeCall();
@@ -171,16 +171,13 @@ describe('requireAdmin', () => {
 
 describe('session cookie flags', () => {
   it('marks the cookie secure only when the public origin is https', () => {
-    const db = null as never;
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds })
-      .sessionCookieOptions.secure).toBe(true);
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds })
-      .sessionCookieOptions.secure).toBe(false);
+    expect(rootAuthOver(memoryDatabase(), { publicUrl: 'https://app.example.com', open: openRoutesOf('root') }).auth.sessionCookieOptions.secure).toBe(true);
+    expect(rootAuthOver(memoryDatabase(), { publicUrl: 'http://localhost:3001', open: openRoutesOf('root') }).auth.sessionCookieOptions.secure).toBe(false);
   });
 
   it('is httpOnly and lax in both cases', () => {
     for (const url of ['https://app.example.com', 'http://localhost:3001']) {
-      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url, role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds }).sessionCookieOptions;
+      const opts = rootAuthOver(memoryDatabase(), { publicUrl: url, open: openRoutesOf('root') }).auth.sessionCookieOptions;
       expect(opts.httpOnly).toBe(true);
       expect(opts.sameSite).toBe('lax');
     }
@@ -201,10 +198,10 @@ describe('what is open without a session, by role', () => {
   const opens = async (role: 'root' | 'instance', path: string): Promise<boolean> => {
     const db = await database();
     const call = at(path);
-    const sessions = role === 'instance'
-      ? { throughRoot: { sessions: new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false }), signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } } }
-      : { sessionEnds: noEnds };
-    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), ...sessions }).requireAuth(call.req, call.res, call.next);
+    const auth = role === 'instance'
+      ? createAuth({ db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), throughRoot: { sessions: new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false }), signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } } })
+      : rootAuthOver(db, { open: openRoutesOf(role) }).auth;
+    await auth.requireAuth(call.req, call.res, call.next);
     return call.result().nexted;
   };
 
@@ -234,7 +231,7 @@ describe('what is open without a session, by role', () => {
   });
 
   it('lets an instance reach every route root answers with its credential, which checks it there', async () => {
-    for (const path of ['/instances/sign-in-key', '/instances/status', '/instances/release', '/instances/updates', '/instances/release-findings', '/instances/machines', '/instances/machines/join-code', '/instances/machines/m-1', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/mail']) {
+    for (const path of ['/instances/status', '/instances/release', '/instances/updates', '/instances/release-findings', '/instances/machines', '/instances/machines/join-code', '/instances/machines/m-1', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/mail']) {
       expect(await opens('root', path), path).toBe(true);
     }
     expect(await opens('root', '/instances/mine')).toBe(false);
@@ -262,7 +259,7 @@ describe('an invite to sign up', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveInvite({ id: 'i1', codeHash: inviteCodeHash('CODE'), createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
-    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds }) };
+    return { db, auth: rootAuthOver(db, { open: openRoutesOf('root') }).auth };
   };
 
   it('made for one address signs up only that address, however it is written', async () => {
@@ -285,28 +282,23 @@ describe('a session over https cannot be planted by a site next door', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role: 'root', open: openRoutesOf('root'), sessionEnds: noEnds }), token: sessionToken({ id: 'u1', email: 'u1@example.com' }, 'k') };
+    return rootServed(db, publicUrl);
   };
 
-  it('names the cookie __Host-session over https, which a sibling subdomain cannot set, and takes no plain session there', async () => {
-    const { auth, token } = await signedIn('https://app.example.com');
-    const cookies: string[] = [];
-    auth.setSessionCookie({ cookie: (name: string) => { cookies.push(name); } } as unknown as Response, token, { secure: true, headers: {} } as unknown as Request);
-    expect(cookies).toEqual(['__Host-session']);
-
-    const planted = fakeCall({ cookie: `session=${token}` });
-    await auth.requireAuth(planted.req, planted.res, planted.next);
-    expect(planted.result().statusCode).toBe(401);
-    const real = fakeCall({ cookie: `__Host-session=${token}` });
-    await auth.requireAuth(real.req, real.res, real.next);
-    expect(real.result().nexted).toBe(true);
-    expect(await auth.userFromSessionCookie(`session=${token}`, auth.securedFor({ headers: {}, secure: false }))).toBeUndefined();
+  it('names the cookie __Host-koala_sid over https, which a sibling subdomain cannot set, and takes no plain koala_sid there', async () => {
+    const root = await signedIn('https://app.example.com');
+    const cookie = await root.signIn('u1');
+    expect(cookie).toMatch(/^__Host-koala_sid=s%3A/);
+    const planted = cookie.replace(/^__Host-/, '');
+    expect((await root.ask('GET', '/api/me', planted)).status).toBe(401);
+    expect((await root.ask('GET', '/api/me', cookie)).body).toEqual({ id: 'u1' });
   });
 
   it('signs out of both names, the secure one with the flag a browser needs to drop it', async () => {
-    const { auth } = await signedIn('https://app.example.com');
-    const cleared: Array<{ name: string; secure: boolean }> = [];
-    auth.clearSession({ clearCookie: (name: string, options: { secure: boolean }) => { cleared.push({ name, secure: options.secure }); } } as unknown as Response);
-    expect(cleared).toEqual([{ name: '__Host-session', secure: true }, { name: 'session', secure: false }]);
+    const root = await signedIn('https://app.example.com');
+    const cookie = await root.signIn('u1');
+    const out = await root.ask('POST', '/out', cookie);
+    expect(out.set.map((line) => [line.split('=')[0], /;\s*Secure/i.test(line)])).toEqual([['__Host-koala_sid', true], ['koala_sid', false]]);
+    expect((await root.ask('GET', '/api/me', cookie)).status).toBe(401);
   });
 });

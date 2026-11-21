@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, sessionToken, signedSession, sessionEnded, deviceToken, deviceOf } from './auth.js';
+import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, deviceToken, deviceOf } from './auth.js';
 
 describe('Auth Utilities', () => {
   describe('Password Hashing', () => {
@@ -31,9 +31,9 @@ describe('Auth Utilities', () => {
 
     it('should sign and verify a token successfully', () => {
       const payload = { userId: 'user-123', email: 'test@example.com' };
-      const token = signJWT('session', payload, secret, 3600);
+      const token = signJWT('two-factor', payload, secret, 3600);
 
-      const verified = verifyJWT(token, 'session', secret);
+      const verified = verifyJWT(token, 'two-factor', secret);
       expect(verified).not.toBeNull();
       expect(verified!.userId).toBe('user-123');
       expect(verified!.email).toBe('test@example.com');
@@ -42,17 +42,17 @@ describe('Auth Utilities', () => {
 
     it('should fail verification with wrong secret', () => {
       const payload = { userId: 'user-123' };
-      const token = signJWT('session', payload, secret, 3600);
+      const token = signJWT('two-factor', payload, secret, 3600);
 
-      const verified = verifyJWT(token, 'session', 'wrongSecret');
+      const verified = verifyJWT(token, 'two-factor', 'wrongSecret');
       expect(verified).toBeNull();
     });
 
     it('should fail verification for expired token', () => {
       const payload = { userId: 'user-123' };
-      const token = signJWT('session', payload, secret, -10);
+      const token = signJWT('two-factor', payload, secret, -10);
 
-      const verified = verifyJWT(token, 'session', secret);
+      const verified = verifyJWT(token, 'two-factor', secret);
       expect(verified).toBeNull();
     });
 
@@ -62,44 +62,21 @@ describe('Auth Utilities', () => {
         const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part(payload)}`;
         return `${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`;
       };
-      expect(verifyJWT(token({ userId: 'user-123', purpose: 'session', exp: Math.floor(Date.now() / 1000) + 60 }), 'session', secret)).toMatchObject({ userId: 'user-123' });
-      expect(verifyJWT(token({ userId: 'user-123', purpose: 'session' }), 'session', secret)).toBeNull();
+      expect(verifyJWT(token({ userId: 'user-123', purpose: 'two-factor', exp: Math.floor(Date.now() / 1000) + 60 }), 'two-factor', secret)).toMatchObject({ userId: 'user-123' });
+      expect(verifyJWT(token({ userId: 'user-123', purpose: 'two-factor' }), 'two-factor', secret)).toBeNull();
     });
 
     it('takes a token only for the purpose it was signed for, and refuses one that names none', () => {
       const challenge = signJWT('two-factor', { twoFactorFor: 'u1', userId: 'u1' }, secret, 60);
       expect(verifyJWT(challenge, 'two-factor', secret)).toMatchObject({ twoFactorFor: 'u1' });
-      expect(verifyJWT(challenge, 'session', secret)).toBeNull();
+      expect(verifyJWT(challenge, 'oauth-state', secret)).toBeNull();
       const device = deviceToken('ann@example.com', secret, 'd1');
-      expect(verifyJWT(device, 'session', secret)).toBeNull();
+      expect(verifyJWT(device, 'two-factor', secret)).toBeNull();
       expect(deviceOf(device, secret)).toEqual({ account: 'ann@example.com', id: 'd1' });
       expect(deviceOf(challenge, secret)).toBeUndefined();
       const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
       const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ userId: 'u1', exp: Math.floor(Date.now() / 1000) + 60 })}`;
-      expect(verifyJWT(`${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`, 'session', secret)).toBeNull();
-    });
-  });
-
-  describe('session tokens', () => {
-    const secret = 'session-secret';
-
-    it('carry an id of their own, when they began and when they end', () => {
-      const one = signedSession(verifyJWT(sessionToken({ id: 'u1', email: 'u1@example.com' }, secret, { now: 5_000 }), 'session', secret));
-      const two = signedSession(verifyJWT(sessionToken({ id: 'u1', email: 'u1@example.com' }, secret, { now: 5_000 }), 'session', secret));
-      expect(one).toMatchObject({ userId: 'u1', sessionAt: 5_000 });
-      expect(one!.jti).not.toBe(two!.jti);
-      expect(one!.until).toBeGreaterThan(Date.now());
-    });
-
-    it('are not taken without when they began or without an id, since nothing could ever end them', () => {
-      expect(signedSession(verifyJWT(signJWT('session', { userId: 'u1', jti: 'j1' }, secret, 60), 'session', secret))).toBeUndefined();
-      expect(signedSession(verifyJWT(signJWT('session', { userId: 'u1', sessionAt: 1 }, secret, 60), 'session', secret))).toBeUndefined();
-    });
-
-    it('end when the account signed out everywhere after they began', () => {
-      expect(sessionEnded({ sessionAt: 1_000 }, { sessionsEndedAt: new Date(2_000).toISOString() })).toBe(true);
-      expect(sessionEnded({ sessionAt: 3_000 }, { sessionsEndedAt: new Date(2_000).toISOString() })).toBe(false);
-      expect(sessionEnded({ sessionAt: 3_000 }, {})).toBe(false);
+      expect(verifyJWT(`${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`, 'two-factor', secret)).toBeNull();
     });
   });
 
