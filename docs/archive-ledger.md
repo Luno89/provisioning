@@ -120,7 +120,7 @@ hub: "So the hub is probably where we would put the pool as well, and it should 
 to archive it, I don't really like it just being the same thing with a flag that seems like a bad pattern and we didn't think that
 one out". A future hub is an image of its own, never the backend started with a role flag; `ROLE` is root or instance, and a
 process started with `ROLE=hub` stops naming them. The decision is `sharing` in `tests/alignment/decisions.ts`; the plan was
-`plans/project-hub.md`, the change list `plans/held/sharing-archive-list-2026-11-20.md`.
+`plans/project-hub.md`, now `plans/archive/project-hub.md`, the change list `plans/held/sharing-archive-list-2026-11-20.md`.
 
 Kept, on the owner's word the same day: root's project invite limits and their admin page ("Keep them"); group addresses
 (`<group>.<domain>`, root's `/instances/groups`, `InstanceGroups`, the edge's group scope and `groupOf`, "Its temporary lets not
