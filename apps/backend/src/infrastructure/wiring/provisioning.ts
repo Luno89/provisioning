@@ -5,7 +5,7 @@ import { isOff, type Database, type Off } from '../../platform/index.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { RunStarter } from '../../engine-host/registries/run-starter.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 import { PROVISION_AGENT } from '../../extensions/provision/names.js';
 import { provisioningRouter } from '../routes/provisioning.js';
 import { Provisioning, type ProvisionRoot } from '../services/Provisioning.js';

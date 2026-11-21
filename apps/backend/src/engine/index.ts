@@ -69,3 +69,5 @@ export type { WebToolsPlace } from './wiring/web-tools.js';
 export type { SignalView, SignalKind, SignalSeverity, PoisoningSignal, RunReads } from './lib/poisoning.js';
 export { PoisoningService } from './services/PoisoningService.js';
 export type { SourceClass } from './lib/tool-access.js';
+export { decideTask } from './services/TaskDecisions.js';
+export type { Accepted, TaskAccess } from './services/TaskDecisions.js';

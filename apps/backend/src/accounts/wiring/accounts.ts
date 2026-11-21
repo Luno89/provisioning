@@ -1,7 +1,8 @@
 import type express from 'express';
 import type { Client } from '@temporalio/client';
 import { claimSettingsFrom, type AccessRevocations, type Database, type RoleConfig, holdsAccounts, principalOf, type UserMetadata } from '../../platform/index.js';
-import type { HubPeople, Mounts } from '../../hub/index.js';
+import type { HubPeople } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
 import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';

@@ -9,7 +9,8 @@ import {
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
 import { issueMoveToken } from '../lib/identity-token.js';
-import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
+import { HUB_AUDIENCE, hubInstancePart } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';

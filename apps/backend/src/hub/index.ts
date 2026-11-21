@@ -6,7 +6,4 @@ export type { GitEnd } from './services/HubRepoSync.js';
 export type { HubRepoAccess } from './services/HubRepos.js';
 export type { HubService } from './services/HubService.js';
 export type { HubRepoSides } from './services/HubSyncService.js';
-export { decideTask } from './services/TaskDecisions.js';
-export type { TaskAccess } from './services/TaskDecisions.js';
 export type { HubStore } from './store.js';
-export type { Mounts } from './wiring/hub.js';

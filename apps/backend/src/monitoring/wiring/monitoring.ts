@@ -10,7 +10,7 @@ import { MonitoringService, prometheusAt, type MonitoringDeps, type MonitoringSo
 import { alertNotice, alertWhere } from '../lib/alert-notices.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { notificationsRouter } from '../routes/notifications.js';
-import type { Mounts } from '../../hub/index.js';
+import type { Mounts } from '../../platform/index.js';
 
 export interface MonitoringWiringDeps {
   machineStatus?: ((deviceId: string) => { online: boolean }) | undefined;

@@ -1,7 +1,7 @@
 import type express from 'express';
 import {
   type AccessRevocations, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig,
-  type ProjectMetadata, type MailService, type DependencyStates,
+  type ProjectMetadata, type MailService, type DependencyStates, type Mounts,
 } from '../../platform/index.js';
 import { mongoHubStore } from '../registry-store.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
@@ -17,7 +17,7 @@ import { HubInstanceWork, type HubInstanceWorkDeps } from '../services/HubInstan
 import { ProjectSharingService, type GiteaService } from '../../projects/index.js';
 import { RemoteHubPeople, type HubPeople } from '../services/HubPeople.js';
 import { ProjectInviteService } from '../services/ProjectInviteService.js';
-import { decideTask, type Accepted } from '../services/TaskDecisions.js';
+import { decideTask, type Accepted } from '../../engine/index.js';
 import { extensionSummary } from '../../engine/routes/engine.js';
 import { hubRouter } from '../routes/hub.js';
 import { hubLinkRouter } from '../routes/hub-link.js';
@@ -27,7 +27,6 @@ import { wireHubLines } from './hub-lines.js';
 import type { Server as SocketServer } from 'socket.io';
 import { projectSharingRouter } from '../routes/project-sharing.js';
 
-export type Mounts = { use(path: string, router: express.Router): unknown };
 
 export interface HubWiringDeps {
   role: RoleConfig;

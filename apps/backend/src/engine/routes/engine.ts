@@ -18,14 +18,14 @@ import {
   type TaskStatus,
 } from '../../engine-host/index.js';
 import type { StoredNodeTrace } from '../lib/run-traces.js';
-import { decideTask, type TaskAccess } from '../../hub/index.js';
+import { decideTask, type TaskAccess } from '../services/TaskDecisions.js';
 import type { WorkspaceImage } from '../../engine-host/sandboxes/warm-images.js';
 import type { PruneReport } from '../../engine-host/sandboxes/prune-images.js';
 import { SwitchedOffError } from '../lib/extension-settings.js';
 import { samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 import type { RunEnding } from '../store.js';
 
-export type { TaskAccess } from '../../hub/index.js';
+export type { TaskAccess } from '../services/TaskDecisions.js';
 
 
 export interface TraceAccess {
