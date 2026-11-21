@@ -26,7 +26,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
     process.env.IS_E2E = 'true';
     Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), testKeyEnv('routes'), { ROOT_IDENTITY_KEY: testIdentityKey() }, {
-      PORT: '0', PUBLIC_URL: 'http://127.0.0.1:3001', APP_URL: 'http://127.0.0.1:3001', TERRAFORM_STATE: 'local', TRUST_PROXY: 'loopback',
+      PORT: '0', PUBLIC_URL: 'http://127.0.0.1:3001', APP_URL: 'http://127.0.0.1:3001', TERRAFORM_STATE: 'local',
       TEMPORAL_CONNECTION_ADDRESS: NO_SERVICE_HOST, TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'),
       INSTANCE_IMAGE_TAG: TEST_RELEASE.imageTag, INSTANCE_REGISTRY: TEST_RELEASE.registry,
     });

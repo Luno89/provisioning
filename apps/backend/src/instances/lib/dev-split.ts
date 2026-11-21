@@ -80,7 +80,6 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       MONGO_URI: withDatabase(input.mongoUri, place.rootDatabase),
       PUBLIC_URL: rootUrl,
       APP_URL: rootUrl,
-      TRUST_PROXY: 'loopback',
       INSTANCE_IMAGE_TAG: input.release.imageTag,
       INSTANCE_REGISTRY: input.release.registry,
       TERRAFORM_STATE: 'local',

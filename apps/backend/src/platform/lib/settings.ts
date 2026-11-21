@@ -6,7 +6,7 @@ import { loadKey, loadKeys, type PlatformKeys } from './keys.js';
 import { mongoTarget, type MongoTarget } from './mongo-target.js';
 import { labFrom } from './lab.js';
 import { cspModeFrom, type CspMode } from './csp.js';
-import { trustProxyFrom, type TrustProxy } from './client-address.js';
+import { ROOT_TRUST_PROXY, trustProxyFrom, type TrustProxy } from './client-address.js';
 import { ourOrigins, type OurOrigins } from './same-site.js';
 import { emailWayFrom, type EmailWay } from './email-way.js';
 import { mailDomainFrom } from './mail-reputation.js';
@@ -516,7 +516,7 @@ export function backendSettingsFrom(env: Env): BackendSettings {
   const port = portSetting(read, 'PORT', 'it is the port the backend listens on (0 for any free port)', true);
   const publicUrl = urlSetting(read, 'PUBLIC_URL', 'it is the address people and other Koalas reach this backend at');
   const appUrl = urlSetting(read, 'APP_URL', 'it is the address the browser loads Koala\'s pages from (PUBLIC_URL where the backend serves them)');
-  const trustProxy = trustProxyFrom(env.TRUST_PROXY);
+  const trustProxy = role?.role === 'root' ? { trust: ROOT_TRUST_PROXY } : trustProxyFrom(env.TRUST_PROXY);
   if ('problem' in trustProxy) read.problems.push(trustProxy.problem);
   const terraform = terraformFrom(read);
   const tenant = role?.role === 'instance' ? tenantServices(read) : undefined;

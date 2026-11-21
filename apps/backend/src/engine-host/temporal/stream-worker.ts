@@ -52,6 +52,36 @@ export function createTurnLogBus(options: Pick<StreamWorkerOptions, 'io' | 'turn
   return bus;
 }
 
+export type StreamWorkerLike = Pick<Worker, 'run' | 'shutdown' | 'getState'>;
+
+export interface StreamWorkerRun {
+  started(worker: StreamWorkerLike): void;
+  stopping(): boolean;
+  stop(): Promise<void>;
+}
+
+export function streamWorkerRun(log: (line: string) => void): StreamWorkerRun {
+  let stopping = false;
+  let current: { worker: StreamWorkerLike; ended: Promise<void> } | undefined;
+  const shutDown = (worker: StreamWorkerLike): void => {
+    if (worker.getState() === 'RUNNING') worker.shutdown();
+  };
+  return {
+    started(worker) {
+      const ended = worker.run().catch((err: Error) => { log(`[engine] stream worker stopped: ${err.message}`); });
+      current = { worker, ended };
+      if (stopping) shutDown(worker);
+    },
+    stopping: () => stopping,
+    async stop() {
+      stopping = true;
+      if (!current) return;
+      shutDown(current.worker);
+      await current.ended;
+    },
+  };
+}
+
 export async function startStreamWorker(options: StreamWorkerOptions): Promise<Worker> {
   const connection = await connectTemporalWorker('koala-stream-worker', options.connection);
 

@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
+import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
 import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
 } from './sandbox-handlers.js';
@@ -121,6 +122,12 @@ export function startWork(
     console.error(`[koala-local-agent] its Koala refused or could not be reached: ${err.message}`);
     if (/work token/.test(err.message)) askKoala();
   });
+  let tokenEnded = false;
+  socket.on(WORK_TOKEN_ENDED, ({ said }: { said?: unknown } = {}) => {
+    say(`its Koala closed the connection: ${typeof said === 'string' ? said : 'its work token ran out'}`);
+    tokenEnded = true;
+    askKoala();
+  });
 
   socket.on('sandbox:exec', (
     { command, cwd, maxOutputChars, timeoutMs }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number; timeoutMs?: number },
@@ -170,6 +177,11 @@ export function startWork(
     async setToken(token: string) {
       work.value = token;
       socket.auth = { ...(socket.auth as Record<string, unknown>), token };
+      if (tokenEnded) {
+        tokenEnded = false;
+        socket.disconnect();
+        socket.connect();
+      }
       await worker?.setToken(token);
       say('this machine took a new work token from root');
     },

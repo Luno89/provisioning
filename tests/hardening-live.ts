@@ -160,7 +160,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
   const mongoUri = withDatabase(process.env.MONGO_URI || DEV_MONGO, database);
   const setupCode = randomBytes(12).toString('base64url');
   run(NAMES.root, ['--network', 'host', '--env-file', devFile('apps/backend/.env'), ...devTemporalCa(), ...envArgs({
-    ROLE: 'root', PORT: String(port), PUBLIC_URL: rootUrl, TRUST_PROXY: '1', MONGO_URI: mongoUri, ADMIN_SETUP_CODE: setupCode, TEMPORAL_NAMESPACE: stack.names.namespace,
+    ROLE: 'root', PORT: String(port), PUBLIC_URL: rootUrl, MONGO_URI: mongoUri, ADMIN_SETUP_CODE: setupCode, TEMPORAL_NAMESPACE: stack.names.namespace,
     MACHINE_GATEWAY_PORT: String(await portToHandOn()), MAIL_SMTP_URL: `smtp://127.0.0.1:${stack.ports.smtp}`, MAIL_FROM: 'koala@hardening.test',
   }), image, 'backend']);
   await until('the root answering', async () => { const answer = await fetch(`${rootUrl}/api/identity/keys`).catch((err: unknown) => err instanceof Error ? err.message : String(err)); return typeof answer !== 'string' && answer.ok ? true : waiting(typeof answer === 'string' ? `root did not answer: ${answer.slice(0, 200)}` : `root answered ${answer.status}`); }, () => containerNotRunning(NAMES.root));

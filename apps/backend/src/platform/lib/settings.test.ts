@@ -85,13 +85,19 @@ describe('the settings a backend reads once, at start', () => {
     expect(() => backendSettingsFrom({})).toThrow(/the backend cannot start; its settings are not right:\n {2}- ROLE is not set/);
   });
 
-  it('trust proxy comes from the setting, and a missing one is refused', () => {
-    expect(backendSettingsFrom(ROOT).trustProxy).toBe(1);
-    expect(backendSettingsFrom({ ...ROOT, TRUST_PROXY: 'loopback' }).trustProxy).toBe('loopback');
-    expect(backendSettingsFrom({ ...ROOT, NODE_ENV: 'production', TRUST_PROXY: 'loopback' }).trustProxy).toBe('loopback');
+  it('root trusts exactly the Caddy beside it on loopback, whatever an operator sets', () => {
     const { TRUST_PROXY: _left, ...without } = ROOT;
+    expect(backendSettingsFrom(without).trustProxy).toBe('loopback');
+    expect(backendSettingsFrom({ ...without, NODE_ENV: 'production' }).trustProxy).toBe('loopback');
+    expect(backendSettingsFrom({ ...without, TRUST_PROXY: '1' }).trustProxy).toBe('loopback');
+  });
+
+  it('an instance trusts exactly the edge its writer names, and a missing one is refused', () => {
+    expect(backendSettingsFrom(INSTANCE).trustProxy).toBe(1);
+    expect(backendSettingsFrom({ ...INSTANCE, TRUST_PROXY: 'loopback' }).trustProxy).toBe('loopback');
+    const { TRUST_PROXY: _left, ...without } = INSTANCE;
     expect(problemsOf(() => backendSettingsFrom(without))).toContainEqual(saying('TRUST_PROXY is not set'));
-    expect(problemsOf(() => backendSettingsFrom({ ...ROOT, TRUST_PROXY: 'true' }))).toContainEqual(saying('TRUST_PROXY is "true"'));
+    expect(problemsOf(() => backendSettingsFrom({ ...INSTANCE, TRUST_PROXY: 'true' }))).toContainEqual(saying('TRUST_PROXY is "true"'));
   });
 
   it('guesses no address: root routing instances needs its Caddy named, and the mesh needs Headscale', () => {

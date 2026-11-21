@@ -10,6 +10,7 @@ describe('the backend stopping cleanly in a pod', () => {
     await stopBackend({
       stopping: () => undefined,
       sockets: { stopTaking: () => undefined },
+      streams: { stop: async () => undefined },
       drain: { place: { ip: '10.42.0.9', namespace: 'nowrinkles' }, slices: async () => ({ items: [] }), server, log: () => undefined, wait: vi.fn(async () => undefined) },
       exit: (code) => { exits.push(code); },
     });

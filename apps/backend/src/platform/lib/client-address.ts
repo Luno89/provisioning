@@ -1,5 +1,7 @@
 export type TrustProxy = 1 | 'loopback';
 
+export const ROOT_TRUST_PROXY: TrustProxy = 'loopback';
+
 export function trustProxyFrom(raw: string | undefined): { trust: TrustProxy } | { problem: string } {
   const value = raw?.trim();
   if (value === '1') return { trust: 1 };
