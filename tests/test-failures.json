@@ -102,5 +102,9 @@
  ],
  "apps/backend/src/activities/CheckRunActivities.test.ts": [
   "2026-11-21T17:13:04.068Z"
+ ],
+ "apps/backend/src/workflows/temporal-contract.integration.test.ts": [
+  "2026-11-21T17:33:00.000Z",
+  "2026-11-21T17:38:00.000Z"
  ]
 }
