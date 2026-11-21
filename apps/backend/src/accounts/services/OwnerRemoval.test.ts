@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { workFor } from '@koala/engine-core/work-for';
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { OwnerRemoval } from './OwnerRemoval.js';
 import type { RemovalWorkflowState } from './AccountRemovalService.js';
 import type { DeletionProgress } from '../../projects/index.js';
@@ -31,6 +32,18 @@ describe('this Koala removing its owner when root removes their account', () => 
     const { removal, started } = world(true, { state: 'none' });
     expect(await removal.check('connected')).toBe('started');
     expect(started).toEqual([{ type: 'DeleteAccountWorkflow', id: 'remove-account-bo', args: { ownerId: 'bo', toRoot: true }, owner: 'bo', work: { owner: 'bo', removing: 'owner' } }]);
+  });
+
+  it('reads a removal that another check started a moment before as running', async () => {
+    const removal = new OwnerRemoval({
+      ownerId: 'bo',
+      root: { ownerRemoving: async () => true, ownerRemoval: async () => ({ ok: true }) },
+      workflows: {
+        start: async (type, id) => { throw new WorkflowExecutionAlreadyStartedError('Workflow execution already started', id, type); },
+        state: async () => ({ state: 'none' }),
+      },
+    });
+    expect(await removal.check('told')).toBe('running');
   });
 
   it('starts nothing more while the removal runs', async () => {

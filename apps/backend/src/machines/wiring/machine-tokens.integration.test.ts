@@ -23,6 +23,7 @@ import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { wireMachineAccounts } from './accounts.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { deviceByWorkToken } from './machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 import { until } from '../testing/wiring-world.js';
@@ -139,7 +140,7 @@ beforeEach(async () => {
     toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
     now: () => clock,
   });
-  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), now: () => clock });
+  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],

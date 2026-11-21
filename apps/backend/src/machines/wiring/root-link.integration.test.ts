@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Server as SocketServer } from 'socket.io';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { linkToRoot, type Koala, type RootLink } from '../../../../local-agent/src/root-link.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -13,6 +13,7 @@ import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
 import { MachineAccounts, type MachineRemovals } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 
 const DAY = 24 * 3600 * 1000;
 const closers = closedAfterEach();
@@ -22,7 +23,8 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   const server = http.createServer();
   const io = new SocketServer(server);
   let accounts: MachineAccounts | undefined;
-  const sockets = wireMachineAccounts({ io, db, accounts: () => accounts!, installs: () => ({ connected: async () => undefined }), now: clock });
+  const dependencies = new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] });
+  const sockets = wireMachineAccounts({ io, db, accounts: () => accounts!, installs: () => ({ connected: async () => undefined }), dependencies, now: clock });
   closers.push(() => sockets.watched.close());
   await sockets.watched.ready;
   accounts = new MachineAccounts({
@@ -36,7 +38,7 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   closers.push(async () => { await io.close(); });
-  return { db, accounts, sockets, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  return { db, accounts, sockets, dependencies, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
 async function machine(db: Database, token: string, issued: Date): Promise<void> {
@@ -125,6 +127,32 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     expect(await db.machines.getLocalAgentDevices()).toEqual([]);
     expect(told).toEqual([{ ownerId: 'bo', word: { id: 'desk' } }]);
     expect(asked).toBe(1);
+  });
+
+  it('forgets a machine that said it uninstalled once the database root could not reach answers again, without asking the machine again', async () => {
+    const told: { ownerId: string; word: { id: string; problem?: string | undefined } }[] = [];
+    let refused = 0;
+    const world = await root(() => ISSUED, null, {
+      uninstalled: async (ownerId, word) => {
+        if (refused === 0) { refused += 1; throw new Error('connect ECONNREFUSED 127.0.0.1:27017'); }
+        told.push({ ownerId, word });
+      },
+    });
+    await machine(world.db, 'a-token', ISSUED);
+    await world.db.machines.markDevicesRemoving('bo', ISSUED.toISOString());
+    const forgetting = vi.spyOn(world.accounts, 'uninstalled');
+    let asked = 0;
+    const { ended } = removedLink(world.url, async () => { asked += 1; });
+    await until(() => (refused ? true : undefined));
+    const firstTry = forgetting.mock.results[0]?.value as Promise<void> | undefined;
+    expect(await firstTry?.then(() => 'forgotten', () => 'refused')).toBe('refused');
+    world.dependencies.wentDown('mongo', 'connect ECONNREFUSED 127.0.0.1:27017', ISSUED.toISOString());
+    world.dependencies.answered('mongo');
+    expect(forgetting, 'root tries again the moment the database answers').toHaveBeenCalledTimes(2);
+    await until(() => (ended() ? true : undefined));
+    expect(await world.db.machines.getLocalAgentDevices()).toEqual([]);
+    expect(told).toEqual([{ ownerId: 'bo', word: { id: 'desk' } }]);
+    expect(asked, 'the machine is asked once').toBe(1);
   });
 
   it('keeps when a machine went off, and forgets it when the machine is back', async () => {

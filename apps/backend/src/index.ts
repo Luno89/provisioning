@@ -201,7 +201,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService, bundle: machineBundle, rootToken,
-    side: instanceSide,
+    side: instanceSide, dependencies,
     instances: () => (late.instances ? { service: late.instances.instanceService, places: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, servedWindowsOverHttp(), keys.data, settings.endpointRules);

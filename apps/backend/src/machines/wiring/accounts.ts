@@ -1,5 +1,5 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
-import type { Database, Watching } from '../../platform/index.js';
+import type { Database, DependencyStates, Watching } from '../../platform/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
 import { rotateDeviceToken } from '../lib/device-rotation.js';
@@ -23,6 +23,7 @@ export function wireMachineAccounts(deps: {
   db: Pick<Database, 'machines'>;
   accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed' | 'uninstalled' | 'wentOff'>;
   installs: () => Pick<KoalaInstalls, 'connected'>;
+  dependencies: Pick<DependencyStates, 'whenAnswering'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
@@ -83,17 +84,27 @@ export function wireMachineAccounts(deps: {
   });
 
   const askingToUninstall = new WeakSet<Socket>();
+  const unforgotten = new Map<string, { socket: Socket; problem: string | undefined }>();
+  const forget = (socket: Socket, deviceId: string, problem: string | undefined): void => {
+    unforgotten.delete(deviceId);
+    deps.accounts().uninstalled(deviceId, problem)
+      .then(() => { socket.disconnect(true); })
+      .catch((err: Error) => {
+        unforgotten.set(deviceId, { socket, problem });
+        console.warn(`[machines] ${deviceId}: it uninstalled, but root could not forget it: ${err.message}; root tries again once what failed answers`);
+      });
+  };
+  for (const dependency of ['mongo', 'temporal'] as const) {
+    deps.dependencies.whenAnswering(dependency, () => {
+      for (const [deviceId, { socket, problem }] of [...unforgotten]) forget(socket, deviceId, problem);
+    });
+  }
   const askUninstall = (socket: Socket, deviceId: string): void => {
     if (askingToUninstall.has(socket) || !socket.connected) return;
     askingToUninstall.add(socket);
     socket.emit('machine:removed', (answer: { uninstalled?: unknown; problem?: unknown } | undefined) => {
       const problem = answer?.uninstalled === true ? undefined : typeof answer?.problem === 'string' && answer.problem ? answer.problem.slice(0, 500) : 'the machine did not say whether its uninstall finished';
-      deps.accounts().uninstalled(deviceId, problem)
-        .then(() => { socket.disconnect(true); })
-        .catch((err: Error) => {
-          askingToUninstall.delete(socket);
-          console.warn(`[machines] ${deviceId}: it uninstalled, but root could not forget it: ${err.message}`);
-        });
+      forget(socket, deviceId, problem);
     });
   };
   const watched = deps.db.machines.watchDeviceRemovals((device) => {

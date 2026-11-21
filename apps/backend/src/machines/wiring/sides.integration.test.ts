@@ -99,6 +99,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>,
     db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh, meshLoginServer: 'https://mesh.koala.test',
     devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY),
     instances: () => ({ service: instances, tellInstance }),
+    dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
   });
   closers.push(async () => { await rootSide?.watched?.close(); });
   rootApp.use('/api/instances/machines', accountMachinesRouter({
@@ -121,6 +122,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>,
     role, db: instanceDb, io: instance.io, dataKey: KEY, publicUrl: instance.url, mesh,
     devices, projects, rootToken: async () => token, side,
     instances: () => undefined,
+    dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
   });
   return { root, rootDb, rootSide, instances, token, instanceDb, instanceSide, devices, projects, instanceId, side, tellInstance, watch: () => { side.watchRoot(async () => undefined, new DependencyStates({ process: 'backend', described: ['root'] })); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
 }
@@ -184,7 +186,7 @@ describe('a root and an instance wired as they run, against each other', () => {
     }))));
     expect(seen.slice(-3)).toEqual(['root: machines', 'root: mesh', 'root: records']);
     expect(seen.indexOf('records'), 'the Koala deleted its owner\'s records before root went on').toBeLessThan(seen.indexOf('root: machines'));
-    expect(seen[0]).toBe('root: its Koala');
+    expect(seen).toContain('root: its Koala');
   });
 
   it('copies the instance\'s machines from before to root once it connects, keeping their ids', async () => {

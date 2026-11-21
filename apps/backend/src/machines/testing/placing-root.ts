@@ -20,6 +20,7 @@ import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { InstallWorkflows, KoalaInstalls } from '../services/KoalaInstalls.js';
 import { machinesRouter } from '../routes/machines.js';
 import { machineSides, temporalInstallWorkflows, type MachineSides } from '../wiring/sides.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { until } from './wiring-world.js';
 import { testWorker } from '../../workflows/testing/test-worker.js';
 
@@ -92,6 +93,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
     projects: new ProjectRepoService(db, {} as GiteaService, 'koala-placement-key'),
     instances: () => ({ places: instances }),
     installWorkflows: options.workflows,
+    dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
   });
   const accounts = sides.accounts!;
   const installs = sides.installs!;
