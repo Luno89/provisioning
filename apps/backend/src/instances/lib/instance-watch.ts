@@ -4,6 +4,8 @@ import { inService } from './instances.js';
 export const DEFAULT_UNREACHABLE_MINUTES = 10;
 export const PRESENCE_NAMESPACE = '/instances';
 export const PRESENCE_RETRY_MS = 5_000;
+export const PRESENCE_RENEW = 'presence:renew';
+export const PRESENCE_TOKEN = 'presence:token';
 
 export interface Reach {
   reachable: boolean;

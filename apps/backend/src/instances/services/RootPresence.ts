@@ -1,5 +1,5 @@
 import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client';
-import { PRESENCE_NAMESPACE, PRESENCE_RETRY_MS, graceLeftMs, isDown, nextReach, rootReachPush, type Reach } from '../lib/instance-watch.js';
+import { PRESENCE_NAMESPACE, PRESENCE_RENEW, PRESENCE_RETRY_MS, PRESENCE_TOKEN, graceLeftMs, isDown, nextReach, rootReachPush, type Reach } from '../lib/instance-watch.js';
 
 export interface RootReachView {
   rootUrl: string;
@@ -53,6 +53,12 @@ export class RootPresence {
     });
     this.socket = socket;
     socket.onAny((event: string) => this.deps.heard?.[event]?.());
+    socket.on(PRESENCE_RENEW, () => {
+      this.deps.token().then(
+        (token) => { socket.emit(PRESENCE_TOKEN, token); },
+        (err: Error) => { this.say(`root asked for a fresh token, and none could be had: ${err.message}`); },
+      );
+    });
     socket.on('connect', () => {
       this.arrived();
       this.deps.heard?.connect?.();

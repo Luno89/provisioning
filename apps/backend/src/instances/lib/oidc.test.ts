@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
-  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientMetadata, instanceClient,
+  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, clientAt, claimsShaped, clientMetadata, instanceClient,
   logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal, signInWaitingFor,
 } from './oidc.js';
 
@@ -48,9 +48,22 @@ describe('an instance as root\'s client', () => {
     expect(instanceClient({ ...record, signIn: { jwk, since: 'x' } })).toMatchObject({ clientId: 'inst-u1', owner: 'u1' });
   });
 
-  it('says an instance has not registered at root until it has', () => {
-    expect(signInWaitingFor({})).toBe('your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine');
-    expect(signInWaitingFor({ signIn: { jwk, since: 'x' } })).toBeUndefined();
+  it('says an instance has not registered at root until it has, and then that root waits to hear its address', () => {
+    expect(signInWaitingFor({ url: '' })).toBe('your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine');
+    expect(signInWaitingFor({ url: '', signIn: { jwk, since: 'x' } })).toBe('your Koala has registered at root; root lets it in once your machine has told root the address Koala answers at, as putting Koala on it finishes');
+    expect(signInWaitingFor({ url: 'https://u1.example.com', signIn: { jwk, since: 'x' } })).toBeUndefined();
+  });
+
+  it('holds a registered instance\'s token requests while its install has yet to tell root its address, and only then', () => {
+    const record = { id: 'inst-u1', ownerId: 'u1', url: '', signIn: { jwk, since: 'x' } };
+    const installing = { id: 'install-1', machineId: 'desk', at: 'x', state: 'installing' as const };
+    expect(clientAt(undefined)).toBeUndefined();
+    expect(clientAt({ ...record, signIn: undefined, install: installing })).toBeUndefined();
+    expect(clientAt({ ...record, install: installing })).toEqual({ waiting: signInWaitingFor(record) });
+    expect(clientAt({ ...record, install: { ...installing, state: 'asked' } })).toEqual({ waiting: signInWaitingFor(record) });
+    expect(clientAt({ ...record, install: { ...installing, state: 'failed' } })).toBeUndefined();
+    expect(clientAt(record)).toBeUndefined();
+    expect(clientAt({ ...record, url: 'https://u1.example.com', install: installing })).toEqual({ client: instanceClient({ ...record, url: 'https://u1.example.com' }) });
   });
 
   it('takes a key only when its kid is its own thumbprint', () => {

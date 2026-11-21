@@ -5,6 +5,8 @@ import { spaceUser } from '../checks/index.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import type { UserMetadata } from '../platform/lib/types.js';
 import { mountCheckApi, type CheckApi } from './testing/check-api.js';
+import { grantsOver } from '../engine/testing/run-grants.js';
+import type { RunGrantService } from '../engine/index.js';
 import { itemChatIdFor } from '../engine/index.js';
 import { CONFLICT_TASK_TITLE } from '../projects/index.js';
 import type { ScenarioExpectations } from '../eval/level2/scenario.js';
@@ -25,9 +27,11 @@ let seeded: Record<string, string>;
 let terminated: string[];
 let released: CheckReleases | undefined;
 let clients: AxiosInstance[];
+let grants: RunGrantService;
 
 beforeEach(async () => {
   api = await mountCheckApi();
+  grants = grantsOver(api.db.engine);
   api.ports.workflows.onStart = standardRun;
   seeded = {};
   terminated = [];
@@ -55,6 +59,9 @@ const activities = (over: { reported?: boolean; says?: boolean } = {}): CheckRun
   scripted: { base: `${api.baseURL}/checks/scripted`, dataKey: 'test-key' as never },
   terminate: async (runId) => {
     terminated.push(runId);
+  },
+  signOutEverywhere: async (spaceId) => {
+    await grants.revokeGrantsOf({ personId: spaceId, because: 'signed-out-everywhere' });
   },
   ...(released ? { releases: released } : {}),
   leftovers: { records: async () => ({ users: 1 }), workspaces: async () => ['ws-1'], giteaUser: async () => true },
@@ -159,8 +166,11 @@ describe('a check run that talks to Koala through its real routes', () => {
     expect(api.ports.workflows.signals.map((signal) => signal.payload)).toEqual([{ callId: 'c1', allowed: false, forRun: false }]);
   });
 
-  it('signs the space out everywhere mid-turn through the real sign-in route and carries on with the session it is given', async () => {
+  it('signs the space out everywhere mid-turn, taking the access of the space\'s run away, and follows the run on with its own access', async () => {
+    const spaceRuns: string[] = [];
     api.ports.workflows.onStart = async ({ runId, conversationId, owner }) => {
+      await grants.issue({ ownerId: owner, runId, principal: { kind: 'person', id: owner, claims: [{ role: 'person' }, { role: 'space-of', person: 'bo' }] }, startedBy: 'person' });
+      spaceRuns.push(runId);
       await log(owner, runId, 1, [{ type: 'run.started', runId, at, agentId: 'koala' }, { type: 'content', runId, at, delta: 'abcd' }]);
       setTimeout(() => {
         void log(owner, runId, 2, [{ type: 'content', runId, at, delta: 'efgh' }, finishing(runId)])
@@ -176,10 +186,8 @@ describe('a check run that talks to Koala through its real routes', () => {
     });
 
     expect(failures(result.checks)).toEqual([]);
-    expect((await api.db.accounts.getUserById(space.id))?.sessionsEndedAt).toBeDefined();
-    const carried = clients.slice(before)[0]!.defaults.headers.Cookie as string;
-    expect(carried).toMatch(/^session=/);
-    expect(carried).not.toBe(api.cookieFor(space));
+    const revoked = await Promise.all(spaceRuns.map(async (runId) => (await api.db.engine.getRunGrantOfRun(runId))?.state));
+    expect(revoked.at(-1)).toBe('revoked');
     expect((await clients.slice(before)[0]!.get('/conversations')).status).toBe(200);
   });
 });

@@ -7,8 +7,8 @@ const SERVICE_TOKEN = 'service-token-of-';
 
 export const tokenOfInstance = (instanceId: string): string => `${SERVICE_TOKEN}${instanceId}`;
 
-export const callerOfTestTokens = async (token: string): Promise<{ clientId: string; kind: 'instance' } | undefined> =>
-  (token.startsWith(SERVICE_TOKEN) ? { clientId: token.slice(SERVICE_TOKEN.length), kind: 'instance' } : undefined);
+export const callerOfTestTokens = async (token: string): Promise<{ clientId: string; kind: 'instance'; until: number } | undefined> =>
+  (token.startsWith(SERVICE_TOKEN) ? { clientId: token.slice(SERVICE_TOKEN.length), kind: 'instance', until: Number.MAX_SAFE_INTEGER } : undefined);
 
 let codesMade = 0;
 

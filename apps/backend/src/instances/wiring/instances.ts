@@ -8,7 +8,7 @@ import {
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
-import type { BrowserSessions, Mounts } from '../../platform/index.js';
+import type { BrowserSessions, Mounts, Watching } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
@@ -25,7 +25,7 @@ import { InstancePresence } from '../services/InstancePresence.js';
 import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
 import { RootPresence } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
-import { PRESENCE_NAMESPACE, presenceAuth } from '../lib/instance-watch.js';
+import { PRESENCE_NAMESPACE, PRESENCE_RENEW, PRESENCE_TOKEN, presenceAuth } from '../lib/instance-watch.js';
 import type { EdgeSettings } from '../lib/edge-settings.js';
 import type { ClusterAccess, InstanceEdge, HeadscaleService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
@@ -259,7 +259,11 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       afterMs: settings.tests.unreachableAfterMs,
     });
     presenceOf = (instanceId) => presence.connected(instanceId);
-    tellInstance = wireInstancePresence(deps.io, presence, (instanceId, token) => instanceService.caller(instanceId, token), deps.instanceArrived);
+    tellInstance = wireInstancePresence(deps.io, presence, {
+      caller: (instanceId, token) => instanceService.presenceCaller(instanceId, token),
+      removals: (on) => db.instances.watchInstanceRemovals(on),
+      arrived: deps.instanceArrived,
+    });
     presence.start().catch((err: Error) => console.warn(`[instance-presence] ${err.message}`));
   }
 
@@ -271,20 +275,39 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
 
 export const instanceRoom = (instanceId: string): string => `instance:${instanceId}`;
 
+export interface PresenceCaller {
+  instance: InstanceRecord;
+  until: number;
+}
+
+export interface InstancePresenceWiring {
+  caller: (instanceId: string, token: string) => Promise<PresenceCaller | undefined>;
+  removals: (on: (instanceId: string) => void) => Watching;
+  arrived?: ((instance: InstanceRecord) => void) | undefined;
+  now?: (() => number) | undefined;
+}
+
+interface Admitted {
+  instance: InstanceRecord;
+  until: number;
+  owed: string[];
+}
+
 export function wireInstancePresence(
   io: Pick<SocketServer, 'of'>,
   presence: Pick<InstancePresence, 'arrived' | 'left'>,
-  caller: (instanceId: string, token: string) => Promise<InstanceRecord | undefined>,
-  arrived: (instance: InstanceRecord) => void = () => undefined,
+  wiring: InstancePresenceWiring,
 ): (instanceId: string, event: string) => void {
+  const { caller } = wiring;
+  const now = wiring.now ?? (() => Date.now());
   const namespace = io.of(PRESENCE_NAMESPACE);
-  const admitted = new WeakMap<object, InstanceRecord>();
+  const admitted = new WeakMap<object, Admitted>();
   namespace.use((socket, next) => {
     const auth = presenceAuth(socket.handshake.auth);
     if (!auth) return next(new Error('Unauthorized'));
-    caller(auth.instanceId, auth.token).then((instance) => {
-      if (!instance) return next(new Error('Unauthorized'));
-      admitted.set(socket, instance);
+    caller(auth.instanceId, auth.token).then((found) => {
+      if (!found) return next(new Error('Unauthorized'));
+      admitted.set(socket, { instance: found.instance, until: found.until, owed: [] });
       next();
     }, (err: Error) => {
       console.warn(`[instance-presence] ${auth.instanceId}'s connection could not be checked: ${err.message}`);
@@ -292,15 +315,46 @@ export function wireInstancePresence(
     });
   });
   namespace.on('connection', (socket) => {
-    const instance = admitted.get(socket);
-    if (!instance) {
+    const held = admitted.get(socket);
+    if (!held) {
       socket.disconnect(true);
       return;
     }
+    const { instance } = held;
+    socket.use(([event], next) => {
+      if (event === PRESENCE_TOKEN || held.until > now()) return next();
+      socket.disconnect(true);
+    });
+    socket.on(PRESENCE_TOKEN, (token: unknown) => {
+      const fresh = typeof token === 'string' && token ? caller(instance.id, token) : Promise.resolve(undefined);
+      fresh.then((found) => {
+        if (!found || found.instance.id !== instance.id || found.until <= now()) {
+          socket.disconnect(true);
+          return;
+        }
+        held.until = found.until;
+        for (const event of held.owed.splice(0)) socket.emit(event);
+      }, (err: Error) => {
+        console.warn(`[instance-presence] ${instance.id}'s fresh token could not be checked: ${err.message}; it connects again by itself`);
+        socket.disconnect(true);
+      });
+    });
     void presence.arrived(instance, socket.id);
     void socket.join(instanceRoom(instance.id));
-    arrived(instance);
+    wiring.arrived?.(instance);
     socket.on('disconnect', () => { void presence.left(instance.id, socket.id); });
   });
-  return (instanceId, event) => { namespace.to(instanceRoom(instanceId)).emit(event); };
+  wiring.removals((instanceId) => { namespace.in(instanceRoom(instanceId)).disconnectSockets(true); });
+  return (instanceId, event) => {
+    for (const socket of namespace.sockets.values()) {
+      const held = admitted.get(socket);
+      if (held?.instance.id !== instanceId) continue;
+      if (held.until > now()) {
+        socket.emit(event);
+        continue;
+      }
+      if (held.owed.length === 0) socket.emit(PRESENCE_RENEW);
+      held.owed.push(event);
+    }
+  };
 }

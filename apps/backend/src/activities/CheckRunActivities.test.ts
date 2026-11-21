@@ -93,6 +93,8 @@ const CHAT: Scenario = {
 let db: Database;
 let seeded: Record<string, string>;
 let terminated: string[];
+let signedOut: string[];
+let signOutFails: string | undefined;
 let released: CheckReleases | undefined;
 
 beforeEach(() => {
@@ -102,6 +104,8 @@ beforeEach(() => {
   unexpected = [];
   seeded = {};
   terminated = [];
+  signedOut = [];
+  signOutFails = undefined;
   released = undefined;
 });
 
@@ -119,6 +123,10 @@ const activities = (over: { reported?: boolean; says?: boolean; ownClusterId?: s
   scripted: { base: 'http://localhost:3001/api/checks/scripted', dataKey: 'test-key' as never },
   terminate: async (runId) => {
     terminated.push(runId);
+  },
+  signOutEverywhere: async (spaceId) => {
+    if (signOutFails) throw new Error(signOutFails);
+    signedOut.push(spaceId);
   },
   ...(released ? { releases: released } : {}),
   leftovers: { records: async () => ({ users: 1 }), workspaces: async () => ['ws-1'], giteaUser: async () => true },
@@ -415,23 +423,20 @@ describe('a check run on its space', () => {
     expect(result.checks.map((check) => check.what)).toContain('killed: keeps what the dead turn had said, marked interrupted');
   });
 
-  it('signs the space out everywhere mid-turn and carries on with the session it is given', async () => {
+  it('signs the space out everywhere mid-turn, taking its runs\' access away, and follows the run on with its own access', async () => {
     const { result } = await perform({ ...CHAT, then: [{ name: 'revoked', do: { chat: { message: 'Again', revokeAfterChars: 2 } }, expect: { outcome: 'ok' } }] }, {
       'GET /turns/run-1': turnsThen([said('abcd'), said('efgh')]),
-      'POST /auth/sessions/end-others': { data: {}, headers: { 'set-cookie': 'session=fresh; Path=/; HttpOnly' } },
     });
-    expect(happened('POST /auth/sessions/end-others')).toHaveLength(1);
-    expect(sent.filter((call) => call.cookie === 'session=fresh').length).toBeGreaterThan(0);
+    expect(signedOut).toEqual(['space-1']);
+    expect(unexpected).toEqual([]);
     expect(failures(result.checks)).toEqual([]);
   });
 
-  it('stops with the reason when signing the space out is refused or hands back no new session', async () => {
+  it('stops with the reason when the space could not be signed out', async () => {
+    signOutFails = 'the run grants could not be read';
     const revoking: Scenario = { ...CHAT, then: [{ name: 'revoked', do: { chat: { message: 'Again', revokeAfterChars: 2 } }, expect: { outcome: 'ok' } }] };
-    const refused = await perform(revoking, { 'GET /turns/run-1': turnsThen([said('abcd')]), 'POST /auth/sessions/end-others': { status: 403, data: { error: 'nope' } } });
-    expect(refused.result.checks.map((check) => check.detail)).toContain('signing the space out everywhere was refused: nope');
-
-    const bare = await perform(revoking, { 'GET /turns/run-1': turnsThen([said('abcd')]), 'POST /auth/sessions/end-others': { data: {} } });
-    expect(bare.result.checks.map((check) => check.detail)).toContain('signing the space out everywhere set no new session for the check to carry on with');
+    const refused = await perform(revoking, { 'GET /turns/run-1': turnsThen([said('abcd')]) });
+    expect(refused.result.checks.map((check) => check.detail)).toContain('signing the space out everywhere failed: the run grants could not be read');
   });
 
   it('fails the stage with the reason when the run would not start', async () => {

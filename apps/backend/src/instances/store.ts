@@ -1,7 +1,7 @@
 import type { AreaStore } from '../platform/index.js';
 import { MongoServerError, type Collection, type Db } from 'mongodb';
 import { fieldChanges } from '../platform/lib/collection.js';
-import { keepWrittenDocuments, watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { keepWrittenDocuments, watchDeletes, watchDocument, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
@@ -15,6 +15,8 @@ export interface InstancesStore extends AreaStore {
   saveInstance(instance: InstanceRecord): Promise<void>;
   updateInstall(instanceId: string, installId: string, fields: Record<string, unknown>): Promise<boolean>;
   watchInstalls(on: (instance: InstanceRecord) => void): Watching;
+  followInstance(instanceId: string, on: (instance: InstanceRecord | undefined) => void): Watching;
+  watchInstanceRemovals(on: (instanceId: string) => void): Watching;
   deleteInstance(id: string): Promise<void>;
   getReleases(): Promise<InstanceRelease[]>;
   recordRelease(release: InstanceRelease): Promise<InstanceRelease>;
@@ -114,6 +116,18 @@ export class MongoInstancesStore implements InstancesStore {
 
   watchInstalls(on: (instance: InstanceRecord) => void): Watching {
     return watchWrites(() => this.instanceRegistry, { install: { $exists: true } }, ({ _id, ...rest }) => on(rest as unknown as InstanceRecord));
+  }
+
+  followInstance(instanceId: string, on: (instance: InstanceRecord | undefined) => void): Watching {
+    return watchDocument(() => this.instanceRegistry, instanceId, (doc) => {
+      if (!doc) return on(undefined);
+      const { _id, ...rest } = doc;
+      on(rest as unknown as InstanceRecord);
+    });
+  }
+
+  watchInstanceRemovals(on: (instanceId: string) => void): Watching {
+    return watchDeletes(() => this.instanceRegistry, (id) => on(String(id)));
   }
 
   async deleteInstance(id: string): Promise<void> {

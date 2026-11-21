@@ -153,7 +153,44 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect((await store.getInstances('o1'))[0]).toMatchObject({ status: 'ready', url: 'https://bo.koala.app', servedAt: '2026-11-18T10:02:00.000Z' });
       expect(await store.updateInstall('inst-missing', 'install-1', { status: 'ready' })).toBe(false);
     });
-  });
+
+    it('follows one instance through every write and its removal, and hears nothing of another', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const install = { id: 'install-1', machineId: 'desk', state: 'installing' as const, at: '2026-11-18T10:00:00.000Z' };
+      await store.saveInstance(instance('inst-followed', 'o1', { url: '', install }));
+      const watching = store.followInstance('inst-followed', (written) => {
+        heard.push(written ? `${written.install?.state} ${written.url || 'no address'}${written.signIn ? ' registered' : ''}` : 'gone');
+        if (!written) finish();
+      });
+      await watching.ready;
+      await store.saveInstance(instance('inst-other', 'o2', { install }));
+      await store.saveSignInKey('inst-followed', key('k1'));
+      await store.updateInstall('inst-followed', 'install-1', { url: 'https://followed.example' });
+      await store.deleteInstance('inst-followed');
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['installing no address registered', 'installing https://followed.example registered', 'gone']);
+    });
+
+    it('hears each instance removed, and none written', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      await store.saveInstance(instance('inst-a', 'o1'));
+      await store.saveInstance(instance('inst-b', 'o2'));
+      const watching = store.watchInstanceRemovals((instanceId) => { heard.push(instanceId); if (instanceId === 'inst-b') finish(); });
+      await watching.ready;
+      await store.saveInstance(instance('inst-a', 'o1', { status: 'ready' }));
+      await store.deleteInstance('inst-a');
+      await store.deleteInstance('inst-b');
+      await done;
+      await watching.close();
+      expect(heard).toEqual(['inst-a', 'inst-b']);
+    });  });
 
   describe('watching whether an instance can be reached', () => {
     it('keeps what is known of each instance apart, and says nothing of the owner', async () => {

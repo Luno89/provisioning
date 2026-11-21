@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ignore } from '@koala/engine-core/failures';
 import { WorkflowNotFoundError } from '@temporalio/client';
+import { revokeRunSignal } from './run-revocation.js';
 import type { Server as SocketServer } from 'socket.io';
 import type { PersonaRecord } from '@koala/agent-engine';
 import {
@@ -172,15 +173,10 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const runGrants = new RunGrantService({
     store: db.engine,
     tokens: deps.runTokens,
-    signalRevoked: async (runId, revocation) => {
+    signalRevoked: revokeRunSignal(() => {
       if (!temporalBridge.isReady()) throw new Error('Temporal is not connected');
-      try {
-        await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).signal('revokeRun', revocation);
-      } catch (err) {
-        if (err instanceof WorkflowNotFoundError) return;
-        throw err;
-      }
-    },
+      return temporalBridge.client.workflow;
+    }),
   });
   deps.revocations?.listen((revoked) => runGrants.revokeGrantsOf(revoked));
   const engineRuns = createRunStarter({

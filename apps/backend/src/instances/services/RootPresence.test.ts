@@ -3,6 +3,7 @@ import type { ManagerOptions, Socket, SocketOptions } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootPresence, presenceUrl, type RootPresenceDeps } from './RootPresence.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
+import { PRESENCE_RENEW, PRESENCE_TOKEN } from '../lib/instance-watch.js';
 
 const GRACE = 300_000;
 const START = new Date('2026-11-02T12:00:00.000Z');
@@ -89,6 +90,22 @@ describe('an instance keeping a connection to root', () => {
     (dialed[0]!.options.auth as (send: (data: object) => void) => void)(sent);
     await pass(0);
     expect(sent).toHaveBeenCalledWith({ instanceId: 'inst-1', token: 'service-token' });
+    presence.stop();
+  });
+
+  it('answers root asking for a fresh token with a fresh service token over the same connection', async () => {
+    const presence = rootPresence();
+    const sent: unknown[][] = [];
+    (socket as unknown as { emit: (...args: unknown[]) => boolean }).emit = function emitting(this: FakeSocket, ...args: unknown[]) {
+      if (args[0] === PRESENCE_TOKEN) sent.push(args);
+      return EventEmitter.prototype.emit.apply(this, args as [string, ...unknown[]]);
+    };
+    presence.start();
+    socket.arrive();
+    tokens = async () => 'fresh-token';
+    socket.hear(PRESENCE_RENEW);
+    await pass(0);
+    expect(sent).toEqual([[PRESENCE_TOKEN, 'fresh-token']]);
     presence.stop();
   });
 

@@ -3,6 +3,7 @@ import { claimsOf, type ClaimedUser } from '../../platform/lib/permissions.js';
 import type { Claim, RevokedBecause } from '../../platform/index.js';
 import { kidOf, type IdentityKeyPair } from './identity-token.js';
 import type { InstanceRecord } from './instances.js';
+import { installUnfinished } from './koala-installs.js';
 
 export const OIDC_PATH = '/oidc';
 export const INTERACTION_PATH = `${OIDC_PATH}/interaction`;
@@ -103,6 +104,10 @@ export const SIGN_IN_KEY_NOT_NAMED = {
   instance: 'your Koala has not registered at root yet; it does so as it starts, with the code root gave it when it was put on your machine',
 } as const;
 
+export const ADDRESS_NOT_HEARD = {
+  instance: 'your Koala has registered at root; root lets it in once your machine has told root the address Koala answers at, as putting Koala on it finishes',
+} as const;
+
 export const REGISTRATION_REFUSED = 'root refused this instance\'s registration code (it was used, or a newer one replaced it), and does not know its key: put Koala on your machine again';
 
 export const registeredKeyOf = (metadata: Record<string, unknown>): PublicJwk | undefined => {
@@ -118,8 +123,20 @@ export const registrationMetadata = (client: Omit<ClientRegistration, 'clientId'
   return metadata;
 };
 
-export const signInWaitingFor = (instance: Pick<InstanceRecord, 'signIn'>): string | undefined =>
-  instance.signIn ? undefined : SIGN_IN_KEY_NOT_NAMED.instance;
+export const signInWaitingFor = (instance: Pick<InstanceRecord, 'signIn' | 'url'>): string | undefined => {
+  if (!instance.signIn) return SIGN_IN_KEY_NOT_NAMED.instance;
+  return instance.url ? undefined : ADDRESS_NOT_HEARD.instance;
+};
+
+export type ClientAt = { client: ClientRegistration } | { waiting: string } | undefined;
+
+export function clientAt(instance: Pick<InstanceRecord, 'id' | 'ownerId' | 'url' | 'signIn' | 'install'> | undefined): ClientAt {
+  if (!instance) return undefined;
+  const client = instanceClient(instance);
+  if (client) return { client };
+  const waiting = signInWaitingFor(instance);
+  return instance.signIn && waiting && installUnfinished(instance.install) ? { waiting } : undefined;
+}
 
 export const claimsFor = (user: ClaimedUser, client: { kind: ClientKind; owner?: string | undefined }): Claim[] =>
   claimsOf(user, { role: 'instance', instanceOwnerId: client.owner });

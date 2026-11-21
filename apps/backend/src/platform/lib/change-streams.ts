@@ -53,6 +53,32 @@ export function watchWrites<T extends Document>(
   }, reopenMs);
 }
 
+export function watchDocument<T extends Document>(
+  collection: () => Collection<T>,
+  id: unknown,
+  on: (doc: T | undefined) => void,
+  reopenMs = REOPEN_FIRST_MS,
+): Watching {
+  const watched = collection();
+  if (!kept.has(keptName(watched.dbName, watched.collectionName))) {
+    throw new Error(`${watched.collectionName} is not set up to keep the documents its writes leave, so following one would miss states: its store's setup has to keep them before it is followed`);
+  }
+  return watchChanges(collection, [{ $match: { 'documentKey._id': id, operationType: { $in: ['insert', 'update', 'replace', 'delete'] } } }], { fullDocument: 'required' }, (change) => {
+    if (change.operationType === 'delete') on(undefined);
+    else if ('fullDocument' in change && change.fullDocument) on(change.fullDocument as T);
+  }, reopenMs);
+}
+
+export function watchDeletes<T extends Document>(
+  collection: () => Collection<T>,
+  on: (id: unknown) => void,
+  reopenMs = REOPEN_FIRST_MS,
+): Watching {
+  return watchChanges(collection, [{ $match: { operationType: 'delete' } }], {}, (change) => {
+    if (change.operationType === 'delete') on((change.documentKey as { _id: unknown })._id);
+  }, reopenMs);
+}
+
 export function watchNudges<T extends Document>(
   collection: () => Collection<T>,
   on: (key: Document) => void,
