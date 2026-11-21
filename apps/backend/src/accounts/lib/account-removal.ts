@@ -88,7 +88,7 @@ export const ACCOUNT_DATA = {
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'memoryKeeping', 'notificationSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
-  shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'fenceAcks', 'fences', 'instanceReleases', 'inviteLimits', 'invites', 'koalaProcesses', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
+  shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
 } as const;
 
 type AccountData = typeof ACCOUNT_DATA;

@@ -30,8 +30,7 @@ vi.mock('axios', () => ({
 
 import path from 'path';
 import { InfisicalService } from './InfisicalService.js';
-import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
-import { DependencyDownError, DependencyStates, theFence } from '../../platform/index.js';
+import { DependencyDownError, DependencyStates } from '../../platform/index.js';
 import { objectWith } from '../../platform/lib/test-matchers.js';
 import { testDataDir } from '../../platform/testing/data-dir.js';
 
@@ -268,15 +267,5 @@ describe('InfisicalService', () => {
     files.clear();
     post.mockImplementation(unreachable);
     await expect(service.authenticate()).rejects.toThrow();
-  });
-
-  it('asks Infisical nothing for a project being deleted, so nothing makes its workspace again or keeps a secret in it', async () => {
-    theFence().close({ kind: 'project', id: 'p1' });
-    const deleting = <T>(run: () => Promise<T>) => withWorkFor({ owner: 'u1', project: 'p1' }, run);
-    await expect(deleting(() => service.setSecret('p1', 'KEY', 'v'))).rejects.toBeInstanceOf(WorkStopped);
-    await expect(deleting(() => service.getSecret('p1', 'KEY'))).rejects.toBeInstanceOf(WorkStopped);
-    await expect(deleting(() => service.createProjectReader('p1'))).rejects.toBeInstanceOf(WorkStopped);
-    expect(get).not.toHaveBeenCalled();
-    expect(post).not.toHaveBeenCalled();
   });
 });

@@ -186,7 +186,6 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
     turns: conversationTurns,
     workflows: () => (temporalBridge.isReady() ? temporalWorkflowStarter(temporalBridge.client.workflow) : undefined),
     binding: conversationBinding(db),
-    closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: (ownerId, choice) => deps.machines.choiceProblem(ownerId, choice),
   });
   const workspaceBuilds = new WorkspaceBuildService({

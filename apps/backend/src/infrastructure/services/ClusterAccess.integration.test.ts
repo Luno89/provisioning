@@ -8,8 +8,6 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedMachine } from '../lib/cluster-places.js';
 import { testNamespaces } from '../testing/test-namespaces.js';
 import { CLUSTER_TOOL_PATHS, ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
-import { WorkStopped, withWorkFor } from '@koala/engine-core/work-for';
-import { theFence } from '../../platform/index.js';
 
 const KEY = 'test-key' as never;
 
@@ -18,7 +16,6 @@ const namespaces = testNamespaces(k3s.admin);
 const OWN = namespaces.name('koala-own');
 const FROM_A_WORKFLOW = namespaces.name('from-a-workflow');
 const PLAYGROUND = namespaces.name('cluster-access');
-const LATE = namespaces.name('late-workspace');
 
 beforeAll(async () => {
   await (await door([], { clusters: undefined })).kubectl(startedMachine('machine-dev3', k3s.admin), ['create', 'namespace', PLAYGROUND]);
@@ -45,16 +42,6 @@ async function door(records: ClusterMetadata[], overrides: Partial<ClusterAccess
 }
 
 describe('ClusterAccess against a real k3s', () => {
-  it('makes no workspace for a step of an account whose removal has started, and makes one for anyone else', async () => {
-    const access = await door([], { clusters: undefined });
-    const reach = startedMachine('machine-dev3', k3s.admin);
-    theFence().close({ kind: 'owner', id: 'leaving-k3s' });
-    await expect(withWorkFor({ owner: 'leaving-k3s' }, () => access.kubectl(reach, ['create', 'namespace', LATE]))).rejects.toBeInstanceOf(WorkStopped);
-    await expect(access.kubectl(reach, ['get', 'namespace', LATE])).rejects.toMatchObject({ name: 'ClusterCommandFailed' });
-    await withWorkFor({ owner: 'staying-k3s' }, () => access.kubectl(reach, ['create', 'namespace', LATE]));
-    expect(await access.kubectl(reach, ['get', 'namespace', LATE, '-o', 'name'])).toBe(`namespace/${LATE}\n`);
-  });
-
   it('reaches the cluster Koala runs on with nothing but its service account, as a pod does', async () => {
     const access = await door([machine({ id: 'machine-dev1', machineId: 'dev1' })]);
     await access.kubectl('machine-dev1', ['create', 'namespace', OWN]);

@@ -15,7 +15,6 @@ import { checkServices } from './platform/wiring/dependencies.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { backendWorkerOnceTemporalAnswers } from './worker-interceptors.js';
 import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
-import { holdFencesIn } from './platform/wiring/fences.js';
 import { runAsProgram, watchedWorker } from './worker-program.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,7 +51,6 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   db.reportReachTo(dependencies);
   await db.init();
   refuseWorkWith(deletingMarksIn(db));
-  const fences = await holdFencesIn('worker-host', settings.mongo);
   giveHostActivities(settings, access, dependencies);
   void dependencies.start();
   const queue = QUEUES.host;
@@ -65,7 +63,7 @@ export async function startHostWorker(settings: HostWorkerSettings) {
     activities: hostActivitiesFor(settings.role.role),
   });
 
-  return { worker, telemetry, fences };
+  return { worker, telemetry };
 }
 
 runAsProgram(import.meta.url, {

@@ -64,7 +64,6 @@ import { watchedWorker } from './worker-program.js';
 import { backendWorker } from './worker-interceptors.js';
 import { temporalWorkflowStarter } from './engine-host/temporal/workflow-starter.js';
 import type { WorkflowStarter } from './engine-host/registries/run-starter.js';
-import { holdFencesIn, runThenLetGo } from './platform/wiring/fences.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -329,7 +328,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     registry,
     workflows: () => workflowStarter,
     binding: conversationBinding(db),
-    closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: machineProblem,
   });
   builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.projects.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
@@ -524,8 +522,7 @@ export async function engineWorkerSetup(settings: EngineWorkerSettings) {
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
-  const fences = await holdFencesIn('worker-engine', settings.mongo);
-  return { telemetry, dependencies, fences };
+  return { telemetry, dependencies };
 }
 
 export async function createEngineWorker(settings: EngineWorkerSettings, dependencies: DependencyStates, built?: Awaited<ReturnType<typeof buildActivities>>) {
@@ -547,7 +544,7 @@ async function main() {
       },
     },
   });
-  const { telemetry, dependencies, fences } = await engineWorkerSetup(settings);
+  const { telemetry, dependencies } = await engineWorkerSetup(settings);
   const { address } = settings.temporal;
   logger.info(`[EngineWorker] Starting — taskQueue=${QUEUES.engine}, address=${address}`);
 
@@ -563,7 +560,7 @@ async function main() {
       activities = created.activities;
       current = created.worker;
       logger.info('[EngineWorker] Connected, polling for work');
-      await runThenLetGo(created.worker, fences);
+      await created.worker.run();
       await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
       return;
     } catch (err) {

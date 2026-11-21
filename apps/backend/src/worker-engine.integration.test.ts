@@ -7,14 +7,13 @@ import { workerWorld } from './platform/testing/worker-world.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { testMinioEnv } from './files/testing/real-minio.js';
 import { createEngineWorker, engineWorkerSetup } from './worker-engine.js';
-import { runThenLetGo } from './platform/wiring/fences.js';
 import type { ToolCallArgs, ToolCallOutcome } from './engine-host/temporal/contracts.js';
 import { seedEngineTools } from './engine/index.js';
 import { anyOf } from './platform/lib/test-matchers.js';
 import { grantsOver } from './engine/testing/run-grants.js';
 import { asPerson } from './platform/lib/permissions.js';
 
-const { env, rootKey, live, placed, db } = await workerWorld();
+const { env, rootKey, placed, db } = await workerWorld();
 const away = 'http://127.0.0.1:1';
 const memoryIndex = await startCorpusStandIn();
 afterAll(async () => { await memoryIndex.stop(); });
@@ -32,16 +31,20 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
     }),
 });
 
+const runningOnAnInstance = async () => {
+  const settings = engineWorkerSettingsFrom(placeFor('instance'));
+  const { dependencies } = await engineWorkerSetup(settings);
+  const { worker, activities } = await createEngineWorker(settings, dependencies);
+  return { worker, activities, dependencies, running: worker.run() };
+};
+
 describe('the engine worker, started the way its entry starts it', () => {
   it('on an instance builds its activities, polls the engine queue with them, the shared interceptors and the refusal of work being deleted, and stops when told', async () => {
-    const settings = engineWorkerSettingsFrom(placeFor('instance'));
-    const { dependencies, fences } = await engineWorkerSetup(settings);
-    const { worker, activities } = await createEngineWorker(settings, dependencies);
-    const running = runThenLetGo(worker, fences);
-    const pollers = async () => (await env.client.workflowService.describeTaskQueue({
+    const { worker, activities, running } = await runningOnAnInstance();
+    const pollers = async () => ((await env.client.workflowService.describeTaskQueue({
       namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.engine }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
-    })).pollers ?? [];
-    while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
+    })).pollers ?? []).map((poller) => poller.identity);
+    while (!(await pollers()).includes('luno-worker-engine-7d9f-abcde')) await new Promise((done) => setTimeout(done, 100));
     const registered = [...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort();
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity', 'StopProjectWorkActivity', 'SweepProjectActivity']));
@@ -52,17 +55,13 @@ describe('the engine worker, started the way its entry starts it', () => {
     await db.projects.savePlanProposal({ id: 'plan-shop', ownerId: 'owner-1', conversationId: 'c1', status: 'adopting', plan: { treeId: 'tree-shop', planDoc: '', branches: [] }, createdAt: at, updatedAt: at } as never);
     const adoption = activities as unknown as { PlanAdoptProjectActivity(args: { ownerId: string; proposalId: string }): Promise<string | null> };
     expect(await new MockActivityEnvironment().run(adoption.PlanAdoptProjectActivity, { ownerId: 'owner-1', proposalId: 'plan-shop' }), 'adopting a plan into a tree works for the tree\'s project').toBe('project-shop');
-    expect((await live()).map((process) => process.name)).toEqual(['worker-engine']);
+    expect(await pollers(), 'the worker is up, polling as its pod').toContain('luno-worker-engine-7d9f-abcde');
     worker.shutdown();
     await running;
-    expect(await live(), 'a worker that stopped cleanly is no longer live, so a fence waits on it no more').toEqual([]);
   });
 
   it('on an instance answers a person\'s tool calls with their own corpus and memory, as Mongo holds them', async () => {
-    const settings = engineWorkerSettingsFrom(placeFor('instance'));
-    const { dependencies, fences } = await engineWorkerSetup(settings);
-    const { worker, activities } = await createEngineWorker(settings, dependencies);
-    const running = runThenLetGo(worker, fences);
+    const { worker, activities, dependencies, running } = await runningOnAnInstance();
     const tools = activities as unknown as { EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome> };
     const grantId = (await grantsOver(db.engine).issue({ ownerId: 'owner-tools', runId: 'run-tools', principal: asPerson('owner-tools'), startedBy: 'person' })).id;
     const call = (agentSlug: string, name: string, args: Record<string, unknown>) => new MockActivityEnvironment().run(tools.EngineToolActivity, {

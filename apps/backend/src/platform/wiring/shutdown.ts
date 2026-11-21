@@ -1,11 +1,8 @@
 import { drainThenStop, type DrainDeps } from '../services/drain.js';
-import type { FenceWatch } from '../services/FenceWatch.js';
-import { letGoOfFences } from './fences.js';
 
 export interface BackendStop {
   stopping: () => void;
   drain: DrainDeps;
-  fences: Pick<FenceWatch, 'stop'>;
   exit: (code: number) => void;
 }
 
@@ -18,6 +15,5 @@ export async function stopBackend(stop: BackendStop): Promise<void> {
       code = 1;
     });
   }
-  await letGoOfFences(stop.fences);
   stop.exit(code);
 }

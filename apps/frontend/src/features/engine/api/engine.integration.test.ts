@@ -50,7 +50,6 @@ const backend = await startBackend(({ api, db, ...site }) => {
     turns,
     workflows: () => (engine.reachable ? workflows : undefined),
     binding: conversationBinding(db),
-    closing: async (ownerId) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
     machines: (ownerId, choice) => machines.choiceProblem(ownerId, choice),
   })
   api.use('/engine', engineRouter({
