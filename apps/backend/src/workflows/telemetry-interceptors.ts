@@ -53,7 +53,8 @@ class CarryTraceOutbound implements WorkflowOutboundCallsInterceptor {
   }
 
   startChildWorkflowExecution(input: StartChildWorkflowExecutionInput, next: Next<WorkflowOutboundCallsInterceptor, 'startChildWorkflowExecution'>): Promise<[Promise<string>, Promise<unknown>]> {
-    const project = workOfPayload(this.carrier.headers[WORK_HEADER])?.project;
+    const work = workOfPayload(this.carrier.headers[WORK_HEADER]);
+    const project = work?.removing ? undefined : work?.project;
     const options = project ? { ...input.options, typedSearchAttributes: withProjectAttribute(input.options.typedSearchAttributes, project) } : input.options;
     return next({ ...input, headers: withTrace(input.headers, this.carrier.headers), options });
   }

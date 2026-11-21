@@ -1,4 +1,3 @@
-import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { describe, it, expect } from 'vitest';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
@@ -7,6 +6,7 @@ import { createProjectRemovalActivities, type ProjectRemovalActivities, type Pro
 import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { temporalTestEnvironment } from './testing/temporal-test-env.js';
+import { deletedForGood, groveTold } from './testing/removal-steps.js';
 import { environmentForFile, uniqueName, testWorker } from './testing/test-worker.js';
 
 const temporal = environmentForFile(temporalTestEnvironment);
@@ -38,18 +38,12 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectAppStartedActivity: real.RemoveProjectAppStartedActivity,
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 2; },
       RemoveProjectSecretsActivity: async () => { seen.push('secrets'); reached(); await held; return { workspace: true, readers: 1 }; },
-      RemoveProjectRepositoriesActivity: async () => { seen.push('repositories'); return ['koala-bo/shop']; },
-      RemoveProjectFilesActivity: async () => { seen.push('files'); return 2; },
-      RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
+      ...deletedForGood(seen),
     };
     const taskQueue = uniqueName('remove-project-test');
     const worker = await testWorker(temporal.env, { taskQueue, workflows: 'RemoveProjectWorkflow.ts', activities });
 
-    const told: string[] = [];
-    const streamWorker = await testWorker(temporal.env, {
-      taskQueue: DEFAULT_STREAM_TASK_QUEUE,
-      activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { told.push(ownerId); } },
-    });
+    const { worker: streamWorker, told } = await groveTold(temporal.env);
 
     await streamWorker.runUntil(clusterWorker.runUntil(worker.runUntil(async () => {
       const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporal.env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);

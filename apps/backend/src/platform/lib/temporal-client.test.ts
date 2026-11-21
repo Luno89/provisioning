@@ -86,6 +86,13 @@ describe('every workflow the platform starts says whose work it is, so a removal
     expect(next.mock.calls[0]![0].options.typedSearchAttributes.map((pair) => [pair.key.name, pair.value])).toEqual([['KoalaOwner', 'bo'], ['KoalaProject', 'p1']]);
   });
 
+  it('does not list a project\'s deletion among the project\'s work, so the deletion never cancels itself', async () => {
+    const next = vi.fn(async (_input: { headers: Record<string, never>; options: { typedSearchAttributes: { key: { name: string }; value: unknown }[] } }) => 'started');
+    await withWorkFor({ project: 'p1', removing: 'project' }, () => namesItsWork.start!(input(true), next as never));
+    expect(next.mock.calls[0]![0].options.typedSearchAttributes.map((pair) => pair.key.name)).toEqual(['KoalaOwner']);
+    expect(workFromHeaders(next.mock.calls[0]![0].headers)).toEqual({ owner: 'bo', project: 'p1', removing: 'project' });
+  });
+
   it('names nothing for a start made by a removal\'s own step, whose work must never be fenced', async () => {
     const next = vi.fn(async () => 'started');
     expect(await headersOf(() => unnamedWork(() => namesItsWork.start!(input(true), next as never)), next)).toBeUndefined();

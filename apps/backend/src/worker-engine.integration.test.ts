@@ -41,7 +41,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
     const registered = [...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort();
     expect(registered).toEqual(Object.keys(activities).sort());
-    expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity']));
+    expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity', 'StopProjectWorkActivity', 'SweepProjectActivity']));
     expect(worker.options.interceptors.activity).toHaveLength(6);
     expect(worker.options.identity, 'Temporal knows the worker by its own pod').toBe('luno-worker-engine-7d9f-abcde');
     const at = '2026-11-13T10:00:00.000Z';

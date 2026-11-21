@@ -45,6 +45,8 @@ function queueOf(options: ts.Expression | undefined): ProxyQueue {
   const text = ts.isPropertyAssignment(named) ? named.initializer.getText() : named.getText();
   if (text.includes('DEFAULT_STREAM_TASK_QUEUE')) return 'stream';
   if (text.includes('deviceQueue')) return 'device';
+  const place = /^QUEUES\.(host|cluster|engine|stream)$/.exec(text.trim())?.[1];
+  if (place) return place as Queue;
   throw new Error(`a proxy names the queue ${text}, which the coupling harness does not know`);
 }
 

@@ -59,6 +59,18 @@ describe('the trace a workflow was started under follows its activities and chil
     expect(vi.mocked(upsertSearchAttributes).mock.calls.map(([pairs]) => (pairs as { key: { name: string }; value: unknown }[]).map((pair) => [pair.key.name, pair.value]))).toEqual([[['KoalaProject', 'p1']]]);
   });
 
+  it('lists a child of the project\'s work under the project, and a child of its deletion under none', async () => {
+    const attributesOf = async (work: Parameters<typeof workPayload>[0]) => {
+      const { inbound, outbound } = interceptors();
+      let started: { options: { typedSearchAttributes?: { key: { name: string }; value: unknown }[] } } | undefined;
+      await inbound![0]!.execute!({ args: [], headers: { 'koala-work': workPayload(work) } } as never, (async () => undefined) as never);
+      void await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 1 } as never, (async (input: typeof started) => { started = input; return input; }) as never);
+      return (started?.options.typedSearchAttributes ?? []).map((pair) => [pair.key.name, pair.value]);
+    };
+    expect(await attributesOf({ owner: 'u1', project: 'p1' })).toEqual([['KoalaProject', 'p1']]);
+    expect(await attributesOf({ owner: 'u1', project: 'p1', removing: 'project' })).toEqual([]);
+  });
+
   it('is a fresh carrier for each workflow run', async () => {
     const first = interceptors();
     const second = interceptors();
