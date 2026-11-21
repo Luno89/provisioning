@@ -4,7 +4,8 @@ import { getProjectChannel, postChannelMessage, type ProjectChannel } from './pr
 import { openItemChat } from './item-chats'
 import { approvePlan, listPlans, listTreePlans, rejectPlan } from './plans'
 import { dismissSecretRequest, listConversationSecretRequests, listTreeSecretRequests, submitSecret } from './secret-requests'
-import type { DeletionProgress, ProjectDeletion, ProjectDeletionEvent, ProjectRemovalPreview } from '../types/project-removal'
+import type { DeletedProject, DeletionProgress, ProjectDeletion, ProjectDeletionEvent, ProjectRemovalPreview, RestoredProject } from '../types/project-removal'
+import type { DeletedProject as BackendDeleted, ProjectRemovalService } from '../../../../../backend/src/projects/services/ProjectRemovalService'
 import { PROJECT_DELETION } from '../types/project-removal'
 import { startBackend } from '../../../test/backend/site'
 import { projectsOf, type ProjectsSide } from '../../../test/backend/projects'
@@ -26,6 +27,8 @@ expectTypeOf<Wire<BackendPreview & { deletion?: BackendDeletion }>>().toExtend<P
 expectTypeOf<Wire<BackendDeletion>>().toExtend<ProjectDeletion>()
 expectTypeOf<Wire<BackendProgress>>().toExtend<DeletionProgress>()
 expectTypeOf<Wire<BackendEvent>>().toExtend<ProjectDeletionEvent>()
+expectTypeOf<Wire<BackendDeleted>>().toExtend<DeletedProject>()
+expectTypeOf<Wire<Omit<Extract<Awaited<ReturnType<ProjectRemovalService['restore']>>, { ok: true }>, 'ok'>>>().toExtend<RestoredProject>()
 
 describe('the deletion\'s socket event, as the browser listens for it', () => {
   it('is the one the server sends', () => {

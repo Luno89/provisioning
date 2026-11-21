@@ -55,6 +55,8 @@ vi.mock('./Settings/index.js', () => ({
 
 vi.mock('../api/projects.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/projects.js')>()),
+  listDeletedProjects: vi.fn().mockResolvedValue([{ id: 'proj-9', name: 'old shop', deletedAt: '2026-11-21T10:00:00Z', keptUntil: '2027-02-19T10:00:00Z' }]),
+  restoreProject: vi.fn().mockResolvedValue({ name: 'old shop', renamed: false, secrets: ['STRIPE_KEY'] }),
   getProjectRemoval: vi.fn().mockResolvedValue({ name: 'shop', trees: [], keptConversations: 0, builds: 0, apps: [], deletion: { startedAt: '2026-11-21T10:00:00Z', requestedBy: 'bo', mode: 'archive', phase: 'deleting' } }),
 }))
 
@@ -200,5 +202,16 @@ describe('Projects component routing and hash synchronization', () => {
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Deleting shop' })).toBeInTheDocument()
     expect(await screen.findByText('Deleting')).toBeInTheDocument()
+  })
+
+  it('lists the deleted projects under the projects, and opens one restored on a page that says what did not come back', async () => {
+    useDeletionsStore.setState({ followed: [], restored: {} })
+    window.location.hash = '#/projects'
+    renderProjects()
+    const deleted = await screen.findByRole('region', { name: 'Deleted projects' })
+    expect(deleted).toHaveTextContent('old shop')
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    expect(await screen.findByText('Board for project:proj-9')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Enter its secrets again: STRIPE_KEY')
   })
 })

@@ -131,7 +131,7 @@ export class ProjectRemovalService {
     return { ok: true, project: loaded.project };
   }
 
-  async restore(ownerId: string, projectId: string): Promise<{ ok: true; name: string; renamed: boolean } | Refused> {
+  async restore(ownerId: string, projectId: string): Promise<{ ok: true; name: string; renamed: boolean; secrets: string[] } | Refused> {
     const kept = await this.kept(ownerId, projectId);
     if (!kept.ok) return kept;
     const { project } = kept;
@@ -139,7 +139,7 @@ export class ProjectRemovalService {
     const name = taken ? `${project.name} (restored)` : project.name;
     await this.deps.purges.restore(projectId, project.ownerId ?? ownerId);
     await this.deps.store.projects.restore(projectId, name);
-    return { ok: true, name, renamed: taken };
+    return { ok: true, name, renamed: taken, secrets: (project.requiredSecrets ?? []).map((secret) => secret.key) };
   }
 
   async purgeNow(ownerId: string, projectId: string, confirm: string): Promise<{ ok: true } | Refused> {

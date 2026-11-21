@@ -5,6 +5,8 @@ import NewTreeDialog from './NewTreeDialog.js'
 import { NewProjectDialog } from './NewProjectDialog.js'
 import { ProjectList } from './ProjectList.js'
 import { ProjectDeletions } from './ProjectDeletions.js'
+import { DeletedProjects } from './DeletedProjects.js'
+import { RestoredNotice } from './RestoredNotice.js'
 import { parseHash, formatHash } from '../../platform'
 import { pageOf, type ProjectPage } from '../hooks/useRouteSync.js'
 import { useChatPanel } from '../hooks/useChatPanel.js'
@@ -217,6 +219,7 @@ export function Projects({ clusters }: {
           </div>
         </div>
         <ProjectDeletions />
+        {open.kind === 'project' && <RestoredNotice projectId={open.id} />}
         <WorkspaceErrorBoundary onBack={closeEntity}>
           <Suspense fallback={<div className="text-slate-400 text-sm py-10 text-center">Loading…</div>}>
             <ProjectStrip key={`strip-${open.kind}-${open.id}`} {...scope} {...(!open.page ? { channel: { open: chat.open, onToggle: chat.toggle } } : {})} />
@@ -251,6 +254,7 @@ export function Projects({ clusters }: {
         onNewTree={() => setShowNewTree(true)}
         onNewProject={() => setShowNewProject(true)}
       />
+      <DeletedProjects onOpenProject={(id) => openEntity({ kind: 'project', id })} />
 
       {showNewTree && (
         <NewTreeDialog

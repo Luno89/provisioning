@@ -1,4 +1,4 @@
-import type { ProjectDeletion, ProjectDeletionMode, ProjectRemovalPreview } from '../types/project-removal'
+import type { DeletedProject, ProjectDeletion, ProjectDeletionMode, ProjectRemovalPreview, RestoredProject } from '../types/project-removal'
 import { api } from '../../../api/client'
 
 export const projectKeys = {
@@ -29,5 +29,14 @@ export const promoteRun = (projectId: string, runId: string, body?: unknown) =>
 export const getProjectRemoval = (id: string): Promise<ProjectRemovalPreview> =>
   api.get<ProjectRemovalPreview>(`/projects/${encodeURIComponent(id)}/removal`).then((r) => r.data)
 
-export const deleteProject = (id: string, confirm: string, mode: ProjectDeletionMode): Promise<ProjectDeletion> =>
+export const listDeletedProjects = (): Promise<DeletedProject[]> =>
+  api.get<DeletedProject[]>('/projects/deleted').then((r) => r.data)
+
+export const restoreProject = (id: string): Promise<RestoredProject> =>
+  api.post<RestoredProject>(`/projects/${encodeURIComponent(id)}/restore`).then((r) => r.data)
+
+export const purgeProject = (id: string, confirm: string): Promise<void> =>
+  api.post(`/projects/${encodeURIComponent(id)}/purge`, { confirm }).then(() => undefined)
+
+export const deleteProject =(id: string, confirm: string, mode: ProjectDeletionMode): Promise<ProjectDeletion> =>
   api.delete<{ deletion: ProjectDeletion }>(`/projects/${encodeURIComponent(id)}`, { data: { confirm, mode } }).then((r) => r.data.deletion)

@@ -2,8 +2,8 @@
  * ── DUPLICATED, KNOWINGLY ──
  * Authority: `ProjectRemovalPreview` in apps/backend/src/projects/lib/project-removal.ts, `ProjectRemoval` in
  * apps/backend/src/platform/lib/types.ts, `DeletionProgress` and its parts in apps/backend/src/projects/lib/project-deletion.ts,
- * `ProjectDeletionEvent` and `PROJECT_DELETION` in apps/backend/src/projects/services/ProjectDeletionNotices.ts, `DeletedProject` in
- * apps/backend/src/projects/services/ProjectRemovalService.ts, `ARCHIVE_DAYS` in apps/backend/src/projects/lib/project-archive.ts.
+ * `ProjectDeletionEvent` and `PROJECT_DELETION` in apps/backend/src/projects/services/ProjectDeletionNotices.ts, `DeletedProject` and what
+ * `ProjectRemovalService.restore` answers in apps/backend/src/projects/services/ProjectRemovalService.ts, `ARCHIVE_DAYS` in apps/backend/src/projects/lib/project-archive.ts.
  */
 export const PROJECT_DELETION = 'project-deletion'
 
@@ -61,6 +61,12 @@ export interface ProjectRemovalPreview {
   apps: string[]
   files?: { server: string; folder: string }
   deletion?: ProjectDeletion
+}
+
+export interface RestoredProject {
+  name: string
+  renamed: boolean
+  secrets: string[]
 }
 
 export interface DeletedProject {

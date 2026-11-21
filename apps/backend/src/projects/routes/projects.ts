@@ -68,7 +68,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     if (!deps.removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
     const outcome = await deps.removal.restore(userOf(req).id, idOf(req));
     if (!outcome.ok) return res.status(outcome.refusal.status).json({ error: outcome.refusal.error });
-    return res.json({ name: outcome.name, renamed: outcome.renamed });
+    return res.json({ name: outcome.name, renamed: outcome.renamed, secrets: outcome.secrets });
   }));
 
   router.post('/:id/purge', asyncRoute(async (req, res) => {

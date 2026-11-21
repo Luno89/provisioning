@@ -151,15 +151,21 @@ describe('a deleted project kept for its 90 days', () => {
 
   it('is restored with its name, after its purge is told to end without deleting anything', async () => {
     const { db, purges, service } = await archived();
-    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop', renamed: false });
+    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop', renamed: false, secrets: [] });
     expect(purges.restore).toHaveBeenCalledWith('p1', 'ann');
     expect(await db.projects.deletion('p1')).toBeUndefined();
+  });
+
+  it('names the secrets it needs entered again, since its secrets were deleted with it', async () => {
+    const { db, service } = await archived();
+    await db.projects.saveProjectInfo({ id: 'p1', requiredSecrets: [{ key: 'STRIPE_KEY', source: 'secret://stripe' }, { key: 'SMTP_PASSWORD', source: 'secret://smtp' }] });
+    expect(await service.restore('ann', 'p1')).toMatchObject({ ok: true, secrets: ['STRIPE_KEY', 'SMTP_PASSWORD'] });
   });
 
   it('is restored as "<name> (restored)" when a project of that name exists now, and says so', async () => {
     const { db, service } = await archived();
     await db.projects.saveProject({ id: 'p2', name: 'Shop', ownerId: 'ann', giteaOwner: 'koala-ann', giteaRepo: 'shop-2', appType: 'gitapp', createdAt: at });
-    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop (restored)', renamed: true });
+    expect(await service.restore('ann', 'p1')).toEqual({ ok: true, name: 'Shop (restored)', renamed: true, secrets: [] });
     expect((await db.projects.getProjects()).find((project) => project.id === 'p1')?.name).toBe('Shop (restored)');
   });
 

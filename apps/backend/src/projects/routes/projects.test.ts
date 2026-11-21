@@ -319,8 +319,8 @@ describe('deleting a project', () => {
 
   it('restores a deleted project, saying the name it came back under, or answers the refusal', async () => {
     const { removal, routes } = await setUp();
-    removal.restore.mockResolvedValueOnce({ ok: true, name: 'Shop (restored)', renamed: true });
-    expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 200, body: { name: 'Shop (restored)', renamed: true } });
+    removal.restore.mockResolvedValueOnce({ ok: true, name: 'Shop (restored)', renamed: true, secrets: ['STRIPE_KEY'] });
+    expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 200, body: { name: 'Shop (restored)', renamed: true, secrets: ['STRIPE_KEY'] } });
     expect(removal.restore).toHaveBeenCalledWith(TEST_USER.id, 'p9');
     removal.restore.mockResolvedValueOnce({ ok: false, refusal: { status: 409, error: 'Only a deleted project kept for its 90 days can be restored' } });
     expect(plain(await routes.post('/p9/restore'))).toEqual({ status: 409, body: { error: 'Only a deleted project kept for its 90 days can be restored' } });
