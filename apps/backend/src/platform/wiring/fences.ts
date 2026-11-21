@@ -19,7 +19,9 @@ export async function holdFences(name: FencedProcess, store: PlatformStore): Pro
 
 export async function holdFencesIn(name: FencedProcess, mongo: MongoTarget): Promise<FenceWatch> {
   const { client } = await leaseMongo(mongo.uri);
-  return holdFences(name, new MongoPlatformStore(() => client.db(mongo.dbName)));
+  const store = new MongoPlatformStore(() => client.db(mongo.dbName));
+  await store.ensureIndexes();
+  return holdFences(name, store);
 }
 
 export const letGoOfFences = (watch: Pick<FenceWatch, 'stop'>): Promise<void> =>

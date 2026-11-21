@@ -26,4 +26,18 @@ describe('a worker holding the fences as it starts', () => {
     expect((await store.processesSeenSince(new Date(0).toISOString())).map((row) => row.name)).toEqual(['worker-engine']);
     await watch.stop();
   });
+
+  it('sets up the fences it follows itself, on a database no other process has set up, so a worker can be the first to start', async () => {
+    const server = await MongoMemoryServer.create({ instance: { replSet: 'koala' } });
+    started.push(server);
+    const mongo = { uri: server.getUri(), dbName: 'fresh' };
+
+    const watch = await holdFencesIn('worker-cluster', mongo);
+
+    const reader = await leaseMongo(mongo.uri);
+    leases.push(reader);
+    const [fences] = await reader.client.db(mongo.dbName).listCollections({ name: 'fences' }).toArray();
+    expect((fences as { options?: { changeStreamPreAndPostImages?: unknown } } | undefined)?.options?.changeStreamPreAndPostImages).toEqual({ enabled: true });
+    await watch.stop();
+  });
 });
