@@ -11,7 +11,7 @@ import { scoreScenario, type Check, type ObservedBrowserTests, type Observed, ty
 import type { ChatPlace, FlowAction, ScenarioExpectations } from '../eval/level2/scenario.js';
 import type { ScenarioResult } from '../eval/level2/results.js';
 import { newTask, type Task } from '../engine-host/tools/tasks.js';
-import type { MemoryItem } from '../memory/index.js';
+import { createMemoryWriter, type MemoryIndexing, type MemoryItem } from '../memory/index.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
 import {
   type BenchSettings, reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser,
@@ -98,6 +98,7 @@ export interface CheckRunStore {
 
 export interface CheckRunDeps {
   store: CheckRunStore;
+  indexing: MemoryIndexing;
   api: (space: { id: string; email: string; space?: { person: string } | undefined }, checkRunId: string) => AxiosInstance;
   seedFiles: (ownerId: string, repo: string, files: Record<string, string>) => Promise<void>;
   reported: (args: { spaceId: string; runId: string; agent: string; modelId?: string | undefined }, says: string, answer: string) => Promise<boolean>;
@@ -287,16 +288,15 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const settings = await store.engine.getExtensionSettings(person);
       if (settings) await store.engine.saveExtensionSettings({ ...settings, ownerId: spaceId });
       for (const extension of reowned(await store.engine.getAuthoredExtensions(person), person, spaceId)) await store.engine.saveAuthoredExtension(extension);
-      for (const practice of spacePractices(await store.memory.getMemories(person), person, spaceId, trialPractice)) await store.memory.saveMemory(practice);
-
-      for (const memory of scenario.world?.memories ?? []) {
-        await store.memory.saveMemory({
-          id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'],
-          ...(memory.category === 'tool_note' ? { status: 'active' as const } : {}),
-          ...(memory.model ? { model: memory.model } : {}), ...(memory.tool ? { tool: memory.tool } : {}), ...(memory.server ? { server: memory.server } : {}),
-          createdAt: stamp, updatedAt: stamp,
-        });
-      }
+      const worldMemories = (scenario.world?.memories ?? []).map((memory): MemoryItem => ({
+        id: `${spaceId}-${uuidv4()}`, ownerId: spaceId, title: memory.title, text: memory.text, category: (memory.category ?? 'lessons_learned') as MemoryItem['category'],
+        ...(memory.category === 'tool_note' ? { status: 'active' as const } : {}),
+        ...(memory.model ? { model: memory.model } : {}), ...(memory.tool ? { tool: memory.tool } : {}), ...(memory.server ? { server: memory.server } : {}),
+        createdAt: stamp, updatedAt: stamp,
+      }));
+      const spaceWriter = createMemoryWriter({ store: { list: (ownerId) => store.memory.getMemories(ownerId), save: (item) => store.memory.saveMemory(item), ...deps.indexing } });
+      const { unindexed } = await spaceWriter.keep([...spacePractices(await store.memory.getMemories(person), person, spaceId, trialPractice), ...worldMemories]);
+      if (unindexed) throw new Error(`the check's memories cannot be recalled while the memory index is down: ${unindexed}`);
       if (scenario.step) {
         const built = stepProcedure(scenario.id, scenario.step, platformCatalogue());
         if ('problems' in built) throw new Error(`the step cannot be checked: ${built.problems.join('; ')}`);

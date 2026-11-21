@@ -51,6 +51,14 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
   const { store } = options;
   const writer = createMemoryWriter({ store, now, newId });
 
+  const onTrial = async (runId: string | undefined, fields: Pick<MemoryItem, 'ownerId' | 'category' | 'title' | 'text'> & Partial<Pick<MemoryItem, 'agent' | 'model' | 'tool' | 'server' | 'why'>>): Promise<MemoryItem> => {
+    const at = now();
+    const provenance = await provenanceOf(runId);
+    const item: MemoryItem = { id: newId(), ...fields, scope: 'global', recommendedScope: 'global', status: 'trial', source: 'agent_tool', ...(provenance ? { provenance } : {}), createdAt: at, updatedAt: at };
+    await writer.keep([item]);
+    return item;
+  };
+
   const modelOf = async (ownerId: string, parsed: Record<string, unknown>): Promise<{ model?: string } | { refused: string }> => {
     const model = text(parsed, 'model');
     if (!model) return {};
@@ -98,11 +106,12 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       });
       if ('refused' in outcome) return refuse(outcome.refused);
       if ('known' in outcome) return { ok: true, digest: `already known: ${outcome.known.title}`, content: `That is already remembered as ${outcome.known.id}; nothing new was stored.` };
-      const { saved, replaced } = outcome;
+      const { saved, replaced, unindexed } = outcome;
+      const later = unindexed ? ` ${unindexed}, so it is found once the index answers again.` : '';
       return {
         ok: true,
         digest: `${replaced ? `replaced ${replaced.title} with ${saved.title}` : `remembered ${saved.title}`}${forModel.model ? ` for ${forModel.model}` : ''}`,
-        content: replaced ? `Saved as ${saved.id}, replacing ${replaced.id}.` : `Saved as ${saved.id}.`,
+        content: `${replaced ? `Saved as ${saved.id}, replacing ${replaced.id}.` : `Saved as ${saved.id}.`}${later}`,
       };
     },
 
@@ -121,24 +130,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'practice' && memory.agent === agent && memory.model === forModel.model && sameMemoryText(memory.text, body));
       if (known) return refuse(`${agent} already has that practice${forModel.model ? ` on ${forModel.model}` : ''} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
-      const at = now();
-      const item: MemoryItem = {
-        id: newId(),
-        ownerId,
-        category: 'practice',
-        agent,
-        ...(forModel.model ? { model: forModel.model } : {}),
-        scope: 'global',
-        recommendedScope: 'global',
-        status: 'trial',
-        title,
-        text: learned,
-        source: 'agent_tool',
-        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
-        createdAt: at,
-        updatedAt: at,
-      };
-      await store.save(item);
+      const item = await onTrial(caller.runId, { ownerId, category: 'practice', agent, ...(forModel.model ? { model: forModel.model } : {}), title, text: learned });
       const on = forModel.model ? ` on ${forModel.model}` : '';
       return { ok: true, digest: `practice on trial for ${agent}${on}: ${title}`, content: `Proposed ${item.id} for ${agent}${on}; it is on trial until the bench has run ${agent}'s scenarios with it${on}.` };
     },
@@ -158,26 +150,16 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'tool_note' && memory.tool === target.tool && memory.server === target.server && memory.model === forModel.model && sameMemoryText(memory.text, body));
       if (known) return refuse(`${about} already has that note${on} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
-      const at = now();
-      const item: MemoryItem = {
-        id: newId(),
+      const item = await onTrial(caller.runId, {
         ownerId,
         category: 'tool_note',
         ...(target.tool ? { tool: target.tool } : {}),
         ...(target.server ? { server: target.server } : {}),
         ...(forModel.model ? { model: forModel.model } : {}),
-        scope: 'global',
-        recommendedScope: 'global',
-        status: 'trial',
         title: text(parsed, 'title') ?? body.split('\n')[0]!.slice(0, 60),
         text: body,
         why,
-        source: 'agent_tool',
-        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
-        createdAt: at,
-        updatedAt: at,
-      };
-      await store.save(item);
+      });
       return { ok: true, digest: `note on trial for ${about}${on}: ${item.title}`, content: `Proposed ${item.id} for ${about}${on}; it is on trial until the bench has run the checks that use it${on}.` };
     },
 

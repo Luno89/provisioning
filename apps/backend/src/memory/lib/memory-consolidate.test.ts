@@ -177,19 +177,26 @@ describe('memories nothing can ever read', () => {
 describe('a whole pass', () => {
   const setup = (memories: MemoryItem[], leaves: PromotableLeaf[] = []) => {
     const store = new Map(memories.map((m) => [m.id, m]));
-    const unindexed: { ids: string[]; liveThen: boolean[] }[] = [];
+    const unindexed: string[] = [];
+    const kept: string[] = [];
     let n = 0;
     return {
       store,
       unindexed,
+      kept,
       deps: {
-        unindex: async (retired: MemoryItem[]) => {
-          unindexed.push({ ids: retired.map((m) => m.id), liveThen: retired.map((m) => !store.get(m.id)?.invalidAt) });
+        retire: async (retired: MemoryItem[]) => {
+          unindexed.push(...retired.map((m) => m.id));
+          for (const m of retired) store.set(m.id, m);
+        },
+        keep: async (items: MemoryItem[]) => {
+          kept.push(...items.map((m) => m.id));
+          for (const m of items) store.set(m.id, m);
+          return {};
         },
         db: {
           memory: {
             getMemories: async (ownerId?: string) => [...store.values()].filter((m) => !ownerId || m.ownerId === ownerId),
-            saveMemory: async (m: MemoryItem) => { store.set(m.id, m); },
           },
           projects: {
             getLeaves: async () => leaves,
@@ -253,22 +260,20 @@ describe('a whole pass', () => {
     expect(await consolidateMemories(deps)).toMatchObject({ indexed: 0, deduped: 0, promoted: 0, live: 0 });
   });
 
-  it('consolidates even when the index is unreachable', async () => {
-    const { deps } = setup([
-      mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1) }),
-      mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2) }),
-    ]);
+  it('keeps what it promotes while the index is down, counting it as not indexed', async () => {
+    const { deps, store } = setup([], [{ id: 'l1', ownerId: 'u1', projectId: 'p1', title: 'Research', findings: 'y'.repeat(400), status: 'succeeded' }]);
 
     const report = await consolidateMemories({
       ...deps,
-      index: async () => { throw new Error('Qdrant down'); },
+      keep: async (items) => { for (const m of items) store.set(m.id, m); return { unindexed: 'The memory index\'s meanings (Qdrant) isn\'t answering since 10:00 UTC: its pod is not ready' }; },
     });
 
-    expect(report.deduped).toBe(1);
+    expect(report.promoted).toBe(1);
     expect(report.indexed).toBe(0);
+    expect(store.size).toBe(1);
   });
 
-  it('takes what a pass retires out of the index before marking it retired', async () => {
+  it('hands what a pass retires to the writer, which takes it out of the index before keeping it retired', async () => {
     const { deps, unindexed } = setup([
       mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1), lastUsedAt: daysBefore(1) }),
       mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2), lastUsedAt: daysBefore(2) }),
@@ -276,7 +281,7 @@ describe('a whole pass', () => {
 
     await consolidateMemories(deps);
 
-    expect(unindexed).toEqual([{ ids: ['b'], liveThen: [true] }]);
+    expect(unindexed).toEqual(['b']);
   });
 
   it('retires nothing when the index will not let go, and the pass fails saying why', async () => {
@@ -285,15 +290,16 @@ describe('a whole pass', () => {
       mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2) }),
     ]);
 
-    await expect(consolidateMemories({ ...deps, unindex: async () => { throw new Error('Qdrant refused: HTTP 503 overloaded'); } })).rejects.toThrow('Qdrant refused: HTTP 503 overloaded');
+    await expect(consolidateMemories({ ...deps, retire: async () => { throw new Error('Qdrant refused: HTTP 503 overloaded'); } })).rejects.toThrow('Qdrant refused: HTTP 503 overloaded');
     expect(store.get('b')!.invalidAt).toBeUndefined();
   });
 
-  it('leaves the review backlog out of the index', async () => {
-    const { deps } = setup([mem({ id: 'a', status: 'pending_review' })]);
-    let sent: MemoryItem[] = [];
+  it('indexes only what it promotes: what was already written was indexed when it was written', async () => {
+    const { deps, kept } = setup([mem({ id: 'a' }), mem({ id: 'b', title: 'Another', status: 'pending_review' })], [{ id: 'l1', ownerId: 'u1', projectId: 'p1', title: 'Research', findings: 'y'.repeat(400), status: 'succeeded' }]);
 
-    await consolidateMemories({ ...deps, index: async (items) => { sent = items; return { vectors: items.length, documents: items.length }; } });
-    expect(sent).toEqual([]);
+    const report = await consolidateMemories(deps);
+
+    expect(kept).toEqual(['gen0']);
+    expect(report.indexed).toBe(1);
   });
 });

@@ -13,6 +13,9 @@ import type { ScenarioExpectations } from '../eval/level2/scenario.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { channelIdFor } from '../engine/lib/conversations.js';
 import { createCheckProgressActivity, createCheckRunActivities, type CheckReleases, type CheckRunActivities } from './CheckRunActivities.js';
+import { standInIndexing } from '../memory/testing/memory-index.js';
+
+const indexing = await standInIndexing();
 
 const at = '2026-11-02T10:00:00.000Z';
 
@@ -46,6 +49,7 @@ afterEach(async () => {
 const activities = (over: { reported?: boolean; says?: boolean } = {}): CheckRunActivities => createCheckRunActivities({
   ownClusterId: () => 'machine-koala',
   store: api.db,
+  indexing,
   api: (space) => {
     const client = api.clientFor(space);
     clients.push(client);

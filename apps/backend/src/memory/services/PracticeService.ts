@@ -1,5 +1,6 @@
 import type { MemoryItem, PracticeTrial } from '../lib/memory-store.js';
-import type { MemoryUnindexer } from '../lib/memory-index.js';
+import type { MemoryIndexing } from '../lib/memory-index.js';
+import { createMemoryWriter, type MemoryWriter } from './memory-writer.js';
 
 export interface PracticeStore {
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
@@ -7,7 +8,12 @@ export interface PracticeStore {
 }
 
 export class PracticeService {
-  constructor(private readonly deps: { store: PracticeStore; unindex: MemoryUnindexer; category?: 'practice' | 'tool_note'; now?: () => string }) {}
+  private readonly writer: MemoryWriter;
+
+  constructor(private readonly deps: { store: PracticeStore; indexing: MemoryIndexing; category?: 'practice' | 'tool_note'; now?: () => string }) {
+    const { store, indexing } = deps;
+    this.writer = createMemoryWriter({ store: { list: (ownerId) => store.getMemories(ownerId), save: (item) => store.saveMemory(item), ...indexing } });
+  }
 
   private get category(): 'practice' | 'tool_note' {
     return this.deps.category ?? 'practice';
@@ -30,35 +36,33 @@ export class PracticeService {
   async settle(ownerId: string, id: string, trial: PracticeTrial, live: boolean): Promise<void> {
     const practice = (await this.list(ownerId)).find((entry) => entry.id === id);
     if (!practice || practice.status !== 'trial') return;
-    await this.deps.store.saveMemory({ ...practice, status: live ? 'active' : 'pending_review', trial, updatedAt: this.now() });
+    await this.writer.keep([{ ...practice, status: live ? 'active' : 'pending_review', trial, updatedAt: this.now() }]);
   }
 
   async makeLive(ownerId: string, id: string): Promise<MemoryItem | undefined> {
     const practice = (await this.list(ownerId)).find((entry) => entry.id === id);
     if (!practice || practice.status === 'active') return undefined;
     const live: MemoryItem = { ...practice, status: 'active', updatedAt: this.now() };
-    await this.deps.store.saveMemory(live);
+    await this.writer.keep([live]);
     return live;
   }
 
   async renameServer(ownerId: string, from: string, to: string): Promise<number> {
     const moved = (await this.list(ownerId)).filter((entry) => entry.server === from);
-    for (const entry of moved) await this.deps.store.saveMemory({ ...entry, server: to, updatedAt: this.now() });
+    await this.writer.keep(moved.map((entry) => ({ ...entry, server: to, updatedAt: this.now() })));
     return moved.length;
   }
 
   async forgetServer(ownerId: string, name: string): Promise<number> {
     const gone = (await this.list(ownerId)).filter((entry) => entry.server === name);
-    await this.deps.unindex(ownerId, gone.map((entry) => entry.id));
-    for (const entry of gone) await this.deps.store.saveMemory({ ...entry, invalidAt: this.now(), updatedAt: this.now() });
+    await this.writer.retire(ownerId, gone.map((entry) => ({ ...entry, invalidAt: this.now(), updatedAt: this.now() })));
     return gone.length;
   }
 
   async retire(ownerId: string, id: string): Promise<boolean> {
     const practice = (await this.list(ownerId)).find((entry) => entry.id === id);
     if (!practice) return false;
-    await this.deps.unindex(ownerId, [practice.id]);
-    await this.deps.store.saveMemory({ ...practice, invalidAt: this.now(), updatedAt: this.now() });
+    await this.writer.retire(ownerId, [{ ...practice, invalidAt: this.now(), updatedAt: this.now() }]);
     return true;
   }
 }

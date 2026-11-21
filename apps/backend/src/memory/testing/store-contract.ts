@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DeferredConclusion, KeeperSettings } from '../lib/conclusions.js';
-import type { KeepingState } from '../lib/memory-keeping.js';
+import type { KeepingState } from '../services/memory-keeping.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import type { MemoryStore } from '../store.js';
 

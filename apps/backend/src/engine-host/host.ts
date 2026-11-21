@@ -530,6 +530,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,
+      index: stores.memories.index,
       unindex: stores.memories.unindex,
       search: stores.memories.search,
     },
@@ -583,7 +584,7 @@ const memorySourcesFrom = (reads: NonNullable<EngineHostStores['runReads']>) => 
   return sourcesFrom(own, read);
 };
 
-export function storesFromDatabase(db: Database, index: Pick<HostNodeServices['memories'], 'unindex' | 'search'>): EngineHostStores {
+export function storesFromDatabase(db: Database, index: Pick<HostNodeServices['memories'], 'index' | 'unindex' | 'search'>): EngineHostStores {
   return {
     runReads: { ofRuns: (runIds) => db.engine.getRunReadsOfRuns(runIds) },
     agentRecords: { list: (ownerId: string) => db.engine.getEnginePersonas(ownerId) },
@@ -620,7 +621,7 @@ export function storesFromDatabase(db: Database, index: Pick<HostNodeServices['m
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
-    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item), unindex: index.unindex, search: index.search },
+    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item), index: index.index, unindex: index.unindex, search: index.search },
     egress: {
       grants: (ownerId: string) => db.infrastructure.getEgressGrants(ownerId),
       requests: { list: (ownerId: string) => db.infrastructure.getEgressRequests(ownerId), save: (request) => db.infrastructure.saveEgressRequest(request) },

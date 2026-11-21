@@ -3,18 +3,14 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { closedPort, startCorpusStandIn, type CorpusStandIn } from '../../engine/testing/corpus-stand-in.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { consolidateOwner, keepEveryOwner } from './memory-keeping.js';
-import { indexMemories } from './memory-index.js';
+import { indexMemories } from '../lib/memory-index.js';
 import { unreportedReach } from '../../platform/testing/memory-index.js';
-import { MEMORY_COLLECTION, MEMORY_INDEX } from './memory-rank.js';
-import type { MemoryItem } from './memory-store.js';
+import { MEMORY_COLLECTION, MEMORY_INDEX } from '../lib/memory-rank.js';
+import type { MemoryItem } from '../lib/memory-store.js';
+import { SAID_NOW, saidMemory } from '../testing/memories.js';
 
-const NOW = new Date().toISOString();
-const daysBefore = (n: number) => new Date(Date.parse(NOW) - n * 86_400_000).toISOString();
-
-const memory = (id: string, category: MemoryItem['category'], title: string, days: number): MemoryItem => ({
-  id, ownerId: 'keeper-owner', category, scope: 'global', status: 'active', title, text: `${title}, as the person said.`,
-  createdAt: daysBefore(days), updatedAt: daysBefore(days),
-});
+const NOW = SAID_NOW;
+const memory = (id: string, category: MemoryItem['category'], title: string, days: number): MemoryItem => saidMemory(id, title, days, { ownerId: 'keeper-owner', category });
 
 let standIn: CorpusStandIn;
 let db: MongoDB;
@@ -38,7 +34,7 @@ describe('consolidating a person\'s memories in Mongo with their own Quickwit, Q
 
     const report = await consolidateOwner({ db, index: () => standIn.reach, now: () => NOW }, 'keeper-owner');
 
-    expect(report).toMatchObject({ deduped: 1, live: 2, indexed: 2 });
+    expect(report).toMatchObject({ deduped: 1, live: 2, indexed: 0 });
     expect((await db.memory.getMemories('keeper-owner')).map((item) => [item.id, item.invalidAt ? `retired for ${item.mergedInto}` : 'current']).sort())
       .toEqual([['keep-a', 'retired for keep-b'], ['keep-b', 'current'], ['keep-c', 'current']]);
     expect(standIn.documents(MEMORY_INDEX).map((doc) => doc.memory_id)).not.toContain('keep-a');

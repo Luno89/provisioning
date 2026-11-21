@@ -6,20 +6,16 @@ import { unreportedReach } from '../../platform/testing/memory-index.js';
 import { pointId } from '../../engine/lib/corpus-backend.js';
 import type { Database } from '../../platform/index.js';
 import { consolidateOwner, keepEveryOwner } from './memory-keeping.js';
-import type { MemoryItem } from './memory-store.js';
+import type { MemoryItem } from '../lib/memory-store.js';
+import { SAID_NOW, saidMemory } from '../testing/memories.js';
 
 const QUICKWIT = 'http://quickwit.keeping.test:7280';
 const QDRANT = 'http://qdrant.keeping.test:6333';
 const TEI = 'http://tei.keeping.test';
 const ends = unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: TEI } });
 
-const NOW = new Date().toISOString();
-const daysBefore = (n: number) => new Date(Date.parse(NOW) - n * 86_400_000).toISOString();
-
-const memory = (id: string, title: string, days: number): MemoryItem => ({
-  id, ownerId: 'u1', category: 'environment_facts', scope: 'global', status: 'active', title, text: `${title}, as the person said.`,
-  createdAt: daysBefore(days), updatedAt: daysBefore(days),
-});
+const NOW = SAID_NOW;
+const memory = (id: string, title: string, days: number): MemoryItem => saidMemory(id, title, days);
 
 const server = interceptHttp();
 
@@ -66,20 +62,31 @@ const refusingFor = (ids: readonly string[]) => server.use(http.post(`${QUICKWIT
 const unreachable = 'Quickwit refused: HTTP 503 the index is not answering';
 
 describe('consolidating one person\'s memories with the memory index', () => {
-  it('retires what has the same title or what Qdrant finds alike, takes it out of both indexes, and indexes what is left', async () => {
+  it('retires what has the same title or what Qdrant finds alike, takes it out of both indexes, and indexes nothing again: a memory is indexed when it is written', async () => {
     const asked = answering();
 
     const report = await consolidateOwner({ db, index: () => ends, now: () => NOW }, 'u1');
 
-    expect(report).toMatchObject({ deduped: 2, indexed: 2, live: 2 });
+    expect(report).toMatchObject({ deduped: 2, indexed: 0, live: 2 });
     expect(await current()).toEqual(['b', 'c']);
     expect((await db.memory.getMemories('u1')).filter((item) => item.invalidAt).map((item) => [item.id, item.mergedInto])).toEqual([['a', 'b'], ['d', 'c']]);
     expect(asked.removed).toEqual([
       `quickwit ${JSON.stringify({ query: 'memory_id:"a" OR memory_id:"d"' })}`,
       `qdrant ${JSON.stringify({ points: [pointId('a'), pointId('d')] })}`,
     ]);
-    expect(asked.embedded.sort()).toEqual(['b', 'c']);
-    expect(asked.written.sort()).toEqual(['b', 'c']);
+    expect(asked.embedded).toEqual([]);
+    expect(asked.written).toEqual([]);
+  });
+
+  it('indexes what it promotes from research as it promotes it', async () => {
+    const asked = answering();
+    await db.projects.saveLeaf({ id: 'l1', ownerId: 'u1', title: 'Compare vector stores', findings: 'x'.repeat(400), status: 'succeeded' } as never);
+
+    const report = await consolidateOwner({ db, index: () => ends, now: () => NOW }, 'u1');
+
+    expect(report).toMatchObject({ promoted: 1, indexed: 1 });
+    expect(asked.embedded).toHaveLength(1);
+    expect(asked.written).toEqual(asked.embedded);
   });
 
   it('keeps every memory current when the index cannot take what is retired out of it', async () => {

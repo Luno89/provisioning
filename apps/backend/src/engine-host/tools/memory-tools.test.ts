@@ -17,6 +17,8 @@ let unindexed: { ownerId: string; ids: string[]; liveThen: boolean[] }[];
 let indexRefuses: string | undefined;
 let indexFinds: string[] | Error | undefined;
 let searched: string[];
+let indexed: string[];
+let indexDown: Error | undefined;
 
 const memory = dnsMemory;
 
@@ -27,6 +29,10 @@ const tools = () => createMemoryTools({
   store: {
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
     save: async (item) => { bank.set(item.id, item); },
+    index: async (items) => {
+      if (indexDown) throw indexDown;
+      indexed.push(...items.map((item) => item.id));
+    },
     unindex: async (ownerId, gone) => {
       if (indexRefuses) throw new Error(indexRefuses);
       unindexed.push({ ownerId, ids: gone, liveThen: gone.map((id) => !bank.get(id)?.invalidAt) });
@@ -52,6 +58,8 @@ beforeEach(() => {
   indexRefuses = undefined;
   indexFinds = undefined;
   searched = [];
+  indexed = [];
+  indexDown = undefined;
 });
 
 describe('search_memories', () => {
@@ -84,6 +92,21 @@ describe('search_memories', () => {
 });
 
 describe('save_memory', () => {
+  it('indexes what it saves as it saves it, so the next search finds it', async () => {
+    await call('save_memory', { text: 'Builds are cached for a day.' });
+    expect(indexed).toEqual(['new-1']);
+    expect(bank.get('new-1')).not.toHaveProperty('indexPending');
+  });
+
+  it('saves while the index is down, and says so with since and why, so the keeper knows it is found once the index answers', async () => {
+    indexDown = new DependencyDownError('qdrant', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
+
+    const out = await call('save_memory', { text: 'Builds are cached for a day.' });
+
+    expect(out).toMatchObject({ ok: true, content: 'Saved as new-1. The memory index\'s meanings (Qdrant) isn\'t answering since 10:00 UTC: its pod is not ready, so it is found once the index answers again.' });
+    expect(bank.get('new-1')?.indexPending).toBe(true);
+  });
+
   it('saves a new memory, global when there is no project, noting the run that saved it', async () => {
     const out = await call('save_memory', { title: 'Trials last a week', text: 'Pool trials last 7 days.', category: 'prompt_guidance' });
 
@@ -205,6 +228,7 @@ describe('propose_practice', () => {
     expect(out.ok).toBe(true);
     expect(bank.get('new-1')).toMatchObject({ category: 'practice', agent: 'koala', status: 'trial', title: 'Check infrastructure first', provenance: { experimentId: 'run-k' } });
     expect(bank.get('new-1')!.text).toContain('(learned from: corrected in conversation c-7)');
+    expect(indexed).toEqual(['new-1']);
   });
 
   it('will not propose a practice for an agent that does not exist, or one the agent already has', async () => {
@@ -280,6 +304,7 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
       list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
       save: async (item) => { bank.set(item.id, item); },
       unindex: unindexerFrom(unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } })),
+      index: async (items) => { indexed.push(...items.map((item) => item.id)); },
       search: async () => [],
     },
     now: () => 'now',
@@ -313,12 +338,13 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
     expect(bank.get('m1')!.invalidAt).toBeUndefined();
   });
 
-  it('replacing a memory takes the old one out of both before the new one is saved', async () => {
+  it('replacing a memory takes the old one out of both before the new one is saved, then indexes the new one', async () => {
     const asked = asking();
 
     expect(await callWithIndex('save_memory', { title: 'DNS lives at Porkbun', text: 'The person moved their DNS to Porkbun.', category: 'environment_facts', replaces: 'm1' })).toMatchObject({ ok: true, content: 'Saved as new-1, replacing m1.' });
 
     expect(asked).toEqual([`quickwit ${JSON.stringify({ query: 'memory_id:"m1"' })}`, `qdrant ${JSON.stringify({ points: [pointId('m1')] })}`]);
+    expect(indexed).toEqual(['new-1']);
     expect(bank.get('m1')).toMatchObject({ invalidAt: 'now', supersededBy: 'new-1' });
   });
 });

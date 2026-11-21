@@ -14,7 +14,16 @@ export type MemoryUnindexer = (ownerId: string, ids: string[]) => Promise<void>;
 export const unindexerFrom = (index: MemoryIndexReach): MemoryUnindexer =>
   async (_ownerId, ids) => removeMemories(index, ids);
 
-export type MemorySearcher = (ownerId: string, query: string, limit: number) => Promise<string[]>;
+export type MemoryIndexer = (items: MemoryItem[]) => Promise<void>;
+
+export const indexerFrom = (index: MemoryIndexReach): MemoryIndexer =>
+  async (items) => { await indexMemories(index, items); };
+
+export interface MemoryIndexing { index: MemoryIndexer; unindex: MemoryUnindexer }
+
+export const indexingFrom = (index: MemoryIndexReach): MemoryIndexing => ({ index: indexerFrom(index), unindex: unindexerFrom(index) });
+
+export type MemorySearcher =(ownerId: string, query: string, limit: number) => Promise<string[]>;
 
 export const searcherFrom = (index: MemoryIndexReach): MemorySearcher => async (ownerId, query, limit) => {
   if (limit < 1) return [];
@@ -54,6 +63,8 @@ const docFor = (m: MemoryItem): MemoryDoc => ({
   body: bodyOf(m),
   created_at: m.createdAt,
 });
+
+export const indexesAlike = (a: MemoryItem, b: MemoryItem): boolean => JSON.stringify(docFor(a)) === JSON.stringify(docFor(b));
 
 export async function indexMemories(
   stores: MemoryIndexReach,

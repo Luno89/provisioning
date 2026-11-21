@@ -110,10 +110,12 @@ beforeEach(() => {
 });
 
 const signedInAs: unknown[] = [];
+const spaceIndexed: string[] = [];
 
 const activities = (over: { reported?: boolean; says?: boolean; ownClusterId?: string | undefined } = {}): CheckRunActivities => createCheckRunActivities({
   ownClusterId: () => ('ownClusterId' in over ? over.ownClusterId : 'machine-koala'),
   store: db,
+  indexing: { index: async (items) => { spaceIndexed.push(...items.map((item) => item.id)); }, unindex: async () => undefined },
   api: (space, checkRunId) => { signedInAs.push([space, checkRunId]); return axios.create({ baseURL: BASE, headers: { 'x-space': space.id } }); },
   seedFiles: async (_owner, repo, files) => {
     Object.assign(seeded, Object.fromEntries(Object.entries(files).map(([path, content]) => [`${repo}/${path}`, content])));
@@ -194,6 +196,7 @@ describe('a check\'s space', () => {
     await db.memory.saveMemory({ id: 'p1', ownerId: 'bo', title: 'p1', text: 'live', category: 'practice', status: 'active', createdAt: '', updatedAt: '' });
     await db.memory.saveMemory({ id: 'p2', ownerId: 'bo', title: 'p2', text: 'on trial', category: 'practice', status: 'trial', createdAt: '', updatedAt: '' });
     await db.memory.saveMemory({ id: 'm1', ownerId: 'bo', title: 'private', text: 'not copied', category: 'lessons_learned', createdAt: '', updatedAt: '' });
+    spaceIndexed.length = 0;
 
     await activities().CheckCreateSpaceActivity({ spaceId: 'space-1', checkRunId: 'c1', person: 'bo', scenario: SCENARIO, trialPractice: 'p2', promptOverride: { agent: 'koala', prompt: 'proposed' } });
 
@@ -203,6 +206,7 @@ describe('a check\'s space', () => {
     expect(personas.map((persona) => [persona.slug, persona.prompt]).sort()).toEqual([['executor', 'mine']]);
     const memories = (await db.memory.getMemories('space-1')).filter((memory) => memory.ownerId === 'space-1');
     expect(memories.map((memory) => memory.text).sort()).toEqual(['Say hello, not hi.', 'live', 'on trial']);
+    expect(spaceIndexed.sort()).toEqual(memories.map((memory) => memory.id).sort());
     expect((await db.projects.getTasks('space-1')).map((task) => [task.id, task.status])).toEqual([['write-greeting', 'accepted']]);
     expect((await db.engine.getProcedures('space-1')).some((procedure) => procedure.id === 'tidy' && procedure.ownerId === 'space-1')).toBe(true);
   });

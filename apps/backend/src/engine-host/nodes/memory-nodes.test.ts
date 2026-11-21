@@ -12,6 +12,8 @@ let ids: number;
 let ranked: string[] | Error;
 let asked: { ownerId: string; query: string; limit: number }[];
 let notices: unknown[];
+let indexed: string[];
+let indexDown: Error | undefined;
 const windows: Record<string, number> = { 'small/model': 2_000 };
 
 const memory = dnsMemory;
@@ -21,6 +23,10 @@ const step = (kind: string) => {
     memories: {
       list: async (ownerId: string) => [...bank.values()].filter((item) => item.ownerId === ownerId),
       save: async (item: MemoryItem) => { bank.set(item.id, item); },
+      index: async (items: MemoryItem[]) => {
+        if (indexDown) throw indexDown;
+        indexed.push(...items.map((item) => item.id));
+      },
       unindex: async (_ownerId: string, gone: string[]) => { unindexed.push(...gone); },
       search: async (ownerId: string, query: string, limit: number) => {
         asked.push({ ownerId, query, limit });
@@ -55,6 +61,8 @@ beforeEach(() => {
   ranked = [];
   asked = [];
   notices = [];
+  indexed = [];
+  indexDown = undefined;
 });
 
 describe('the Recall Memory node', () => {
@@ -183,6 +191,21 @@ describe('the Save Memory node', () => {
 
     expect(outcome).toMatchObject({ exit: 'saved' });
     expect(bank.get('new-1')).toMatchObject({ text: 'Builds run on the GPU box.', category: 'environment_facts', scope: 'project', projectId: 'p1', source: 'agent_tool' });
+    expect(indexed).toEqual(['new-1']);
+  });
+
+  it('saves while the index is down, and the chat says it is found once the index answers again', async () => {
+    indexDown = new DependencyDownError('qdrant', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
+
+    const outcome = await step('save-memory')({ text: 'Builds run on the GPU box.' });
+
+    expect(outcome).toMatchObject({ exit: 'saved' });
+    expect(bank.get('new-1')?.indexPending).toBe(true);
+    expect(notices).toEqual([expect.objectContaining({
+      type: 'notice',
+      level: 'warn',
+      message: 'Saved, and found once the index answers again: the memory index\'s meanings (Qdrant) isn\'t answering since 10:00 UTC: its pod is not ready',
+    })]);
   });
 
   it('does not store the same thing twice, as the tool does not', async () => {

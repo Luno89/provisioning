@@ -14,9 +14,14 @@ let db: Database;
 let lastConsolidation: ConsolidationReport | undefined;
 let unindexed: string[][];
 let indexRefuses: Error | undefined;
+let indexed: string[][];
+let indexDown: Error | undefined;
 
 const call = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) => {
-  const routes = await routesInProcess({ prefix: '/api/memories', router: () => memoriesRouter({ db, temporalBridge: lastConsolidation ? { lastConsolidation } : {}, unindex: async (_ownerId, ids) => { if (indexRefuses) throw indexRefuses; unindexed.push(ids); } }), user: user ?? PERSON, db });
+  const routes = await routesInProcess({ prefix: '/api/memories', router: () => memoriesRouter({ db, temporalBridge: lastConsolidation ? { lastConsolidation } : {}, indexing: {
+    index: async (items) => { if (indexDown) throw indexDown; indexed.push(items.map((item) => item.id)); },
+    unindex: async (_ownerId, ids) => { if (indexRefuses) throw indexRefuses; unindexed.push(ids); },
+  } }), user: user ?? PERSON, db });
   return routes.request(method, `/api/memories${path}`, { body });
 };
 
@@ -32,6 +37,8 @@ beforeEach(() => {
   lastConsolidation = report;
   unindexed = [];
   indexRefuses = undefined;
+  indexed = [];
+  indexDown = undefined;
 });
 
 describe('/api/memories', () => {
@@ -79,6 +86,26 @@ describe('/api/memories', () => {
     expect(await call('/', 'POST', { category: 'lessons_learned', title: 'T' })).toMatchObject({ status: 400, data: { error: 'category, title, and text are required' } });
     expect(await call('/', 'POST', { category: 'gossip', title: 'T', text: 'X' })).toMatchObject({ status: 400, data: { error: 'gossip is not a kind of memory' } });
     expect(await mine()).toEqual([]);
+  });
+
+  it('indexes a memory the person adds, and again as it reads after each change they make, so recall finds it at once', async () => {
+    const item = await made({ scope: 'project', projectId: 'p1' });
+    expect(indexed).toEqual([[item.id]]);
+
+    await call(`/${item.id}`, 'PUT', { title: 'Arguments as objects' });
+    await call(`/${item.id}/promote`, 'PUT');
+
+    expect(unindexed).toEqual([[item.id], [item.id]]);
+    expect(indexed).toEqual([[item.id], [item.id], [item.id]]);
+  });
+
+  it('keeps a memory the person adds while the index is down, to be indexed once the index answers again', async () => {
+    indexDown = new DependencyDownError('qdrant', '2026-11-21T10:00:00.000Z', 'its pod is not ready');
+
+    const answer = await call('/', 'POST', { category: 'lessons_learned', title: 'T', text: 'X', scope: 'global' });
+
+    expect(answer.status).toBe(201);
+    expect(await mine()).toEqual([expect.objectContaining({ title: 'T', indexPending: true })]);
   });
 
   it('takes a deleted memory out of the index, so recall never finds it again', async () => {

@@ -37,7 +37,7 @@ import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
-import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, searcherFrom, unindexerFrom, type MemorySearcher, type MemoryUnindexer } from '../../memory/index.js';
+import { WorkspaceConclusionService, MemoryKeeperService, PracticeService, memoriesRouter, indexerFrom, searcherFrom, unindexerFrom, type MemoryIndexer, type MemoryIndexing, type MemorySearcher, type MemoryUnindexer } from '../../memory/index.js';
 import { AgentService } from '../services/AgentService.js';
 import { AgentChangeService } from '../services/AgentChangeService.js';
 import { ProcedureService } from '../services/ProcedureService.js';
@@ -314,6 +314,10 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const unindexMemories: MemoryUnindexer = isOff(memoryIndex)
     ? async () => { throw new Error(`no memory can be taken out of an index here: ${memoryIndex.off}`); }
     : unindexerFrom(memoryIndex);
+  const indexMemories: MemoryIndexer = isOff(memoryIndex)
+    ? async () => { throw new Error(`no memory can be indexed here: ${memoryIndex.off}`); }
+    : indexerFrom(memoryIndex);
+  const memoryIndexing: MemoryIndexing = { index: indexMemories, unindex: unindexMemories };
   const searchMemories: MemorySearcher = isOff(memoryIndex)
     ? async () => { throw new Error(`no memory can be searched here: ${memoryIndex.off}`); }
     : searcherFrom(memoryIndex);
@@ -343,7 +347,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     hidden: (ownerId: string) => extensions.hidden(ownerId),
     published: (ownerId: string) => extensions.groups(ownerId),
     models: deps.models,
-    stores: storesFromDatabase(db, { unindex: unindexMemories, search: searchMemories }),
+    stores: storesFromDatabase(db, { ...memoryIndexing, search: searchMemories }),
     owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     cluster: deps.koalasCluster,
@@ -362,8 +366,8 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     efforts: { save: (effort) => db.engine.saveRunEffort(effort) },
   });
 
-  const practiceService = new PracticeService({ store: db.memory, unindex: unindexMemories });
-  const toolNoteService = new PracticeService({ store: db.memory, unindex: unindexMemories, category: 'tool_note' });
+  const practiceService = new PracticeService({ store: db.memory, indexing: memoryIndexing });
+  const toolNoteService = new PracticeService({ store: db.memory, indexing: memoryIndexing, category: 'tool_note' });
   const agentChanges = new AgentChangeService({
     store: db.checks,
     savePrompt: async (ownerId, slug, prompt) => {
@@ -576,7 +580,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   });
   tenant.use('/api/documents', documentsRouter({ documents: documentService }));
   tenant.use('/api/turns', turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) } }));
-  tenant.use('/api/memories', memoriesRouter({ db, temporalBridge, unindex: unindexMemories }));
+  tenant.use('/api/memories', memoriesRouter({ db, temporalBridge, indexing: memoryIndexing }));
   const poisoning = new PoisoningService({
     store: db.engine,
     memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex: unindexMemories },

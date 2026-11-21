@@ -49,7 +49,7 @@ const backend = await startBackend(async (site) => {
   })
   const poisoning = new PoisoningService({
     store: db.engine,
-    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex: standInMemoryIndex() },
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item), unindex: standInMemoryIndex().unindex },
     unseal: (sealed) => decryptValue(sealed, DATA_KEY),
   })
   site.api.use('/monitoring', monitoringRouter({ monitoring }))

@@ -59,9 +59,11 @@ const writeOf = ({ node, inputs, run }: Pick<NodeRequest, 'node' | 'inputs' | 'r
   model: modelOf(inputs.binding),
 });
 
-const written = (outcome: MemoryWritten, exit: string): StepResult => {
+const written = (outcome: MemoryWritten, exit: string, run: NodeRequest['run'], nodeId: string): StepResult => {
   if ('refused' in outcome) return { exit: 'refused', outputs: { memory: { reason: outcome.refused } } };
-  return { exit, outputs: { memory: 'known' in outcome ? outcome.known : outcome.saved } };
+  if ('known' in outcome) return { exit, outputs: { memory: outcome.known } };
+  if (outcome.unindexed) run.emit({ type: 'notice', level: 'warn', nodeId, message: `Saved, and found once the index answers again: ${lowerFirst(outcome.unindexed)}` } as never);
+  return { exit, outputs: { memory: outcome.saved } };
 };
 
 export function createMemoryNodes(services: HostNodeServices): NodeImplementation[] {
@@ -102,12 +104,12 @@ export function createMemoryNodes(services: HostNodeServices): NodeImplementatio
       return { outputs: { text: memoryPointer(kept) } };
     }),
 
-    stepImplementation('save-memory', async (request) => written(await writer.save(writeOf(request)), 'saved')),
+    stepImplementation('save-memory', async (request) => written(await writer.save(writeOf(request)), 'saved', request.run, request.node.id)),
 
     stepImplementation('update-memory', async (request) => {
       const id = wiredText(request.inputs.id);
       if (!id) return { exit: 'refused', outputs: { memory: { reason: 'give the id of the memory to update' } } };
-      return written(await writer.save({ ...writeOf(request), replaces: id }), 'updated');
+      return written(await writer.save({ ...writeOf(request), replaces: id }), 'updated', request.run, request.node.id);
     }),
 
     stepImplementation('forget-memory', async ({ inputs, run }) => {

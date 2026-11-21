@@ -1,7 +1,7 @@
 import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { DeferredConclusion, KeeperSettings } from './lib/conclusions.js';
-import type { KeepingRecords, KeepingState } from './lib/memory-keeping.js';
+import type { KeepingRecords, KeepingState } from './services/memory-keeping.js';
 import type { MemoryItem } from './lib/memory-store.js';
 
 export interface MemoryStore extends AreaStore, KeepingRecords {
