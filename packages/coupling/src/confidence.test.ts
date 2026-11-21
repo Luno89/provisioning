@@ -203,6 +203,28 @@ describe('the report', () => {
   });
 });
 
+describe('a function\'s confidence from its own mutation score', () => {
+  it('moves a function\'s confidence from what its layers give toward how many planted faults its own tests caught', () => {
+    const judged = judge(codebase({
+      runs: [{ test: 'u', layer: 'unit', units: ['save', 'store'], links: [] }],
+      scores: { save: { caught: 2, missed: 18 }, store: { caught: 40, missed: 0 } },
+    }), WEIGHTS);
+    const of = (id: string) => judged.functions.find((one) => one.id === id)!;
+
+    expect(of('save').confidence).toBeCloseTo((0.5 * 10 + 2) / (10 + 20));
+    expect(of('store').confidence).toBeCloseTo((0.5 * 10 + 40) / (10 + 40));
+    expect(of('save').scored).toEqual({ caught: 2, missed: 18 });
+    expect(of('save').risk).toBeGreaterThan(of('store').risk);
+  });
+
+  it('leaves a function no mutation run judged at what its layers give, and says it was not scored', () => {
+    const judged = judge(codebase({ runs: [{ test: 'u', layer: 'unit', units: ['save'], links: [] }] }), WEIGHTS);
+    const save = judged.functions.find((one) => one.id === 'save')!;
+    expect(save.confidence).toBeCloseTo(0.5);
+    expect(save.scored).toBeUndefined();
+  });
+});
+
 describe('functions whose tests let planted faults through', () => {
   it('lists the functions whose tests missed the most planted faults, with what was changed, after the riskiest functions', () => {
     const judged = judge(codebase({

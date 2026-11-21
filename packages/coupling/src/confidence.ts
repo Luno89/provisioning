@@ -13,7 +13,9 @@ export interface History { changes?: Record<string, number>; failures?: Record<s
 
 export interface Unchecked { survived: number; examples: string[] }
 
-export interface Codebase { units: CodeUnit[]; links: Link[]; runs: Run[]; changed: string[]; versions?: Record<string, string>; history?: History; unchecked?: Record<string, Unchecked> }
+export interface Score { caught: number; missed: number }
+
+export interface Codebase { units: CodeUnit[]; links: Link[]; runs: Run[]; changed: string[]; versions?: Record<string, string>; history?: History; unchecked?: Record<string, Unchecked>; scores?: Record<string, Score> }
 
 export type Weights = Record<Layer, number>;
 
@@ -31,7 +33,9 @@ export interface JudgedLink extends Link {
   risk: number;
 }
 
-export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: number; lentBy?: string; risk: number }
+export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: number; lentBy?: string; scored?: Score; risk: number }
+
+const SCORE_STRENGTH = 10;
 
 export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[]; unchecked: Array<CodeUnit & Unchecked> }
 
@@ -120,8 +124,10 @@ export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKi
   const functions = codebase.units.map((unit): JudgedUnit => {
     const runAt = LAYERS.filter((layer) => ranAt.get(unit.id)?.has(layer));
     const borrowed = runAt.length === 0 ? borrowedBy(unit.id) : undefined;
-    const confidence = borrowed?.confidence ?? confidenceOf(runAt, weights);
-    return { ...unit, runAt, confidence, risk: (1 - confidence) * weight(unit.id), ...(borrowed ? { lentBy: borrowed.from } : {}) };
+    const fromLayers = borrowed?.confidence ?? confidenceOf(runAt, weights);
+    const scored = codebase.scores?.[unit.id];
+    const confidence = scored ? (fromLayers * SCORE_STRENGTH + scored.caught) / (SCORE_STRENGTH + scored.caught + scored.missed) : fromLayers;
+    return { ...unit, runAt, confidence, risk: (1 - confidence) * weight(unit.id), ...(borrowed ? { lentBy: borrowed.from } : {}), ...(scored ? { scored } : {}) };
   });
   const changed = new Set(codebase.changed);
   const untested = codebase.units.filter((unit) => !ranAt.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id));
