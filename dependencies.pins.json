@@ -1017,10 +1017,25 @@
       "uses": [
         {
           "file": "packages/engine-core/testing/shared.ts",
-          "pattern": "version: 'v([0-9.]+)'"
+          "pattern": "temporalServerExecutable = .*version: 'v([0-9.]+)'"
         }
       ],
       "released": "2026-11-13T19:40:30Z"
+    },
+    {
+      "kind": "binary",
+      "name": "temporal-test-server",
+      "version": "1.41.1",
+      "where": "the tests' time-skipping Temporal test server, which the SDK would otherwise fetch as whatever \"default\" names on the day",
+      "source": "https://github.com/temporalio/sdk-java/releases/tag/v1.41.1",
+      "github": "temporalio/sdk-java",
+      "uses": [
+        {
+          "file": "packages/engine-core/testing/shared.ts",
+          "pattern": "temporalTestServerExecutable = .*version: 'v([0-9.]+)'"
+        }
+      ],
+      "released": "2026-11-16T23:20:50Z"
     },
     {
       "kind": "chart",
