@@ -49,6 +49,13 @@ describe('what a call is refused', () => {
     expect(accessProblem('search_web', TOOL_ACCESS.search_web!, someoneElse, 'owner', {}, {})).toBeUndefined();
   });
 
+  it('reads a project\'s environment with its own permission, which everyone who may see its secrets holds too', () => {
+    expect(TOOL_ACCESS.get_project_env).toEqual({ on: 'project', action: 'see-env' });
+    expect(ruleFor('project', 'see-env').who).toEqual(expect.arrayContaining([...ruleFor('project', 'see-secrets').who]));
+    expect(accessProblem('get_project_env', TOOL_ACCESS.get_project_env!, owner, 'owner', {}, theirs)).toBeUndefined();
+    expect(accessProblem('get_project_env', TOOL_ACCESS.get_project_env!, someoneElse, 'owner', {}, theirs)).toBe('get_project_env was not run: Only the owner can see this project\'s environment.');
+  });
+
   it('takes a project no one can resolve as the owner\'s, and names nothing outside it in a refusal', () => {
     expect(accessProblem('get_project_url', TOOL_ACCESS.get_project_url!, owner, 'owner', {}, {})).toBeUndefined();
     const refusal = accessProblem('read_tree', TOOL_ACCESS.read_tree!, owner, 'owner', { treeId: 'secret-tree' }, { outside: 'treeId' })!;

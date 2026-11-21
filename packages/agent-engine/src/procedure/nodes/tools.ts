@@ -13,14 +13,12 @@ export function templateProblems(settings: Readonly<Record<string, unknown>>, na
   }
 }
 
-export const APPROVAL_POLICIES = ['on-a-machine', 'always', 'never'] as const;
-
 export const approveToolCalls: BuiltInNode = {
   definition: defineNode({
     kind: 'approve-tool-calls',
     title: 'Approve Tool Calls',
     category: 'tools',
-    describe: 'Asks a person to allow each tool call before it runs. By default it asks for every call when the run is working on someone\'s own machine, and for any call to a tool that can destroy or overwrite something outside a sandbox; a call that runs inside the run\'s sandbox never asks, whatever it does. A run whose agent or tree is in auto mode is never asked about. A refused call gets a result saying so, which goes back to the model.',
+    describe: 'Asks a person about the reply\'s tool calls before any of them runs, by the same rule every tool call is held to: every call on someone\'s own machine, and any call to a tool that can destroy or overwrite something elsewhere; a call that runs inside the run\'s sandbox never asks, and a run in auto mode is never asked about. A call asked about here is not asked about again when it runs. A refused call gets a result saying so, which goes back to the model.',
     role: 'step',
     inputs: [
       { name: 'reply', type: 'reply', describe: 'The reply whose tool calls need approving.', required: true },
@@ -35,26 +33,10 @@ export const approveToolCalls: BuiltInNode = {
       { name: 'approved', describe: 'At least one call may run.' },
       { name: 'refused', describe: 'Every call was refused.' },
     ],
-    settings: {
-      type: 'object',
-      properties: {
-        ask: {
-          type: 'string',
-          title: 'Ask',
-          describe: '"on-a-machine" asks for every call on a registered machine and for destructive calls outside the run\'s sandbox, "always" asks for every call, "never" lets everything through, destructive or not.',
-          enum: APPROVAL_POLICIES,
-          default: 'on-a-machine',
-        },
-      },
-    },
+    settings: { type: 'object', properties: {} },
     runs: 'orchestration',
     idempotent: true,
-    summarize: (settings) => {
-      const ask = textOf(settings, 'ask', 'on-a-machine');
-      if (ask === 'always') return 'asks before every tool call';
-      if (ask === 'never') return 'lets every tool call through';
-      return 'asks before a tool call on someone\'s machine';
-    },
+    summarize: () => 'asks before a tool call on someone\'s machine or one that can destroy something',
   }),
 };
 

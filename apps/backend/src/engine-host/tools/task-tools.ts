@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { leafContextLine } from '../../projects/lib/plan-documents.js';
 import { e2eRequestOf } from '../../engine/lib/e2e.js';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import {
   describeProblem,
   findCycle,
@@ -32,10 +32,7 @@ export type TaskToolsOptions = TaskToolOptions;
 
 const refuse = (why: string): ToolOutcome => ({ ok: false, digest: why, content: why });
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
 const asStringList = (parsed: Record<string, unknown>, key: string): string[] => {
   const value = parsed[key];

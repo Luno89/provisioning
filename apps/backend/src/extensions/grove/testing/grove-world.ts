@@ -369,7 +369,7 @@ export class GroveWorld {
       models,
       tools: { run: runTool },
       environments: resolver,
-      memories: { list: async () => [], save: async () => undefined },
+      memories: { list: async () => [], save: async () => undefined, unindex: async () => undefined },
       operations: vanishingAfterStart(operationHandlers(extensionRuntimes({
         grove: {
           operations: { ...stores, treeWorkspaces, environments: resolver, registry, now: this.now },
@@ -383,8 +383,6 @@ export class GroveWorld {
       registry,
       store: {
         save: async (effort) => { efforts.push(effort); },
-        list: async (ownerId, procedureId, modelKey) => efforts.filter((effort) =>
-          effort.ownerId === ownerId && effort.procedureId === procedureId && effort.modelKey === modelKey),
       },
     });
 

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { refuse, textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { AgentChange } from '../../engine/index.js';
 
 export interface AgentChangeAccess {
@@ -13,12 +13,7 @@ export interface AgentChangeAccess {
   newId?: (() => string) | undefined;
 }
 
-const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
-
-const text = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const text = textArgument;
 
 const WAITING = new Set(['proposed', 'comparing', 'ready']);
 

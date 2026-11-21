@@ -2,7 +2,6 @@ import {
   callModel,
   circlingNotice,
   circlingNudge,
-  contextPressure,
   createMonitorSet,
   fittedMaxTokens,
   createRunState,
@@ -16,9 +15,7 @@ import {
   DECIDE_INSTRUCTIONS,
   DEFAULT_COMPACT_AT,
   DEFAULT_COMPACT_KEEP,
-  DEFAULT_COMPACT_TAIL,
-  compactedView,
-  compactionBoundary,
+  compactConversation,
   summaryRequest,
   type Compaction,
   DEFAULT_CONTEXT_MARGIN,
@@ -51,6 +48,16 @@ const roomForReply = (binding: ModelBinding, system: string, messages: readonly 
   binding.contextTokens,
 );
 
+const endpointOf = (provider: { id: string; name: string; model?: string | undefined; kind?: string | undefined }, baseUrl: string, apiKey: string | undefined, ownerId: string): EngineEndpoint => ({
+  baseUrl,
+  ...(apiKey ? { apiKey } : {}),
+  ...(provider.model ? { model: provider.model } : {}),
+  ...(provider.kind ? { kind: provider.kind as ModelKind } : {}),
+  rateLimitKey: provider.id,
+  ownerId,
+  label: provider.name,
+});
+
 const numberUsage = (usage: Record<string, unknown> | undefined, key: string): number => {
   const value = usage?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -65,7 +72,7 @@ export function withTemperature(base: SamplingConfig | undefined, temperature: n
   };
 }
 
-export type ModelNodeServices = Pick<HostNodeServices, 'registry' | 'models' | 'streamMonitors' | 'fetchImpl' | 'efforts'>;
+export type ModelNodeServices = Pick<HostNodeServices, 'registry' | 'models' | 'streamMonitors' | 'fetchImpl'>;
 
 export function createModelNodes(services: ModelNodeServices): NodeImplementation[] {
   return [
@@ -94,14 +101,6 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
       const sampling = withTemperature(run.launch.sampling ?? persona.sampling, temperature);
 
       const written = typeof node.settings.replyCeiling === 'number' ? node.settings.replyCeiling : persona.model?.replyCeiling;
-      const learned = written === undefined
-        ? await services.efforts?.replyCeiling({
-          ownerId: run.launch.ownerId,
-          procedureId: run.identity.loopId,
-          modelKey: provider.id,
-          agentSlug: run.identity.agentId,
-        })
-        : undefined;
 
       const binding: ModelBinding = {
         providerId: provider.id,
@@ -111,7 +110,7 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
         ...(modelId ? { modelId } : {}),
         ...(endpointId ? { endpointId } : {}),
         contextTokens: provider.contextTokens ?? FALLBACK_CONTEXT_TOKENS,
-        ...(written ?? learned ? { replyCeiling: written ?? learned } : {}),
+        ...(written !== undefined ? { replyCeiling: written } : {}),
         ...(sampling ? { sampling } : {}),
         ...(persona.model?.reasoningEffort ? { reasoningEffort: persona.model.reasoningEffort } : {}),
       };
@@ -126,15 +125,7 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
       const tools = (inputs.tools as ToolSet | undefined) ?? [];
       const { provider, baseUrl, apiKey } = await services.models.resolveBaseUrl(run.launch.ownerId, binding.modelId, binding.endpointId);
 
-      const endpoint: EngineEndpoint = {
-        baseUrl,
-        ...(apiKey ? { apiKey } : {}),
-        ...(provider.model ? { model: provider.model } : {}),
-        ...(provider.kind ? { kind: provider.kind as ModelKind } : {}),
-        rateLimitKey: provider.id,
-        ownerId: run.launch.ownerId,
-        label: provider.name,
-      };
+      const endpoint: EngineEndpoint = endpointOf(provider, baseUrl, apiKey, run.launch.ownerId);
 
       const stopOverthinking = node.settings.stopOverthinking !== false;
       const lastAsk = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
@@ -239,15 +230,7 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
 
       const result = await callModel(
         {
-          endpoint: {
-            baseUrl,
-            ...(apiKey ? { apiKey } : {}),
-            ...(provider.model ? { model: provider.model } : {}),
-            ...(provider.kind ? { kind: provider.kind as ModelKind } : {}),
-            rateLimitKey: provider.id,
-            ownerId: run.launch.ownerId,
-            label: provider.name,
-          },
+          endpoint: endpointOf(provider, baseUrl, apiKey, run.launch.ownerId),
           messages: toWireMessages(DECIDE_INSTRUCTIONS, asked),
           maxTokens: room,
           ...(binding.sampling ? { sampling: binding.sampling } : {}),
@@ -285,54 +268,45 @@ export const connectionLostNotice = (nodeId: string, model: string, why: string)
 
 export function createCompactContextNode(services: Pick<HostNodeServices, 'models' | 'fetchImpl'>): NodeImplementation {
   return stepImplementation('compact-context', async ({ node, inputs, previous, run }) => {
-    const messages = (inputs.messages as ChatMessage[] | undefined) ?? [];
     const binding = inputs.binding as ModelBinding;
-    const system = typeof inputs.system === 'string' ? inputs.system : '';
-    const at = typeof node.settings.at === 'number' ? node.settings.at : DEFAULT_COMPACT_AT;
-    const keep = typeof node.settings.keep === 'number' ? node.settings.keep : DEFAULT_COMPACT_KEEP;
-    const kept = previous?.compaction as Compaction | undefined;
-    const view = compactedView(messages, kept);
-    const unchanged = { messages: view, ...(kept && kept.through <= messages.length ? { compaction: kept } : {}) };
-
-    const pressure = contextPressure({ contextTokens: binding.contextTokens, contextMargin: DEFAULT_CONTEXT_MARGIN } as never, promptCharacters(system, view), binding.contextTokens);
-    if (pressure < at) return { exit: 'fits', outputs: unchanged };
-    const boundary = compactionBoundary(view, keep, binding.contextTokens * 4 * DEFAULT_COMPACT_TAIL);
-    if (boundary === 0) return { exit: 'fits', outputs: unchanged };
-
-    const { provider, baseUrl, apiKey } = await services.models.resolveBaseUrl(run.launch.ownerId, binding.modelId, binding.endpointId);
-    const asked = summaryRequest(view.slice(0, boundary));
-    const room = roomForReply(binding, COMPACT_INSTRUCTIONS, asked);
-    const result = await callModel(
+    const done = await compactConversation(
       {
-        endpoint: {
-          baseUrl,
-          ...(apiKey ? { apiKey } : {}),
-          ...(provider.model ? { model: provider.model } : {}),
-          ...(provider.kind ? { kind: provider.kind as ModelKind } : {}),
-          rateLimitKey: provider.id,
-          ownerId: run.launch.ownerId,
-          label: provider.name,
-        },
-        messages: toWireMessages(COMPACT_INSTRUCTIONS, asked),
-        maxTokens: room,
-        ...(binding.sampling ? { sampling: binding.sampling } : {}),
-        ...(run.signal ? { signal: run.signal } : {}),
-        ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
-        onConnectionLost: (why) => run.emit(connectionLostNotice(node.id, provider.name, why) as never),
+        messages: (inputs.messages as ChatMessage[] | undefined) ?? [],
+        system: typeof inputs.system === 'string' ? inputs.system : '',
+        binding,
+        previous: previous?.compaction as Compaction | undefined,
+        at: typeof node.settings.at === 'number' ? node.settings.at : DEFAULT_COMPACT_AT,
+        keep: typeof node.settings.keep === 'number' ? node.settings.keep : DEFAULT_COMPACT_KEEP,
       },
-      () => undefined,
+      async (older) => {
+        const { provider, baseUrl, apiKey } = await services.models.resolveBaseUrl(run.launch.ownerId, binding.modelId, binding.endpointId);
+        const asked = summaryRequest(older);
+        const result = await callModel(
+          {
+            endpoint: endpointOf(provider, baseUrl, apiKey, run.launch.ownerId),
+            messages: toWireMessages(COMPACT_INSTRUCTIONS, asked),
+            maxTokens: roomForReply(binding, COMPACT_INSTRUCTIONS, asked),
+            ...(binding.sampling ? { sampling: binding.sampling } : {}),
+            ...(run.signal ? { signal: run.signal } : {}),
+            ...(services.fetchImpl ? { fetchImpl: services.fetchImpl } : {}),
+            onConnectionLost: (why) => run.emit(connectionLostNotice(node.id, provider.name, why) as never),
+          },
+          () => undefined,
+        );
+        const usage = {
+          promptTokens: numberUsage(result.usage, 'prompt_tokens'),
+          completionTokens: numberUsage(result.usage, 'completion_tokens'),
+          totalTokens: numberUsage(result.usage, 'total_tokens'),
+        };
+        if (result.interrupted) return { interrupted: result.interrupted, usage };
+        const summary = result.content.trim();
+        if (!summary) throw new Error('the model was asked to summarise the conversation to fit its context window and returned nothing');
+        return { summary, usage };
+      },
     );
-    const usage = {
-      promptTokens: numberUsage(result.usage, 'prompt_tokens'),
-      completionTokens: numberUsage(result.usage, 'completion_tokens'),
-      totalTokens: numberUsage(result.usage, 'total_tokens'),
-    };
-    if (result.interrupted) return { interrupted: result.interrupted, usage };
-    const summary = result.content.trim();
-    if (!summary) throw new Error('the model was asked to summarise the conversation to fit its context window and returned nothing');
-
-    const compaction: Compaction = { summary, through: kept && kept.through <= messages.length ? kept.through + boundary - 1 : boundary };
-    run.emit({ type: 'notice', level: 'info', nodeId: node.id, message: `the conversation was summarised to fit the context window: ${compaction.through} earlier messages now stand as one summary` } as never);
-    return { exit: 'compacted', outputs: { messages: compactedView(messages, compaction), compaction }, usage };
+    if ('interrupted' in done) return { interrupted: done.interrupted, ...(done.usage ? { usage: done.usage } : {}) };
+    if (!done.compacted) return { exit: 'fits', outputs: { messages: done.messages, ...(done.compaction ? { compaction: done.compaction } : {}) } };
+    run.emit({ type: 'notice', level: 'info', nodeId: node.id, message: `the conversation was summarised to fit the context window: ${done.compaction.through} earlier messages now stand as one summary` } as never);
+    return { exit: 'compacted', outputs: { messages: done.messages, compaction: done.compaction }, ...(done.usage ? { usage: done.usage } : {}) };
   });
 }

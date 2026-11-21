@@ -19,7 +19,7 @@ const deployed = (appType: string, over: Partial<DeploymentMetadata> = {}): Depl
 
 describe('/api/memories', () => {
   let harness: Harness;
-  const report: ConsolidationReport = { at: '2026-10-31T00:00:00.000Z', indexed: 0, deduped: 0, promoted: 0, decayed: 0, unreachable: 0, live: 3 };
+  const report: ConsolidationReport = { at: '2026-10-31T00:00:00.000Z', indexed: 0, deduped: 0, promoted: 0, unreachable: 0, live: 3 };
 
   beforeEach(async () => {
     harness = await mountRouter({

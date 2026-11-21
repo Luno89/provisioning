@@ -155,6 +155,11 @@ export interface ExecuteToolInput {
 
 export const refuse = (why: string): ToolOutcome => ({ ok: false, digest: why, content: why });
 
+export const textArgument = (parsed: Record<string, unknown>, key: string): string | undefined => {
+  const value = parsed[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+};
+
 export function toolArgumentsOf(name: string, text: string): { args: Record<string, unknown> } | { problem: string } {
   if (!text.trim()) return { args: {} };
   let parsed: unknown;

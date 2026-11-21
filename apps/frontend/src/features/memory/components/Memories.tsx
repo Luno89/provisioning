@@ -180,13 +180,12 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
         )}
       </div>
 
-      {consolidation && (consolidation.deduped > 0 || consolidation.decayed > 0 || consolidation.promoted > 0) && (
+      {consolidation && (consolidation.deduped > 0 || consolidation.promoted > 0) && (
         <div className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl p-3 text-[11px] text-slate-400 flex items-center gap-2">
           <Brain size={13} className="text-[var(--leaf-light)] shrink-0" />
           <span>
             Last consolidation kept <strong className="text-slate-200">{consolidation.live}</strong> memories
-            {consolidation.deduped > 0 && <> · retired <strong className="text-slate-200">{consolidation.deduped}</strong> duplicate(s)</>}
-            {consolidation.decayed > 0 && <> · retired <strong className="text-slate-200">{consolidation.decayed}</strong> unused</>}
+            {consolidation.deduped > 0 && <> · merged <strong className="text-slate-200">{consolidation.deduped}</strong> duplicate(s)</>}
             {consolidation.promoted > 0 && <> · promoted <strong className="text-slate-200">{consolidation.promoted}</strong> finding(s)</>}
           </span>
         </div>
@@ -482,6 +481,11 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                     {m.supersededBy && (
                       <span className="truncate">
                         Superseded by <span className="text-slate-400">{titleOf(m.supersededBy) ?? m.supersededBy}</span>
+                      </span>
+                    )}
+                    {m.mergedInto && (
+                      <span className="truncate">
+                        <span>Merged into</span> <span className="text-slate-400">{titleOf(m.mergedInto) ?? m.mergedInto}</span>
                       </span>
                     )}
                   </div>

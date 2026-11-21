@@ -65,13 +65,7 @@ export {
   ASK_CHARS,
   EFFORT_HISTORY,
   EFFORT_MEASURES,
-  HEADROOM,
-  SUCCESSES_BEFORE_LIMITS,
   TYPICAL_PERCENTILE,
-  limitsFor,
-  replyCeilingFor,
-  replyCeilingFrom,
-  LIMITS_ARE_ADVISORY,
   percentile,
   trackRecord,
   trackRecordsByModel,
@@ -81,8 +75,6 @@ export {
 } from './effort.js';
 export {
   runProcedure,
-  PROCEDURE_STEP_CAP,
-  CLEANUP_STEP_CAP,
   type UsageDelta,
   type RunContext,
   type RunLaunch,

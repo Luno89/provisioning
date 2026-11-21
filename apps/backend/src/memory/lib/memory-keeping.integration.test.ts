@@ -40,7 +40,7 @@ describe('consolidating a person\'s memories in Mongo with their own Quickwit, Q
     const report = await consolidateOwner({ db, reach: async () => standIn.endpoints, now: () => NOW }, 'keeper-owner');
 
     expect(report).toMatchObject({ deduped: 1, live: 2, indexed: 2 });
-    expect((await db.memory.getMemories('keeper-owner')).map((item) => [item.id, item.invalidAt ? `retired for ${item.supersededBy}` : 'current']).sort())
+    expect((await db.memory.getMemories('keeper-owner')).map((item) => [item.id, item.invalidAt ? `retired for ${item.mergedInto}` : 'current']).sort())
       .toEqual([['keep-a', 'retired for keep-b'], ['keep-b', 'current'], ['keep-c', 'current']]);
     expect(standIn.documents(MEMORY_INDEX).map((doc) => doc.memory_id)).not.toContain('keep-a');
     expect(standIn.points(MEMORY_COLLECTION).map((point) => point.memory_id).sort()).toEqual(['keep-b', 'keep-c']);
@@ -86,7 +86,7 @@ describe('consolidating everyone\'s memories in Mongo, each person on their own'
 
     const ours = outcomes.filter((outcome) => outcome.state.ownerId.startsWith('keeping-'));
     expect(ours.map((outcome) => [outcome.state.ownerId, outcome.state.state]).sort()).toEqual([['keeping-ann', 'down'], ['keeping-bob', 'kept']]);
-    expect((await db.memory.getMemories('keeping-bob')).map((item) => [item.id, item.invalidAt ? `retired for ${item.supersededBy}` : 'current']).sort())
+    expect((await db.memory.getMemories('keeping-bob')).map((item) => [item.id, item.invalidAt ? `retired for ${item.mergedInto}` : 'current']).sort())
       .toEqual([['bob-a', 'retired for bob-b'], ['bob-b', 'current']]);
     expect(standIn.points(MEMORY_COLLECTION).map((point) => point.memory_id)).not.toContain('bob-a');
     expect((await db.memory.getMemories('keeping-ann')).filter((item) => !item.invalidAt).map((item) => item.id).sort()).toEqual(['ann-a', 'ann-b']);

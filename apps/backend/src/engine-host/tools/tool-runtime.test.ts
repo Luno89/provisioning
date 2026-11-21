@@ -419,3 +419,31 @@ describe('a tool call naming a project', () => {
   });
 });
 
+
+describe('a destructive call', () => {
+  const DROP: ToolContract = { name: 'drop_tree', description: 'Delete a tree', binding: 'platform', destructive: true };
+  const WIPE: ToolContract = { name: 'wipe_dir', description: 'Wipe a directory', binding: 'environment', destructive: true, requires: { filesystem: true } };
+  const DROPPER: AgentDefinition = { ...EXECUTOR, tools: [...EXECUTOR.tools, 'drop_tree', 'wipe_dir'] };
+  const dropped = vi.fn(async () => ({ ok: true, digest: 'dropped' }));
+  const tools = (driver: EnvironmentDriver | undefined) => createToolRuntime({
+    grants: GRANTS,
+    registry: createAgentRegistry({ agentStore: { list: async () => [DROPPER] }, toolCatalogue: { list: async () => [...CATALOGUE, DROP, WIPE] } }),
+    environments: sourceFor(driver),
+    handlers: { drop_tree: dropped },
+  });
+
+  it('is not run until a person has allowed it, whatever the procedure wired, and says it asks', async () => {
+    const asked = await tools(undefined).run(args({ name: 'drop_tree', arguments: '{}' }));
+
+    expect(asked).toMatchObject({ ok: false, asks: true });
+    expect(dropped).not.toHaveBeenCalled();
+    expect(await tools(undefined).run(args({ name: 'drop_tree', arguments: '{}', approved: true }))).toMatchObject({ ok: true, digest: 'dropped' });
+  });
+
+  it('runs inside the run\'s sandbox without asking when its tool works there', async () => {
+    const { driver } = sandbox();
+    const outcome = await tools(driver).run(args({ name: 'wipe_dir', arguments: '{"path":"build"}', environment: { id: 'sb-1', spec } }));
+
+    expect(outcome.asks).toBeUndefined();
+  });
+});

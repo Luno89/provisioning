@@ -1,3 +1,4 @@
+import { dnsMemory } from '../../memory/testing/memories.js';
 import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
@@ -13,10 +14,7 @@ let ids: number;
 let unindexed: { ownerId: string; ids: string[]; liveThen: boolean[] }[];
 let indexRefuses: string | undefined;
 
-const memory = (over: Partial<MemoryItem>): MemoryItem => ({
-  id: 'm1', ownerId: 'u1', category: 'environment_facts', scope: 'global', status: 'active',
-  title: 'DNS lives at Cloudflare', text: 'The person manages DNS for their domain at Cloudflare.', createdAt: 'then', updatedAt: 'then', ...over,
-});
+const memory = dnsMemory;
 
 const tools = () => createMemoryTools({
   agents: async () => ['koala', 'executor'],

@@ -1,3 +1,4 @@
+import { sandboxDriverFor } from '../testing/host-fixtures.js';
 import { anyOf, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createEventBus, fittedMaxTokens, type AgentDefinition, type EngineEvent, type Monitor, type ModelProvider } from '@koala/agent-engine';
@@ -17,7 +18,6 @@ import type { ToolContract } from '@koala/engine-core';
 import { createAgentRegistry } from '../registries/registry.js';
 import { createEnvironmentResolver } from '../sandboxes/environments.js';
 import { createRunEnvironments } from '../sandboxes/run-environments.js';
-import { createSandboxDriver } from '../drivers/sandbox.js';
 import type { MemoryItem } from '../drivers/memory-store.js';
 import type { RunTicket, ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
 import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
@@ -93,21 +93,33 @@ const toolCall = (id: string, name: string, args: Record<string, unknown>): Fram
   { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
 ];
 
+const sseResponse = (frames: readonly Frame[]): Response => ({
+  ok: true,
+  status: 200,
+  headers: new Headers(),
+  text: async () => '',
+  body: (async function* () {
+    for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
+    yield 'data: [DONE]\n';
+  })(),
+} as unknown as Response);
+
+const offeredIn = (sent: { tools?: unknown[] }): string[] => (sent.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+
+function observed() {
+  const bus = createEventBus();
+  const events: EngineEvent[] = [];
+  bus.subscribe((event) => { events.push(event); });
+  const traces: NodeTrace[] = [];
+  return { bus, events, traces };
+}
+
 function stubModel(...turns: Frame[][]) {
   let turn = 0;
   const fetchImpl = vi.fn(async () => {
     const frames = turns[Math.min(turn, turns.length - 1)]!;
     turn += 1;
-    return {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    } as unknown as Response;
+    return sseResponse(frames);
   });
   vi.stubGlobal('fetch', fetchImpl);
 
@@ -130,17 +142,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
   const resolver = createEnvironmentResolver({
     registry,
     environments: createRunEnvironments({
-      provision: async ({ id, spec }) => createSandboxDriver({
-        sandboxId: id,
-        spec,
-        backend: {
-          exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
-          readFile: async () => '',
-          writeFile: async () => undefined,
-          listDir: async () => [],
-          deleteFile: async () => undefined,
-        },
-      }),
+      provision: async (request) => sandboxDriverFor(request),
     }),
     images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
     tools: async () => [],
@@ -162,7 +164,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
     tools: { run: toolRuns },
     environments,
-    memories: { list: async () => over.memories ?? [], save: async (item) => { saved.push(item); } },
+    memories: { list: async () => over.memories ?? [], save: async (item) => { saved.push(item); }, unindex: async () => undefined },
     now: () => '2026-09-16T00:00:00.000Z',
     newId: () => 'memory-1',
   };
@@ -214,7 +216,7 @@ describe('how much room a reply gets', () => {
     32_000,
   );
 
-  it('gives a reply whatever the window has room for while the model has no track record', async () => {
+  it('gives a reply whatever the window has room for, however many runs the model has behind it', async () => {
     const { services } = world();
     const model = stubModel(answer('ok'));
 
@@ -226,57 +228,37 @@ describe('how much room a reply gets', () => {
     expect(sent!.max_tokens).toBeGreaterThan(4096);
   });
 
-  it('holds a reply to what the model typically needs once it has a track record', async () => {
-    const { services } = world();
-    const model = stubModel(answer('ok'));
-
-    await runV2({ ...services, efforts: { replyCeiling: async () => 2_048 } }, 'research');
-
-    expect(model.bodies()[0]!.max_tokens).toBe(2_048);
-  });
-
   it('reports the cap that cut a reply off, so the next run can be given more', async () => {
     const { services } = world();
     stubModel([{ choices: [{ delta: { content: 'as far as it g' } }] }, { choices: [{ delta: {}, finish_reason: 'length' }] }]);
 
-    const result = await runV2({ ...services, efforts: { replyCeiling: async () => 700 } }, 'research');
+    const result = await runV2(services, 'ceilinged');
 
-    expect(result.counters.cappedAt).toBe(700);
+    expect(result.counters.cappedAt).toBe(1_234);
   });
 
   it('says nothing was cut off when the model finished on its own', async () => {
     const { services } = world();
     stubModel(answer('all of it'));
 
-    const result = await runV2({ ...services, efforts: { replyCeiling: async () => 700 } }, 'research');
+    const result = await runV2(services, 'ceilinged');
 
     expect(result.counters.cappedAt).toBe(0);
   });
 
-  it('lets a persona set its own ceiling, and never asks the track record then', async () => {
+  it('lets a persona set its own ceiling', async () => {
     const { services } = world();
     const model = stubModel(answer('ok'));
-    const replyCeiling = vi.fn(async () => 2_048);
 
-    await runV2({ ...services, efforts: { replyCeiling } }, 'ceilinged');
+    await runV2(services, 'ceilinged');
 
     expect(model.bodies()[0]!.max_tokens).toBe(1_234);
-    expect(replyCeiling).not.toHaveBeenCalled();
   });
 });
 
 describe('calling the model', () => {
   const streamed = (...frames: Frame[]) => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    } as unknown as Response));
+    const fetchImpl = vi.fn(async () => sseResponse(frames));
     vi.stubGlobal('fetch', fetchImpl);
     return fetchImpl;
   };
@@ -335,10 +317,7 @@ describe('calling the model', () => {
     }));
 
     const { services } = world();
-    const bus = createEventBus();
-    const events: EngineEvent[] = [];
-    bus.subscribe((event) => { events.push(event); });
-    const traces: NodeTrace[] = [];
+    const { bus, events, traces } = observed();
 
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     let result: Awaited<ReturnType<typeof runV2>>;
@@ -369,16 +348,7 @@ describe('calling the model', () => {
       const frames = calls === 1
         ? [{ choices: [{ delta: { reasoning_content: 'should I run the spec or write my own? should I run the spec or write my own?' } }] }, { choices: [{ delta: { content: 'never gets here' } }] }]
         : [{ choices: [{ delta: { content: 'I ran the spec; it passes.' }, finish_reason: 'stop' }] }];
-      return {
-        ok: true,
-        status: 200,
-        headers: new Headers(),
-        text: async () => '',
-        body: (async function* () {
-          for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-          yield 'data: [DONE]\n';
-        })(),
-      } as unknown as Response;
+      return sseResponse(frames);
     });
     vi.stubGlobal('fetch', fetchImpl);
 
@@ -388,10 +358,7 @@ describe('calling the model', () => {
       return watched === 1 ? { name: 'spinning', onThinking: () => 'caught looping' } : { name: 'spinning' };
     };
     const { services } = world();
-    const bus = createEventBus();
-    const events: EngineEvent[] = [];
-    bus.subscribe((event) => { events.push(event); });
-    const traces: NodeTrace[] = [];
+    const { bus, events, traces } = observed();
 
     const result = await runV2({ ...services, streamMonitors: () => [spinning()] }, 'sandboxed', TOOL_ROUNDS_V2, { bus, traces });
 
@@ -442,13 +409,13 @@ describe('running tool-rounds node by node', () => {
     const { services } = world();
     const model = stubModel(answer('ok'));
 
-    await runV2({ ...services, efforts: { replyCeiling: async () => 16_384 } }, 'agent-builder');
+    await runV2(services, 'ceilinged');
     const [sent] = model.bodies();
     const chars = sent!.messages.reduce((total, message) => total + message.content.length, 0);
 
     expect(sent!.max_tokens).toBe(fittedMaxTokens(
       { contextTokens: 32_000, contextMargin: 1000, minReplyTokens: 512 } as never,
-      16_384,
+      1_234,
       chars,
       32_000,
     ));
@@ -612,15 +579,6 @@ describe('deciding yes or no with a model', () => {
       chars,
       32_000,
     ));
-  });
-
-  it('holds the decision to what the model typically needs once it has a track record', async () => {
-    const { services } = world();
-    const model = stubModel(answer('No'));
-
-    await runV2({ ...services, efforts: { replyCeiling: async () => 900 } }, 'sandboxed', deciding);
-
-    expect(model.bodies()[0]!.max_tokens).toBe(900);
   });
 
   it('treats an answer that is not yes or no as unsure', async () => {
@@ -799,7 +757,7 @@ describe('a tool the procedure does itself', () => {
     await runV2(services, 'executor', withHandledStep(false));
 
     const [sent] = model.bodies();
-    const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+    const offered = offeredIn(sent!);
     const system = sent!.messages.find((message) => message.role === 'system')!.content;
 
     expect(offered).not.toContain('start_task');
@@ -814,7 +772,7 @@ describe('a tool the procedure does itself', () => {
     await runV2(services, 'executor', withHandledStep(true));
 
     const [sent] = model.bodies();
-    const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+    const offered = offeredIn(sent!);
 
     expect(offered).toContain('start_task');
     expect(sent!.messages.find((message) => message.role === 'system')!.content)
@@ -948,16 +906,7 @@ describe('keeping a long run inside its context window', () => {
     let worked = 0;
     let summaries = 0;
     const bodies: { messages: { role: string; content: string }[] }[] = [];
-    const respond = (frames: Frame[]) => ({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => '',
-      body: (async function* () {
-        for (const frame of frames) yield `data: ${JSON.stringify(frame)}\n`;
-        yield 'data: [DONE]\n';
-      })(),
-    }) as unknown as Response;
+    const respond = sseResponse;
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
       const body = JSON.parse(init.body) as { messages: { role: string; content: string }[] };
       bodies.push(body);

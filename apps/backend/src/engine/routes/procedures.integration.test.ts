@@ -154,7 +154,7 @@ describe('procedures routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.data.records).toEqual([objectWith({
-      modelKey: 'tabby', runs: 5, successes: 5, typical: objectWith({ rounds: 6 }), limits: objectWith({ maxRounds: 9 }),
+      modelKey: 'tabby', runs: 5, successes: 5, typical: objectWith({ rounds: 6 }),
     })]);
     await h.close();
   });

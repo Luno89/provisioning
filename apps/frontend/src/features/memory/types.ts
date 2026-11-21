@@ -25,6 +25,7 @@ export interface MemoryItem {
   updatedAt: string
   invalidAt?: string
   supersededBy?: string
+  mergedInto?: string
   lastUsedAt?: string
   useCount?: number
 }
@@ -34,6 +35,6 @@ export interface ConsolidationReport {
   indexed: number
   deduped: number
   promoted: number
-  decayed: number
+  unreachable: number
   live: number
 }

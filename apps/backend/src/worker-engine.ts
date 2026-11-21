@@ -429,7 +429,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
       registry,
       store: {
         save: (effort) => db.engine.saveRunEffort(effort),
-        list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey),
       },
     }),
     traces: {

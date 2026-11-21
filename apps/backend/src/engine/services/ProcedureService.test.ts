@@ -126,7 +126,7 @@ describe('a person\'s procedures', () => {
     await effort('run-9', 'someone-else', 90);
 
     expect(await serviceOn(db).trackRecords(OWNER, 'research')).toEqual([objectWith({
-      modelKey: 'tabby', runs: 5, successes: 5, typical: objectWith({ rounds: 6 }), limits: objectWith({ maxRounds: 9 }),
+      modelKey: 'tabby', runs: 5, successes: 5, typical: objectWith({ rounds: 6 }),
     })]);
   });
 

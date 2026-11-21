@@ -138,7 +138,7 @@ function activities(options: {
     models,
     tools: { run: async () => ({ ok: true, digest: '' }) },
     environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
-    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined },
+    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined, unindex: async () => undefined },
     ...(options.conversationWorkspaces ? { conversationWorkspaces: options.conversationWorkspaces } : {}),
   }), ['activity', 'sandbox']).map((implementation) => (implementation.kind === options.hangValue
     ? valueImplementation(implementation.kind, ({ run }) => new Promise<never>((_, reject) => {
@@ -173,8 +173,6 @@ function activities(options: {
     registry,
     store: {
       save: async (effort) => { efforts.push(effort); },
-      list: async (ownerId, procedureId, modelKey) => efforts.filter((effort) =>
-        effort.ownerId === ownerId && effort.procedureId === procedureId && effort.modelKey === modelKey),
     },
   });
 

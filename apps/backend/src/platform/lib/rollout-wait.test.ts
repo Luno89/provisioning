@@ -25,7 +25,7 @@ describe('what ends the wait', () => {
 });
 
 describe('how long an activity may take', () => {
-  it('is bounded by nothing but the ceiling Temporal requires, while a heartbeat says the worker is alive', () => {
-    expect(LIVE_ACTIVITY).toEqual({ startToCloseTimeout: '30 days', heartbeatTimeout: '1 minute' });
+  it('is bounded by nothing but the largest start-to-close Temporal accepts, while a heartbeat says the worker is alive', () => {
+    expect(LIVE_ACTIVITY).toEqual({ startToCloseTimeout: 315_576_000_000_000, heartbeatTimeout: '1 minute' });
   });
 });

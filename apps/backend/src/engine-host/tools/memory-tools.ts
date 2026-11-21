@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { unreachableMemory, type MemoryItem, type MemorySources } from '../drivers/memory-store.js';
+import { refuse, textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
+import { createMemoryWriter, currentMemory, sameMemoryText, type MemoryWriterStore } from '../../memory/index.js';
+import type { MemoryItem, MemorySources } from '../drivers/memory-store.js';
 import { unqualify } from '../../engine/lib/mcp-tools.js';
 import { noteSubject } from '../../engine/lib/tool-notes.js';
 
@@ -9,26 +10,11 @@ export interface KnownTools {
   servers: readonly { name: string; tools: readonly string[] }[];
 }
 
-export interface MemoryToolStore {
-  list(ownerId: string): Promise<MemoryItem[]>;
-  save(item: MemoryItem): Promise<void>;
-  unindex(ownerId: string, ids: string[]): Promise<void>;
-}
-
-const CATEGORIES = new Set<MemoryItem['category']>(['lessons_learned', 'environment_facts', 'prompt_guidance']);
-
-const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
-
-const text = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+export type MemoryToolStore = MemoryWriterStore;
 
 const words = (value: string): string[] => value.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{2,}/g) ?? [];
 
-const same = (a: string, b: string): boolean => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase();
-
-const current = (memory: MemoryItem): boolean => !memory.invalidAt && memory.status !== 'pending_review';
+const text = textArgument;
 
 const describe = (memory: MemoryItem): string =>
   `- id ${memory.id} [${memory.category}, ${memory.scope ?? 'global'}${memory.model ? `, only for ${memory.model}` : ''}] ${memory.title}: ${memory.text}`;
@@ -36,7 +22,7 @@ const describe = (memory: MemoryItem): string =>
 export function matchMemories(memories: readonly MemoryItem[], query: string): MemoryItem[] {
   const wanted = new Set(words(query));
   return memories
-    .filter(current)
+    .filter(currentMemory)
     .map((memory) => ({ memory, score: words(`${memory.title} ${memory.text}`).filter((word) => wanted.has(word)).length }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || b.memory.updatedAt.localeCompare(a.memory.updatedAt))
@@ -75,6 +61,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
   const now = options.now ?? (() => new Date().toISOString());
   const newId = options.newId ?? uuidv4;
   const { store } = options;
+  const writer = createMemoryWriter({ store, now, newId });
 
   const modelOf = async (ownerId: string, parsed: Record<string, unknown>): Promise<{ model?: string } | { refused: string }> => {
     const model = text(parsed, 'model');
@@ -100,48 +87,27 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if (!ownerId) return refuse('this run has no owner to remember anything for');
       const body = text(parsed, 'text');
       if (!body) return refuse('give the text to remember');
-      const title = text(parsed, 'title') ?? body.split('\n')[0]!.slice(0, 60);
-      const asked = text(parsed, 'category') as MemoryItem['category'] | undefined;
-      const category = asked && CATEGORIES.has(asked) ? asked : 'lessons_learned';
-      const scope = text(parsed, 'scope') === 'global' || (!caller.projectId && text(parsed, 'scope') !== 'project') ? 'global' : 'project';
       const forModel = await modelOf(ownerId, parsed);
       if ('refused' in forModel) return refuse(forModel.refused);
-      const mine = (await store.list(ownerId)).filter(current);
-
-      const replaces = text(parsed, 'replaces');
-      const old = replaces ? mine.find((memory) => memory.id === replaces) : undefined;
-      if (replaces && !old) return refuse(`there is no current memory ${replaces} to replace; nothing was saved`);
-
-      const known = mine.find((memory) => memory.id !== replaces && memory.model === forModel.model && same(memory.title, title) && same(memory.text, body));
-      if (known) return { ok: true, digest: `already known: ${known.title}`, content: `That is already remembered as ${known.id}; nothing new was stored.` };
-
-      const at = now();
-      const item: MemoryItem = {
-        id: newId(),
+      const provenance = await provenanceOf(caller.runId);
+      const outcome = await writer.save({
         ownerId,
-        ...(scope === 'project' && caller.projectId ? { projectId: caller.projectId } : {}),
-        category,
-        ...(forModel.model ? { model: forModel.model } : {}),
-        scope,
-        recommendedScope: scope,
-        status: 'active',
-        title,
+        projectId: caller.projectId,
         text: body,
-        source: 'agent_tool',
-        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
-        createdAt: at,
-        updatedAt: at,
-      };
-      const unreachable = unreachableMemory(item);
-      if (unreachable) return refuse(unreachable);
-
-      if (old) await store.unindex(ownerId, [old.id]);
-      await store.save(item);
-      if (old) await store.save({ ...old, invalidAt: at, supersededBy: item.id, updatedAt: at });
+        title: text(parsed, 'title'),
+        category: text(parsed, 'category'),
+        scope: text(parsed, 'scope'),
+        model: forModel.model,
+        replaces: text(parsed, 'replaces'),
+        provenance,
+      });
+      if ('refused' in outcome) return refuse(outcome.refused);
+      if ('known' in outcome) return { ok: true, digest: `already known: ${outcome.known.title}`, content: `That is already remembered as ${outcome.known.id}; nothing new was stored.` };
+      const { saved, replaced } = outcome;
       return {
         ok: true,
-        digest: `${old ? `replaced ${old.title} with ${title}` : `remembered ${title}`}${forModel.model ? ` for ${forModel.model}` : ''}`,
-        content: old ? `Saved as ${item.id}, replacing ${old.id}.` : `Saved as ${item.id}.`,
+        digest: `${replaced ? `replaced ${replaced.title} with ${saved.title}` : `remembered ${saved.title}`}${forModel.model ? ` for ${forModel.model}` : ''}`,
+        content: replaced ? `Saved as ${saved.id}, replacing ${replaced.id}.` : `Saved as ${saved.id}.`,
       };
     },
 
@@ -157,7 +123,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if ('refused' in forModel) return refuse(forModel.refused);
       const title = text(parsed, 'title') ?? body.split('\n')[0]!.slice(0, 60);
       const learned = `${body}\n(learned from: ${why})`;
-      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'practice' && memory.agent === agent && memory.model === forModel.model && same(memory.text, body));
+      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'practice' && memory.agent === agent && memory.model === forModel.model && sameMemoryText(memory.text, body));
       if (known) return refuse(`${agent} already has that practice${forModel.model ? ` on ${forModel.model}` : ''} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
       const at = now();
@@ -194,7 +160,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if ('refused' in forModel) return refuse(forModel.refused);
       const about = noteSubject(target);
       const on = forModel.model ? ` on ${forModel.model}` : '';
-      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'tool_note' && memory.tool === target.tool && memory.server === target.server && memory.model === forModel.model && same(memory.text, body));
+      const known = (await store.list(ownerId)).find((memory) => !memory.invalidAt && memory.category === 'tool_note' && memory.tool === target.tool && memory.server === target.server && memory.model === forModel.model && sameMemoryText(memory.text, body));
       if (known) return refuse(`${about} already has that note${on} (${known.id}, ${known.status ?? 'active'}); nothing was proposed`);
 
       const at = now();
@@ -226,12 +192,9 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       const id = text(parsed, 'id');
       const why = text(parsed, 'why');
       if (!id || !why) return refuse('give the id to retire and why it is no longer true');
-      const target = (await store.list(ownerId)).filter(current).find((memory) => memory.id === id);
-      if (!target) return refuse(`there is no current memory ${id}`);
-      await store.unindex(ownerId, [target.id]);
-      const at = now();
-      await store.save({ ...target, invalidAt: at, updatedAt: at, text: `${target.text}\n(retired: ${why})` });
-      return { ok: true, digest: `retired ${target.title}`, content: `Retired ${id}.` };
+      const outcome = await writer.forget(ownerId, id, why);
+      if ('refused' in outcome) return refuse(outcome.refused);
+      return { ok: true, digest: `retired ${outcome.retired.title}`, content: `Retired ${id}.` };
     },
   };
 }

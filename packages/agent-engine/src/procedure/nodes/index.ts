@@ -47,7 +47,7 @@ export function builtInCatalogue(operations: readonly HostOperation[] = []): Nod
 }
 
 export { loadConversation, saveConversation, CONVERSATION_STORE_NODES } from './conversation-store.js';
-export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, openingWith, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings, compactContext, compactedView, compactionBoundary, summaryRequest, summaryMessage, COMPACT_INSTRUCTIONS, COMPACTION_PREFIX, DEFAULT_COMPACT_AT, DEFAULT_COMPACT_KEEP, DEFAULT_COMPACT_TAIL, SUMMARY_TOOL_CHARS, type Compaction } from './context.js';
+export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, openingWith, clampToolResult, continuitySummary, compactConversation, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings, type CompactionInput, type Compacted, type Summarised, compactContext, compactedView, compactionBoundary, summaryRequest, summaryMessage, COMPACT_INSTRUCTIONS, COMPACTION_PREFIX, DEFAULT_COMPACT_AT, DEFAULT_COMPACT_KEEP, DEFAULT_COMPACT_TAIL, SUMMARY_TOOL_CHARS, type Compaction } from './context.js';
 export { condition, merge, collect, finish, delegate, fanOut, waitForPerson, CONDITION_ROOTS, FINISH_OUTCOMES } from './control.js';
 export { provisionSandbox, releaseSandbox } from './environment.js';
 export { runInput, persona } from './input.js';
@@ -55,5 +55,5 @@ export { recallMemory, saveMemory, MEMORY_CATEGORIES } from './memory.js';
 export { chooseModel, fitReplyBudget, callModel, decide, readDecision, DECIDE_INSTRUCTIONS, DECISIONS, type Decision, DEFAULT_CONTEXT_MARGIN, DEFAULT_MIN_REPLY_TOKENS, FALLBACK_CONTEXT_TOKENS } from './model.js';
 export { checkRepetition, checkStall, checkToolFailures } from './safety.js';
 export { code, runCode, codeProblems, declaredSockets, codeTimeout, CODE_KIND, RUN_CODE_KIND, CODE_KINDS, type DeclaredSocket } from './code.js';
-export { approveToolCalls, runToolCalls, callTool, APPROVAL_POLICIES } from './tools.js';
-export { createOrchestrationNodes, REFUSED_CALL, NOT_RUN_CALL, RUN_IN_WORKSPACE, RUN_IN_WORKSPACE_TOOL, UNNAMED_MACHINE, machineOfRun, type WorkspaceEnvironment, type OrchestrationPorts, type ToolRunRequest, type ToolRunOutcome, type ChildRunRequest, type ApprovalRequest, type QuestionRequest, type QuestionAnswer } from './orchestration.js';
+export { approveToolCalls, runToolCalls, callTool } from './tools.js';
+export { callNeedsAsking, createOrchestrationNodes, REFUSED_CALL, NOT_RUN_CALL, RUN_IN_WORKSPACE, RUN_IN_WORKSPACE_TOOL, UNNAMED_MACHINE, machineOfRun, type WorkspaceEnvironment, type OrchestrationPorts, type ToolRunRequest, type ToolRunOutcome, type ChildRunRequest, type ApprovalRequest, type QuestionRequest, type QuestionAnswer } from './orchestration.js';

@@ -1,4 +1,4 @@
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import { levelOf, scenarioSubjects, within, type Scope } from '../../checks/lib/check-subjects.js';
@@ -28,10 +28,7 @@ export interface CheckAccess {
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 const done = (said: string): ToolOutcome => ({ ok: true, digest: said.split('\n')[0]!.slice(0, 200), content: said });
 
-const text = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const text = textArgument;
 
 const lastResult = (runs: readonly CheckRunView[], id: string): { result: ScenarioResult; run: CheckRunView } | undefined => {
   const run = [...runs]

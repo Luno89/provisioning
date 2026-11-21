@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { refuse, textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { AccessRequest } from '@koala/harness-types';
 import { allowed, authorize, clusterResource, type ClusterMetadata, type DeploymentMetadata, type Principal } from '../../platform/index.js';
 import {
@@ -20,12 +20,8 @@ export interface KubeAccess {
   };
 }
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
-const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 const answer = (digest: string, content: string): ToolOutcome => ({ ok: true, digest, content });
 
 export function createKubeTools(options: { access: KubeAccess; now?: (() => string) | undefined; newId?: (() => string) | undefined }): Record<string, ToolHandler> {

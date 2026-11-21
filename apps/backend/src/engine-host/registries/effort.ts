@@ -1,7 +1,7 @@
 import { ignore } from '@koala/engine-core/failures';
 import type { Procedure } from '@koala/agent-engine/procedure';
 import type { RunBudget } from '@koala/agent-engine';
-import { limitsFor, replyCeilingFor, trackRecord, type RunEffort } from '@koala/agent-engine/procedure';
+import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { AgentRegistry } from './registry.js';
 import type { EndpointResolverOptions } from './endpoints.js';
 
@@ -25,7 +25,6 @@ export interface EffortTrackerOptions {
   registry: Pick<AgentRegistry, 'agent'>;
   store: {
     save(effort: RunEffort): Promise<void>;
-    list(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]>;
   };
 }
 
@@ -39,17 +38,11 @@ export function createEffortTracker(options: EffortTrackerOptions) {
 
       if (!resolved) return { modelKey: UNRESOLVED_MODEL, modelLabel: 'no model', limits: { ...args.procedure.budget } };
 
-      const history = await options.store.list(args.ownerId, args.procedure.id, resolved.provider.id);
       return {
         modelKey: resolved.provider.id,
         modelLabel: resolved.provider.name,
-        limits: limitsFor(trackRecord(history), args.procedure.budget),
+        limits: { ...args.procedure.budget },
       };
-    },
-
-    async replyCeiling(args: { ownerId: string; procedureId: string; modelKey: string; agentSlug: string }): Promise<number | undefined> {
-      const history = await options.store.list(args.ownerId, args.procedureId, args.modelKey);
-      return replyCeilingFor(history, args.agentSlug);
     },
 
     async record(effort: RunEffort): Promise<void> {

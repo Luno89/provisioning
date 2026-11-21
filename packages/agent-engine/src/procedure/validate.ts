@@ -344,24 +344,43 @@ function checkBody(body: Body & { cleanup?: NodeId | undefined }, scope: Scope):
   return problems;
 }
 
-function nodesOnFlowLoops(body: Body): NodeId[] {
+function leavingAlong(flows: Body['flow']): Map<NodeId, NodeId[]> {
   const leaving = new Map<NodeId, NodeId[]>();
-  for (const flow of body.flow) leaving.set(flow.from, [...(leaving.get(flow.from) ?? []), flow.to]);
+  for (const flow of flows) leaving.set(flow.from, [...(leaving.get(flow.from) ?? []), flow.to]);
+  return leaving;
+}
 
-  const returnsTo = (start: NodeId): boolean => {
-    const seen = new Set<NodeId>();
-    const queue = [...(leaving.get(start) ?? [])];
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      if (id === start) return true;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      queue.push(...(leaving.get(id) ?? []));
-    }
-    return false;
-  };
+function reachedFrom(leaving: ReadonlyMap<NodeId, readonly NodeId[]>, start: NodeId): Set<NodeId> {
+  const seen = new Set<NodeId>();
+  const queue = [...(leaving.get(start) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    queue.push(...(leaving.get(id) ?? []));
+  }
+  return seen;
+}
 
-  return body.nodes.map((node) => node.id).filter(returnsTo);
+function nodesOnFlowLoops(body: Body): NodeId[] {
+  const leaving = leavingAlong(body.flow);
+  return body.nodes.map((node) => node.id).filter((id) => reachedFrom(leaving, id).has(id));
+}
+
+const NEVER_WAITS = 'this loop never waits on anything (no model, tool or person), so it would go round without end — put a step on it that waits, such as a model call, a tool call or waiting for a person';
+
+function loopsThatNeverWait(body: Body, catalogue: NodeCatalogue): NodeId[] {
+  const idle = new Set(body.nodes.filter((node) => shapedFor(catalogue, node)?.runs === 'workflow').map((node) => node.id));
+  const leaving = leavingAlong(body.flow.filter((flow) => idle.has(flow.from) && idle.has(flow.to)));
+  const named: NodeId[] = [];
+  const covered = new Set<NodeId>();
+  for (const id of idle) {
+    const reached = reachedFrom(leaving, id);
+    if (!reached.has(id) || covered.has(id)) continue;
+    named.push(id);
+    for (const other of reached) if (reachedFrom(leaving, other).has(id)) covered.add(other);
+  }
+  return named;
 }
 
 export function checkProcedure(procedure: Procedure, options: CheckOptions): ProcedureProblem[] {
@@ -402,6 +421,7 @@ export function checkProcedure(procedure: Procedure, options: CheckOptions): Pro
 
   try {
     const { body } = expandGroups(procedure, library);
+    for (const node of loopsThatNeverWait(body, options.catalogue)) error(NEVER_WAITS, { node: node.split(GROUP_SEPARATOR)[0]! });
     const kinds = new Map(body.nodes.map((node) => [node.id, options.catalogue.get(node.kind)]));
     const modelLoops = nodesOnFlowLoops(body).filter((id) => kinds.get(id)?.spends?.includes('rounds'));
     const watched = [...kinds.values()].some((definition) => definition?.category === 'safety');

@@ -54,7 +54,7 @@ const closing: (() => Promise<void>)[] = [];
 function engineActivities(instance: Database) {
   const registry = createAgentRegistry();
   const operations = createProvisionOperations({ records: instance.infrastructure, pieces: provisionPiecesOn({ client: async () => env.client, queue: CLUSTER_QUEUE }) });
-  const tracker = createEffortTracker({ models: { resolveBaseUrl: async () => ({ provider: { id: 'none', name: 'none', source: 'deployment', model: 'none', contextTokens: 1 } as ModelProvider, baseUrl: 'http://none.test/v1' }) }, registry, store: { save: async () => undefined, list: async () => [] } });
+  const tracker = createEffortTracker({ models: { resolveBaseUrl: async () => ({ provider: { id: 'none', name: 'none', source: 'deployment', model: 'none', contextTokens: 1 } as ModelProvider, baseUrl: 'http://none.test/v1' }) }, registry, store: { save: async () => undefined } });
   return {
     registry,
     engine: {

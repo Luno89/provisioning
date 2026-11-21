@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { refuse, textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import type { ActionKind, ActionProposal } from '../../engine/index.js';
 import { envChanges, parseEnv, pickStrategy, sameAction } from '../../engine/lib/action-proposals.js';
 import { deploymentForProject, rollupProjectStatus } from '../../projects/lib/project-status.js';
@@ -26,12 +26,8 @@ export interface ProjectToolStores extends ProjectScopeStores {
   };
 }
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
-const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 const answer = (digest: string, content: string): ToolOutcome => ({ ok: true, digest, content });
 
 const DEPLOYMENT_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/i;
@@ -235,7 +231,7 @@ export function createProjectTools(options: {
       if ('problem' in change) return refuse(change.problem);
       return propose(caller, 'set_project_env', { projectId: found.project.id, env: change.merged }, `change ${change.changed.length} environment variable${change.changed.length === 1 ? '' : 's'} of ${found.project.name}`, [
         section(undefined, [fields(['Project', found.project.name])]),
-        section('What changes', [code(change.changed.join('\n')), text('Takes effect on the next deploy.')]),
+        section('What changes', [code(change.changed.join('\n')), text('Takes effect on the next deploy.'), text('Plain values. Agents can read these. Passwords and tokens go under Secrets.')]),
       ], found.treeId);
     },
 

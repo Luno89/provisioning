@@ -53,8 +53,8 @@ const runtime = (agent: AgentDefinition, w: ReturnType<typeof world>) => createT
   serverTools: w.serverTools,
 });
 
-const call = (name: string, conversationId?: string, attempt = 1, agent = persona()) => (tools: ReturnType<typeof runtime>) =>
-  tools.run({ ticket: { runId: 'r', depth: 0, ownerId: 'u1', grantId: GRANT_ID, agentSlug: agent.slug, trigger: 'user', ...(conversationId ? { conversationId } : {}) }, nodeId: 'n', name, arguments: '{}' }, attempt);
+const call = (name: string, conversationId?: string, attempt = 1, agent = persona(), approved = true) => (tools: ReturnType<typeof runtime>) =>
+  tools.run({ ticket: { runId: 'r', depth: 0, ownerId: 'u1', grantId: GRANT_ID, agentSlug: agent.slug, trigger: 'user', ...(conversationId ? { conversationId } : {}) }, nodeId: 'n', name, arguments: '{}', approved }, attempt);
 
 describe('MCP tools for a run', () => {
   it('runs nothing when no server is held or switched on', async () => {
@@ -73,6 +73,13 @@ describe('MCP tools for a run', () => {
   it('runs a server the agent holds, with no conversation at all', async () => {
     const agent = persona({ slug: 'executor', servers: ['gitea'] });
     expect((await call('gitea__create_issue', undefined, 1, agent)(runtime(agent, world()))).ok).toBe(true);
+  });
+
+  it('asks before running a server\'s tool that can destroy something, until the person allows it', async () => {
+    const agent = persona({ slug: 'executor', servers: ['gitea'] });
+    const w = world();
+    expect(await call('gitea__create_issue', undefined, 1, agent, false)(runtime(agent, w))).toMatchObject({ ok: false, asks: true });
+    expect(w.calls).toEqual([]);
   });
 
   it('holds a read-only agent to the tools the server marks read-only', async () => {

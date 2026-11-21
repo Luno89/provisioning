@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  consolidateMemories, planTitleDedupe, planSimilarityDedupe, planDecay, planPromotions,
-  planUnreachable, DUPLICATE_SIMILARITY, DECAY_AFTER_DAYS, type PromotableLeaf,
+  consolidateMemories, planTitleDedupe, planSimilarityDedupe, planPromotions,
+  planUnreachable, DUPLICATE_SIMILARITY, type PromotableLeaf,
 } from './memory-consolidate.js';
 import type { MemoryItem } from './memory-store.js';
 
@@ -24,7 +24,7 @@ describe('duplicates by title', () => {
     const retired = planTitleDedupe(copies, NOW);
 
     expect(retired.map((m) => m.id)).toEqual(['dup2', 'dup3', 'dup4', 'dup5']);
-    expect(retired.every((m) => m.supersededBy === 'dup1')).toBe(true);
+    expect(retired.every((m) => m.mergedInto === 'dup1')).toBe(true);
     expect(retired.every((m) => m.invalidAt === NOW)).toBe(true);
   });
 
@@ -35,7 +35,7 @@ describe('duplicates by title', () => {
     ], NOW);
 
     expect(retired.map((m) => m.id)).toEqual(['old']);
-    expect(retired[0]!.supersededBy).toBe('new');
+    expect(retired[0]!.mergedInto).toBe('new');
   });
 
   it('does not merge across projects, owners or categories', () => {
@@ -74,7 +74,7 @@ describe('duplicates by meaning', () => {
     const retired = planSimilarityDedupe(items, similar({ new: [['old', 0.99]] }), NOW);
 
     expect(retired.map((m) => m.id)).toEqual(['old']);
-    expect(retired[0]!.supersededBy).toBe('new');
+    expect(retired[0]!.mergedInto).toBe('new');
   });
 
   it('leaves a merely related pair alone', () => {
@@ -99,36 +99,11 @@ describe('duplicates by meaning', () => {
     }), NOW);
 
     expect(retired.map((m) => m.id)).toEqual(['middle']);
-    expect(retired[0]!.supersededBy).toBe('newest');
+    expect(retired[0]!.mergedInto).toBe('newest');
   });
 
   it('does nothing when the vector half is down', () => {
     expect(planSimilarityDedupe([mem()], new Map(), NOW)).toEqual([]);
-  });
-});
-
-describe('decay', () => {
-  it('retires what nothing has consulted in a long time', () => {
-    const stale = mem({ id: 'stale', lastUsedAt: daysBefore(DECAY_AFTER_DAYS + 1) });
-    expect(planDecay([stale], NOW).map((m) => m.id)).toEqual(['stale']);
-  });
-
-  it('keeps an old memory that is still being read', () => {
-    const old = mem({ id: 'load-bearing', createdAt: daysBefore(400), lastUsedAt: daysBefore(1) });
-    expect(planDecay([old], NOW)).toEqual([]);
-  });
-
-  it('falls back to creation date for a memory written before use was tracked', () => {
-    const legacy = mem({ id: 'legacy', createdAt: daysBefore(DECAY_AFTER_DAYS + 5) });
-    delete (legacy as { lastUsedAt?: string }).lastUsedAt;
-
-    expect(planDecay([legacy], NOW).map((m) => m.id)).toEqual(['legacy']);
-  });
-
-  it('retires without claiming a successor', () => {
-    const out = planDecay([mem({ lastUsedAt: daysBefore(100) })], NOW);
-    expect(out[0]!.invalidAt).toBe(NOW);
-    expect(out[0]!.supersededBy).toBeUndefined();
   });
 });
 
@@ -241,19 +216,21 @@ describe('a whole pass', () => {
     expect(first.promoted).toBe(1);
     expect(second.deduped).toBe(0);
     expect(second.promoted).toBe(0);
-    expect(second.decayed).toBe(0);
     expect(JSON.stringify([...store.values()])).toBe(snapshot);
   });
 
-  it('never counts one memory as both deduped and decayed', async () => {
-    const { deps } = setup([
-      mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1), lastUsedAt: daysBefore(1) }),
-      mem({ id: 'b', title: 'Dup', createdAt: daysBefore(200), lastUsedAt: daysBefore(200) }),
+  it('never retires a memory for its age, however long nothing has read it', async () => {
+    const { deps, store } = setup([
+      mem({ id: 'old', title: 'Old and unread', createdAt: daysBefore(400), lastUsedAt: daysBefore(400) }),
+      (({ lastUsedAt: _, ...rest }) => rest)(mem({ id: 'never-read', title: 'Never read', createdAt: daysBefore(400) })),
     ]);
 
     const report = await consolidateMemories(deps);
-    expect(report.deduped).toBe(1);
-    expect(report.decayed).toBe(0);
+
+    expect(report).not.toHaveProperty('decayed');
+    expect(report.live).toBe(2);
+    expect(store.get('old')!.invalidAt).toBeUndefined();
+    expect(store.get('never-read')!.invalidAt).toBeUndefined();
   });
 
   it('consolidates one owner at a time, leaving everyone else\'s memories untouched', async () => {
@@ -273,7 +250,7 @@ describe('a whole pass', () => {
 
   it('does nothing to an empty bank', async () => {
     const { deps } = setup([]);
-    expect(await consolidateMemories(deps)).toMatchObject({ indexed: 0, deduped: 0, promoted: 0, decayed: 0, live: 0 });
+    expect(await consolidateMemories(deps)).toMatchObject({ indexed: 0, deduped: 0, promoted: 0, live: 0 });
   });
 
   it('consolidates even when the index is unreachable', async () => {
@@ -295,12 +272,11 @@ describe('a whole pass', () => {
     const { deps, unindexed } = setup([
       mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1), lastUsedAt: daysBefore(1) }),
       mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2), lastUsedAt: daysBefore(2) }),
-      mem({ id: 'stale', title: 'Stale', createdAt: daysBefore(200), lastUsedAt: daysBefore(200) }),
     ]);
 
     await consolidateMemories(deps);
 
-    expect(unindexed).toEqual([{ ids: ['b'], liveThen: [true] }, { ids: ['stale'], liveThen: [true] }]);
+    expect(unindexed).toEqual([{ ids: ['b'], liveThen: [true] }]);
   });
 
   it('retires nothing when the index will not let go, and the pass fails saying why', async () => {

@@ -257,6 +257,8 @@ export type HandOffConversationSettings = {
 export interface HandOffConversationNode extends Step<'fits' | 'handedOff'> {
   /** The history to send. */
   readonly messages: Out<'messages'>
+  /** The summary in use and how many messages it stands for, when there is one. */
+  readonly compaction: Out<'json'>
   wire(wires: HandOffConversationWires): void
 }
 
@@ -833,6 +835,21 @@ export interface RunInputNode extends Value {
   wire(wires: RunInputWires): void
 }
 
+export interface ForgetMemoryWires {
+  /** The id of the memory to forget. Required. */
+  id?: In<'text'>
+  /** Why it is no longer true. Required. */
+  why?: In<'text'>
+}
+
+export type ForgetMemorySettings = Record<string, never>
+
+export interface ForgetMemoryNode extends Step<'forgotten' | 'refused'> {
+  /** The memory as retired. */
+  readonly memory: Out<'json'>
+  wire(wires: ForgetMemoryWires): void
+}
+
 export interface RecallMemoryWires {
   /** The model the prompt is for. Nothing wired means memories kept for one model are left out. */
   binding?: In<'modelBinding'>
@@ -861,6 +878,8 @@ export interface SaveMemoryWires {
   text?: In<'text'>
   /** A short name for it. Nothing wired means the first line of the text. */
   title?: In<'text'>
+  /** Wire the model to keep the memory for that model only. Nothing wired means it holds for every model. */
+  binding?: In<'modelBinding'>
 }
 
 export type SaveMemorySettings = {
@@ -874,6 +893,30 @@ export interface SaveMemoryNode extends Step<'saved' | 'refused'> {
   /** The memory as saved. */
   readonly memory: Out<'json'>
   wire(wires: SaveMemoryWires): void
+}
+
+export interface UpdateMemoryWires {
+  /** The id of the memory to update. Required. */
+  id?: In<'text'>
+  /** What it should say now. Required. */
+  text?: In<'text'>
+  /** A short name for it. Nothing wired means the first line of the text. */
+  title?: In<'text'>
+  /** Wire the model to keep the memory for that model only. Nothing wired means it holds for every model. */
+  binding?: In<'modelBinding'>
+}
+
+export type UpdateMemorySettings = {
+  /** Category */
+  category?: 'lessons_learned' | 'environment_facts' | 'prompt_guidance'
+  /** Scope */
+  scope?: 'global' | 'project'
+}
+
+export interface UpdateMemoryNode extends Step<'updated' | 'refused'> {
+  /** The memory as saved. */
+  readonly memory: Out<'json'>
+  wire(wires: UpdateMemoryWires): void
 }
 
 export interface CallModelWires {
@@ -930,7 +973,7 @@ export type ChooseModelSettings = {
   modelId?: string
   /**
    * Reply ceiling
-   * The most tokens a reply may use. Leave it empty to let the model use whatever the context window has room for until its track record says what it typically needs.
+   * The most tokens a reply may use. Leave it empty to let the model use whatever the context window has room for.
    */
   replyCeiling?: number
   /**
@@ -1062,13 +1105,7 @@ export interface ApproveToolCallsWires {
   offered?: In<'toolSet'>
 }
 
-export type ApproveToolCallsSettings = {
-  /**
-   * Ask
-   * "on-a-machine" asks for every call on a registered machine and for destructive calls outside the run's sandbox, "always" asks for every call, "never" lets everything through, destructive or not.
-   */
-  ask?: 'on-a-machine' | 'always' | 'never'
-}
+export type ApproveToolCallsSettings = Record<string, never>
 
 export interface ApproveToolCallsNode extends Step<'approved' | 'refused'> {
   /** The reply with only the approved calls left in it. */
@@ -1213,8 +1250,8 @@ export interface Nodes {
   /** Describe Tools: Lists the tools the model can use right now with their guidance, the ones it cannot and why, and what to do when it cannot proceed. */
   describeTools(id: string, wires?: DescribeToolsWires, settings?: DescribeToolsSettings, meta?: NodeMeta): DescribeToolsNode
   /**
-   * Hand Off Conversation: When the prompt fills the context window past a threshold, replaces the history with a summary — what the conversation is about and what the tools found — plus the last few messages. Otherwise passes the history through.
-   * Leaves through fits: The history fits and was passed through.
+   * Hand Off Conversation: Compacts the conversation the way Compact Context does, but writes the summary by rule instead of asking the model: once the prompt fills the window past the threshold, everything but the last few messages becomes a summary of what the conversation is about and what the tools found, sent in their place from then on.
+   * Leaves through fits: It fits; what was sent last time is sent again.
    * Leaves through handedOff: The history was replaced with a summary and a tail.
    */
   handOffConversation(id: string, wires?: HandOffConversationWires, settings?: HandOffConversationSettings, meta?: NodeMeta): HandOffConversationNode
@@ -1322,14 +1359,26 @@ export interface Nodes {
   persona(id: string, wires?: PersonaWires, settings?: PersonaSettings, meta?: NodeMeta): PersonaNode
   /** Run Input: What this run was started with: the message, and any named inputs. */
   runInput(id: string, wires?: RunInputWires, settings?: RunInputSettings, meta?: NodeMeta): RunInputNode
+  /**
+   * Forget Memory: Retires one of the owner's memories that is no longer true. It is kept with why, and never recalled again.
+   * Leaves through forgotten: It was retired.
+   * Leaves through refused: It could not be retired, and the output says why.
+   */
+  forgetMemory(id: string, wires?: ForgetMemoryWires, settings?: ForgetMemorySettings, meta?: NodeMeta): ForgetMemoryNode
   /** Recall Memory: Picks the owner's active memories that apply here — project ones first, then global, newest first — and renders them as a prompt section within a character budget, saying how many were left out. A memory kept for one model is picked only when the wired binding is that model. */
   recallMemory(id: string, wires?: RecallMemoryWires, settings?: RecallMemorySettings, meta?: NodeMeta): RecallMemoryNode
   /**
-   * Save Memory: Writes something worth remembering for later runs. A project memory is refused when the run has no project, because it could never be recalled.
+   * Save Memory: Writes something worth remembering for later runs, the way the save_memory tool does: the same thing is never stored twice. A project memory is refused when the run has no project, because it could never be recalled.
    * Leaves through saved: It was saved.
    * Leaves through refused: It could not be saved, and the output says why.
    */
   saveMemory(id: string, wires?: SaveMemoryWires, settings?: SaveMemorySettings, meta?: NodeMeta): SaveMemoryNode
+  /**
+   * Update Memory: Replaces one of the owner's memories with what it is given. The old one is retired in favour of the new and kept, so the Memories page shows what replaced it.
+   * Leaves through updated: It was updated.
+   * Leaves through refused: It could not be updated, and the output says why.
+   */
+  updateMemory(id: string, wires?: UpdateMemoryWires, settings?: UpdateMemorySettings, meta?: NodeMeta): UpdateMemoryNode
   /**
    * Call Model: Sends the system prompt, the conversation and the offered tools to the model, streams the reply, and leaves by what the reply turned out to be.
    * Leaves through toolCalls: It asked for one or more tools.
@@ -1368,7 +1417,7 @@ export interface Nodes {
    */
   checkToolFailures(id: string, wires?: CheckToolFailuresWires, settings?: CheckToolFailuresSettings, meta?: NodeMeta): CheckToolFailuresNode
   /**
-   * Approve Tool Calls: Asks a person to allow each tool call before it runs. By default it asks for every call when the run is working on someone's own machine, and for any call to a tool that can destroy or overwrite something outside a sandbox; a call that runs inside the run's sandbox never asks, whatever it does. A run whose agent or tree is in auto mode is never asked about. A refused call gets a result saying so, which goes back to the model.
+   * Approve Tool Calls: Asks a person about the reply's tool calls before any of them runs, by the same rule every tool call is held to: every call on someone's own machine, and any call to a tool that can destroy or overwrite something elsewhere; a call that runs inside the run's sandbox never asks, and a run in auto mode is never asked about. A call asked about here is not asked about again when it runs. A refused call gets a result saying so, which goes back to the model.
    * Leaves through approved: At least one call may run.
    * Leaves through refused: Every call was refused.
    */

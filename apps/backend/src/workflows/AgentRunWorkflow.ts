@@ -41,6 +41,7 @@ import {
   handleFor,
   launchFor,
   ticketFor,
+  toolCallArgsOf,
   turnOf,
   type AgentRunOutcome,
   type LifecycleEvent,
@@ -145,7 +146,6 @@ const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
 const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
 const NODES_HEAR_STOPS = 'nodes-hear-stops';
-const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
 const AUTO_MODE = 'auto-mode';
 const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 const READS_TOGETHER = 'reads-together';
@@ -298,22 +298,15 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   };
 
   const ports: OrchestrationPorts = {
-    async runTool({ nodeId, call, persona, environment, run }) {
+    async runTool(request) {
+      const { call, environment } = request;
       const handle = handleFor(environment);
       if (revocation && patched(RUN_GRANTS)) {
         const said = runGrantProblem({ state: 'revoked', revokedBecause: revocation.because }, call.name) ?? `${call.name} was not run`;
         return { ok: false, digest: said, content: said };
       }
       if (handle?.workspace) lastWorkspace = handle;
-      const args: ToolCallArgs = {
-        ticket: ticketFor(run),
-        nodeId,
-        name: call.name,
-        arguments: call.arguments,
-        callId: call.id,
-        granted: persona.tools,
-        ...(handle ? { environment: handle } : {}),
-      };
+      const args: ToolCallArgs = toolCallArgsOf(request);
 
       const hearsStops = patched(TOOL_CALLS_HEAR_STOPS);
       const sent: ToolCallArgs = hearsStops ? { ...args, hearsStops: true, ...(signal.aborted ? { stoppedBecause: signal.reason as string } : {}) } : args;
@@ -569,7 +562,6 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     },
 
     handOffsTogether: () => patched(HAND_OFFS_TOGETHER),
-    sandboxCallsUnasked: () => patched(SANDBOX_CALLS_UNASKED),
     readsTogether: () => patched(READS_TOGETHER),
 
     async runChild({ agent, inputs, environment, run, callId }): Promise<ChildOutcomeValue> {

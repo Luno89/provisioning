@@ -177,13 +177,29 @@ describe('checking a procedure', () => {
       expect(problems).toContainEqual({ severity: 'error', node: 'spin', message: 'no path from here ever finishes' });
     });
 
-    it('lets a loop run with no budget, since limits are learned from how long runs take', () => {
+    it('refuses a loop that never waits on anything, saying why', () => {
       const looping = procedure({
         start: 'count',
-        budget: {},
+        budget: { maxRounds: 3 },
         nodes: [node('count', 'count', { limit: 3 }), node('end', 'finish', { outcome: 'ok' })],
         wires: [wire('count:count', 'count:previous')],
         flow: [flow('count:again', 'count'), flow('count:done', 'end')],
+      });
+
+      expect(check(looping)).toEqual([{
+        severity: 'error',
+        node: 'count',
+        message: 'this loop never waits on anything (no model, tool or person), so it would go round without end — put a step on it that waits, such as a model call, a tool call or waiting for a person',
+      }]);
+    });
+
+    it('lets a loop run with no budget when it waits on something each time round', () => {
+      const looping = procedure({
+        start: 'count',
+        budget: {},
+        nodes: [node('count', 'count', { limit: 3 }), node('tool', 'call-tool', { tool: 'read_file' }), node('end', 'finish', { outcome: 'ok' })],
+        wires: [wire('count:count', 'count:previous')],
+        flow: [flow('count:again', 'tool'), flow('tool:done', 'count'), flow('count:done', 'end')],
       });
 
       expect(check(looping)).toEqual([]);

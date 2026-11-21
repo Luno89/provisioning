@@ -1,6 +1,6 @@
 import type { ReleaseWays, Tree, ItemChange } from '../../../projects/index.js';
 import { randomUUID } from 'node:crypto';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../../projects/lib/leaves.js';
 import { SETTLED, type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../../projects/lib/plan-proposals.js';
@@ -68,10 +68,7 @@ export interface GroveToolOptions {
 
 const refuse = (message: string): ToolOutcome => ({ ok: false, digest: message, content: message });
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
 const asStringList = (parsed: Record<string, unknown>, key: string): string[] => {
   const raw = parsed[key];

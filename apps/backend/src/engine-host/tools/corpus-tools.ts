@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import { textArgument, type ToolHandler, type ToolOutcome } from '@koala/engine-core';
 import { search, type CorpusPage, type IngestReceipt } from '../../engine/lib/corpus.js';
 
 export interface CorpusAccess {
@@ -13,10 +13,7 @@ export interface CorpusAccess {
 export const ingestPrefix = (ownerId: string): string =>
   `ingest-${createHash('sha256').update(ownerId).digest('hex').slice(0, 12)}-`;
 
-const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
-  const value = parsed[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
+const asString = textArgument;
 
 const strings = (value: unknown): string[] | undefined => {
   const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : undefined;

@@ -65,6 +65,12 @@ async function invoke(
   return { ...(result as Outcome), events };
 }
 
+const offered = [
+  { name: 'delete_file', description: 'Delete a path', binding: 'environment', effect: 'write', destructive: true },
+  { name: 'read_file', description: 'Read a file', binding: 'environment', effect: 'read' },
+];
+const mixed = reply([{ id: 'a', name: 'delete_file', arguments: '{"path":"notes.md"}' }, { id: 'b', name: 'read_file', arguments: '{}' }]);
+
 describe('approve tool calls', () => {
   const calls = reply([{ id: 'a', name: 'run_command', arguments: '{"command":"rm -rf build"}' }, { id: 'b', name: 'read_file', arguments: '{}' }]);
   const machine = { kind: 'machine', deviceId: 'd', deviceName: 'desk', egressMode: 'declared' };
@@ -92,19 +98,14 @@ describe('approve tool calls', () => {
     ]);
   });
 
-  it('leaves through refused when nothing is allowed, and asks for every call when told to', async () => {
+  it('leaves through refused when nothing is allowed', async () => {
     const p = ports({ approve: vi.fn(async () => false) });
-    const outcome = await invoke(createOrchestrationNodes(p), approveToolCalls, { settings: { ask: 'always' }, inputs: { reply: calls } });
+    const outcome = await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: calls, environment: machine } });
 
     expect(outcome.exit).toBe('refused');
     expect(p.approve).toHaveBeenCalledTimes(2);
   });
 
-  const offered = [
-    { name: 'delete_file', description: 'Delete a path', binding: 'environment', effect: 'write', destructive: true },
-    { name: 'read_file', description: 'Read a file', binding: 'environment', effect: 'read' },
-  ];
-  const mixed = reply([{ id: 'a', name: 'delete_file', arguments: '{"path":"notes.md"}' }, { id: 'b', name: 'read_file', arguments: '{}' }]);
 
   it('asks about a call to a destructive tool wherever it runs, and lets the rest of the reply through unasked', async () => {
     const p = ports({ approve: vi.fn(async () => false) });
@@ -129,31 +130,37 @@ describe('approve tool calls', () => {
   const inAndOut = reply([{ id: 'a', name: 'delete_file', arguments: '{"path":"notes.md"}' }, { id: 'c', name: 'delete_tree', arguments: '{"treeId":"t1"}' }]);
 
   it('never asks about a call that runs inside the run\'s sandbox, destructive or not, but still asks about one that reaches outside it', async () => {
-    const p = ports({ approve: vi.fn(async () => true), sandboxCallsUnasked: vi.fn(() => true) });
+    const p = ports({ approve: vi.fn(async () => true) });
     await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: inAndOut, offered: withPlatform, environment: sandbox } });
 
     expect(p.approve.mock.calls.map(([request]) => request.call.name)).toEqual(['delete_tree']);
   });
 
-  it('keeps asking about destructive sandbox calls in a run that started before sandbox calls went unasked', async () => {
-    const p = ports({ approve: vi.fn(async () => true), sandboxCallsUnasked: vi.fn(() => false) });
-    await invoke(createOrchestrationNodes(p), approveToolCalls, { inputs: { reply: inAndOut, offered: withPlatform, environment: sandbox } });
+  it('has no setting that turns asking off, so a procedure cannot stop asking for the person who runs it', () => {
+    expect(approveToolCalls.definition.settings.properties).not.toHaveProperty('ask');
+  });
+});
 
-    expect(p.approve.mock.calls.map(([request]) => request.call.name)).toEqual(['delete_file', 'delete_tree']);
+describe('every tool call goes through the same check, whatever the procedure holds', () => {
+  const persona = { slug: 'worker', name: 'Worker', prompt: '', tools: ['delete_file', 'read_file'], agents: [] } as never;
+
+  it('asks before a destructive call in a procedure with no approve node, and runs nothing the person refused', async () => {
+    const p = ports({ approve: vi.fn(async () => false) });
+    const outcome = await invoke(createOrchestrationNodes(p), runToolCalls, { inputs: { reply: mixed, persona, offered, environment: { kind: 'none', egress: false } } });
+
+    expect(p.approve.mock.calls.map(([request]) => request.call.name)).toEqual(['delete_file']);
+    expect(p.runTool.mock.calls.map(([request]) => request.call.name)).toEqual(['read_file']);
+    expect((outcome.outputs.results as { callId: string; ok: boolean; content: string }[]).find((result) => result.callId === 'a')).toMatchObject({ ok: false, content: REFUSED_CALL });
   });
 
-  it('still asks about every sandbox call when told to always ask', async () => {
-    const p = ports({ approve: vi.fn(async () => true), sandboxCallsUnasked: vi.fn(() => true) });
-    await invoke(createOrchestrationNodes(p), approveToolCalls, { settings: { ask: 'always' }, inputs: { reply: inAndOut, offered: withPlatform, environment: sandbox } });
+  it('does not ask again about a call the approve node already put to the person', async () => {
+    const p = ports({ approve: vi.fn(async () => true) });
+    const nodes = createOrchestrationNodes(p);
+    const approved = await invoke(nodes, approveToolCalls, { inputs: { reply: mixed, offered } });
+    await invoke(nodes, runToolCalls, { inputs: { reply: approved.outputs.approved, persona, offered } });
 
-    expect(p.approve).toHaveBeenCalledTimes(2);
-  });
-
-  it('asks about nothing, destructive or not, when told never to', async () => {
-    const p = ports();
-    await invoke(createOrchestrationNodes(p), approveToolCalls, { settings: { ask: 'never' }, inputs: { reply: mixed, offered, environment: machine } });
-
-    expect(p.approve).not.toHaveBeenCalled();
+    expect(p.approve).toHaveBeenCalledTimes(1);
+    expect(p.runTool).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -351,6 +358,25 @@ describe('call tool, delegate, fan out and wait', () => {
       call: { id: 'here#7', name: 'mark_done', arguments: '{"taskId":"t-42","evidence":"tests pass"}' },
     }));
     expect(outcome).toMatchObject({ exit: 'ok', outputs: { result: [{ id: 't1' }], text: '[{"id":"t1"}]' } });
+  });
+
+  it('asks before a Call Tool step runs a destructive tool, with nothing wired to say so, because the tool itself says it asks', async () => {
+    const runTool = vi.fn<OrchestrationPorts['runTool']>(async ({ approved }) => (approved ? { ok: true, digest: 'dropped', content: 'dropped' } : { ok: false, digest: 'asks', asks: true }));
+    const p = ports({ runTool, approve: vi.fn(async () => true) });
+    const outcome = await invoke(createOrchestrationNodes(p), callTool, { settings: { tool: 'drop_tree', args: '{}' }, inputs: { persona: persona() } });
+
+    expect(p.approve).toHaveBeenCalledTimes(1);
+    expect(runTool.mock.calls.map(([request]) => request.approved === true)).toEqual([false, true]);
+    expect(outcome).toMatchObject({ exit: 'ok', outputs: { text: 'dropped' } });
+  });
+
+  it('runs nothing a person refused when the tool asked', async () => {
+    const runTool = vi.fn<OrchestrationPorts['runTool']>(async () => ({ ok: false, digest: 'asks', asks: true }));
+    const p = ports({ runTool, approve: vi.fn(async () => false) });
+    const outcome = await invoke(createOrchestrationNodes(p), callTool, { settings: { tool: 'drop_tree', args: '{}' }, inputs: { persona: persona() } });
+
+    expect(runTool).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({ exit: 'failed', outputs: { text: REFUSED_CALL } });
   });
 
   it('hands a child only the inputs written for it, and leaves by how it ended', async () => {
@@ -738,14 +764,12 @@ describe('whether a call is asked about, the same rule for a model\'s call and r
   const offered = [{ name: 'run_command', binding: 'environment' as const }, { name: 'delete_file', binding: 'environment' as const, destructive: true }, { name: 'store_file', binding: 'platform' as const, destructive: true }];
   const sandbox = { kind: 'sandbox' } as never;
   const machine = { kind: 'machine' } as never;
-  it('asks for every call on a machine, for a destructive call elsewhere, and never for an environment tool inside a sandbox that runs unasked', () => {
-    expect(callNeedsAsking('run_command', { ask: 'on-a-machine', offered, environment: machine, sandboxCallsUnasked: true })).toBe(true);
-    expect(callNeedsAsking('run_command', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(false);
-    expect(callNeedsAsking('run_command', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: false })).toBe(false);
-    expect(callNeedsAsking('delete_file', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(false);
-    expect(callNeedsAsking('delete_file', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: false })).toBe(true);
-    expect(callNeedsAsking('store_file', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(true);
-    expect(callNeedsAsking('run_command', { ask: 'always', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(true);
-    expect(callNeedsAsking('store_file', { ask: 'never', offered, environment: machine, sandboxCallsUnasked: false })).toBe(false);
+  it('asks for every call on a machine, for a destructive call elsewhere, and never for an environment tool inside the run\'s sandbox', () => {
+    expect(callNeedsAsking('run_command', { offered, environment: machine })).toBe(true);
+    expect(callNeedsAsking('run_command', { offered, environment: sandbox })).toBe(false);
+    expect(callNeedsAsking('delete_file', { offered, environment: sandbox })).toBe(false);
+    expect(callNeedsAsking('store_file', { offered, environment: sandbox })).toBe(true);
+    expect(callNeedsAsking('store_file', { offered, environment: undefined })).toBe(true);
+    expect(callNeedsAsking('run_command', { offered, environment: undefined })).toBe(false);
   });
 });

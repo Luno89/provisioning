@@ -97,7 +97,6 @@ export interface RunProcedureOptions {
   bus?: EventBus | undefined;
   signal?: AbortSignal | undefined;
   now?: (() => number) | undefined;
-  maxSteps?: number | undefined;
   onTrace?: ((trace: NodeTrace) => void) | undefined;
   resume?: RunCheckpoint | undefined;
   pauseWhen?: ((checkpoint: () => RunCheckpoint) => boolean) | undefined;
@@ -123,9 +122,6 @@ export interface ProcedureResult {
   steps: number;
   paused?: RunCheckpoint | undefined;
 }
-
-export const PROCEDURE_STEP_CAP = 10_000;
-export const CLEANUP_STEP_CAP = 100;
 
 class RunStop extends Error {
   readonly outcome: RunOutcome;
@@ -182,7 +178,6 @@ function endedBy(run: RunContext, err: unknown): { error: string } | { interrupt
 export async function runProcedure(options: RunProcedureOptions): Promise<ProcedureResult> {
   const now = options.now ?? (() => Date.now());
   const budget = options.budget ?? options.procedure.budget ?? {};
-  const maxSteps = options.maxSteps ?? PROCEDURE_STEP_CAP;
   const { identity, executor, catalogue } = options;
   const handles = handledTools(options.procedure);
 
@@ -440,7 +435,6 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
         const paused = checkpoint();
         return { runId: identity.runId, outcome: 'interrupted', reason: 'paused to continue as a new run', counters, outputs: paused.latest, steps, paused };
       }
-      if (steps >= maxSteps) throw new RunStop('exhausted', `stopped after ${maxSteps} steps without finishing`);
 
       counters.elapsedMs = now() - counters.startedAt;
       const upcoming = nodes.get(current);
@@ -468,11 +462,8 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     try {
       let current: NodeId | undefined = body.cleanup;
       const run = context(true, undefined, { outcome, ...(reason ? { reason } : {}) });
-      let cleanupSteps = 0;
 
       while (current !== undefined) {
-        if (cleanupSteps >= CLEANUP_STEP_CAP) throw new RunStop('failed', `cleanup did not finish within ${CLEANUP_STEP_CAP} steps`);
-        cleanupSteps += 1;
         const moved = await runStep(current, run);
         if (moved.finish) break;
         current = moved.next;
