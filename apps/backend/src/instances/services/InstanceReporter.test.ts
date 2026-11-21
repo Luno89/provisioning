@@ -7,8 +7,18 @@ import { InstanceReporter } from './InstanceReporter.js';
 const ROOT = 'https://root.example.test';
 const heard: Array<{ headers: Record<string, string | null>; body: unknown }> = [];
 let answers: Array<() => Response> = [];
+const removalAsked: Array<Record<string, string | null>> = [];
+let removing = false;
 
 interceptHttp(
+  http.get(`${ROOT}/api/instances/owner-removal`, ({ request }) => {
+    removalAsked.push({ instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') });
+    return HttpResponse.json({ removing });
+  }),
+  http.put(`${ROOT}/api/instances/owner-removal`, async ({ request }) => {
+    heard.push({ headers: { instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') }, body: await request.json() });
+    return HttpResponse.json({});
+  }),
   http.post(`${ROOT}/api/instances/status`, async ({ request }) => {
     heard.push({ headers: { instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') }, body: await request.json() });
     const next = answers.shift();
@@ -41,5 +51,22 @@ describe('the instance telling root about itself', () => {
     expect(await reporter(said).status({ status: 'failed', detail: 'no' })).toEqual({ ok: false, status: 400, error: 'status is one of waiting, joined' });
     expect(heard).toHaveLength(2);
     expect(said).toEqual([expect.stringMatching(/^root isn't answering when this instance tells it it is failed \(.*\); asking again in 0 s$/)]);
+  });
+
+  it('tells root how the removal of its owner stands, as only that', async () => {
+    heard.length = 0;
+    answers = [];
+    const progress = { seq: 3, phase: 'deleting' as const, work: [], parts: { projects: { state: 'deleted' as const, left: 0, deleted: 1 } } };
+    expect(await reporter().ownerRemoval(progress)).toEqual({ ok: true });
+    expect(heard).toEqual([{ headers: { instance: 'inst-bo', authorization: 'Bearer service-token' }, body: { progress } }]);
+  });
+
+  it('asks root whether its owner is being removed, as itself', async () => {
+    removalAsked.length = 0;
+    removing = true;
+    expect(await reporter().ownerRemoving()).toBe(true);
+    removing = false;
+    expect(await reporter().ownerRemoving()).toBe(false);
+    expect(removalAsked).toEqual([{ instance: 'inst-bo', authorization: 'Bearer service-token' }, { instance: 'inst-bo', authorization: 'Bearer service-token' }]);
   });
 });

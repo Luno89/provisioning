@@ -78,7 +78,8 @@ import { poisoningRouter } from '../routes/poisoning.js';
 import type { MachineClusterRecords } from '../../engine-host/temporal/activities.js';
 import { temporalWorkflowStarter } from '../../engine-host/temporal/workflow-starter.js';
 import { withWorkFor } from '@koala/engine-core/work-for';
-import { projectOfWork } from '../../projects/index.js';
+import { namedWork, projectOfWork, type DeletionProgress } from '../../projects/index.js';
+import type { AccountDeletionChange } from '../../accounts/index.js';
 
 
 export interface EngineCoreDeps {
@@ -648,6 +649,17 @@ export interface EngineStreamDeps {
   workFailures: Pick<WorkFailureService, 'runEnded' | 'workflowFailed'>;
   storedFiles: StoredFilesActivities | undefined;
   dependencies: DependencyReporter;
+  ownerRemovalToRoot?: { ownerRemoval(progress: DeletionProgress): Promise<{ ok: true } | { ok: false; status: number; error: string }> } | undefined;
+}
+
+function ownerRemovalTold(deps: EngineStreamDeps): ((change: AccountDeletionChange) => Promise<void>) | undefined {
+  const root = deps.ownerRemovalToRoot;
+  if (!root) return undefined;
+  return async ({ ownerId, progress }) => {
+    const records = await deps.core.runningRecords(ownerId);
+    const told = await root.ownerRemoval(namedWork(progress, (work) => workTitle(work, records)));
+    if (!told.ok) throw new Error(`root would not hear how the removal of this Koala's owner stands: ${told.error}`);
+  };
 }
 
 export function startEngineStream(deps: EngineStreamDeps): void {
@@ -670,6 +682,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
       connection: deps.connection,
       services: {
         registry: engineRegistry,
+        accountDeletionChanged: ownerRemovalTold(deps),
         endpoints: createEndpointResolver({ models: deps.models, registry: engineRegistry }),
         streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: deps.models }), ['stream']),
         runCancelled: runCancelledVia(() => getTemporalClient(), deps.dependencies),

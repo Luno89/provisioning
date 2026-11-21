@@ -241,6 +241,15 @@ describe('the remaining engine activities', () => {
     expect(changes).toEqual([change]);
     await expect(createStreamActivities(svc).ProjectDeletionChangedActivity(change)).rejects.toMatchObject({ nonRetryable: true });
   });
+
+  it('passes how the removal of this Koala\'s owner stands on to root, where there is a root to tell, and refuses where there is none', async () => {
+    const { services: svc } = services();
+    const changes: unknown[] = [];
+    const change = { ownerId: 'user-1', progress: { seq: 1, phase: 'deleting' as const, work: [], parts: {} } };
+    await createStreamActivities({ ...svc, accountDeletionChanged: async (told) => { changes.push(told); } }).AccountDeletionChangedActivity(change);
+    expect(changes).toEqual([change]);
+    await expect(createStreamActivities(svc).AccountDeletionChangedActivity(change)).rejects.toMatchObject({ nonRetryable: true });
+  });
 });
 
 describe('running a node as an activity', () => {

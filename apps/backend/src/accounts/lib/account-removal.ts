@@ -2,14 +2,24 @@ import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../../pl
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import { ownedQuery } from '../../platform/lib/workflow-owner.js';
 import { conversationWatermarkKey } from '../../memory/lib/conclusions.js';
+import type { DeletionProgress } from '../../projects/index.js';
 
 export const removeAccountWorkflowId = (ownerId: string): string => `remove-account-${ownerId}`;
 export const DELETE_ACCOUNT_WORKFLOW = 'DeleteAccountWorkflow';
 export const REMOVAL_PROGRESS_QUERY = 'removalProgress';
 
-export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance';
+export const OWNER_REMOVING = 'owner:removing';
+export const KOALA_REMOVAL_SIGNAL = 'koala-removal';
+export const KOALA_REMOVAL_QUERY = 'koalaRemoval';
+
+export interface AccountDeletionChange {
+  ownerId: string;
+  progress: DeletionProgress;
+}
+
+export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance' | 'koala';
 export const ROOT_REMOVAL_WORKFLOW = 'RootAccountRemovalWorkflow';
-export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'mesh', 'records'];
+export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'koala', 'mesh', 'records'];
 
 const bare = (id: string): string => id.replace(/["\\]/g, '');
 

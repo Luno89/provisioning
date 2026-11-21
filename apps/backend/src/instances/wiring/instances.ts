@@ -25,7 +25,7 @@ import { InstancePresence } from '../services/InstancePresence.js';
 import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
 import { RootPresence } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
-import { PRESENCE_NAMESPACE, PRESENCE_RENEW, PRESENCE_TOKEN, presenceAuth } from '../lib/instance-watch.js';
+import { hearAlso, PRESENCE_NAMESPACE, PRESENCE_RENEW, PRESENCE_TOKEN, presenceAuth } from '../lib/instance-watch.js';
 import type { EdgeSettings } from '../lib/edge-settings.js';
 import type { ClusterAccess, InstanceEdge, HeadscaleService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
@@ -34,7 +34,7 @@ import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import type { RootProvider } from '../services/RootProvider.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
 import { OIDC_PATH } from '../lib/oidc.js';
-import { instancesRouter } from '../routes/instances.js';
+import { instancesRouter, type OwnerRemovalAtRoot } from '../routes/instances.js';
 import { instanceAddressesRouter } from '../routes/instance-addresses.js';
 import { instanceUpdatesRouter } from '../routes/instance-updates.js';
 import type { Routes } from '../../machines/index.js';
@@ -80,7 +80,7 @@ export class InstanceSide {
   }
 
   hear(event: string, handler: () => void): void {
-    this.heard[event] = handler;
+    hearAlso(this.heard, event, handler);
   }
 
   watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>, dependencies: DependencyStates): void {
@@ -125,6 +125,7 @@ export interface InstancesWiringDeps {
   io: SocketServer;
   instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
   installs?: SetupInstalls | undefined;
+  ownerRemoval: OwnerRemovalAtRoot;
 }
 
 export interface InstancesWiring {
@@ -269,7 +270,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
 
   const mailReputation = isOff(root.mailReputation) ? undefined : new MailReputation(root.mailReputation);
   if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
-  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation }));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, ownerRemoval: deps.ownerRemoval }));
   return { instanceService, tellInstance };
 }
 

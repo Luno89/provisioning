@@ -42,6 +42,7 @@ function workLine(work: StoppingWork): string {
 }
 
 const PARTS: { part: DeletionPart; name: string; done: (count: number) => string }[] = [
+  { part: 'projects', name: 'Projects', done: (count) => `${count} deleted for good` },
   { part: 'apps', name: 'Apps', done: (count) => `${count} removed` },
   { part: 'workspaces', name: 'Workspaces', done: (count) => `${count} deleted` },
   { part: 'secrets', name: 'Secrets', done: (count) => `${count} deleted` },

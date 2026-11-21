@@ -4,7 +4,9 @@
  * `InviteMetadata` in apps/backend/src/platform/lib/types.ts,
  * `RemovalStep` in apps/backend/src/accounts/lib/account-removal.ts.
  */
-export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance'
+import type { DeletionProgress } from '../projects'
+
+export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance' | 'koala'
 
 export type RemovalState =
   | { state: 'running'; done: RemovalStep[] }
@@ -31,7 +33,14 @@ export interface PersonEntry {
   operator: boolean
   createdAt: string
   instance?: PersonInstance
-  removal?: { startedAt: string; requestedBy: string; state: RemovalState; steps?: RemovalStep[] }
+  removal?: {
+    startedAt: string
+    requestedBy: string
+    state: RemovalState
+    steps?: RemovalStep[]
+    koala?: DeletionProgress
+    koalaAway?: { machine?: string; since?: string }
+  }
 }
 
 export interface Invite {

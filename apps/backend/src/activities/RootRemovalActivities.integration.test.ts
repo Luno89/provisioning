@@ -28,8 +28,15 @@ describe('removing an account on root, as root\'s host worker runs it on root\'s
     await db.instances.saveInstance(instance('cy', { machineId: 'desk', install: { id: 'install-cy', machineId: 'desk', state: 'ready', at: 't' } }));
 
     expect(await RootRemovalInstanceActivity({ ownerId: 'bo' })).toEqual({ installId: 'install-bo' });
-    expect(await RootRemovalInstanceActivity({ ownerId: 'cy' })).toEqual({});
     expect(await RootRemovalInstanceActivity({ ownerId: 'nobody' })).toEqual({});
+  });
+
+  it('names the person\'s own Koala that serves them, whose removal of its owner root waits for, and no Koala that never served', async () => {
+    await db.instances.saveInstance(instance('cy', { machineId: 'desk', install: { id: 'install-cy', machineId: 'desk', state: 'ready', at: 't' } }));
+    await db.instances.saveInstance(instance('fay', { status: 'waiting' }));
+
+    expect(await RootRemovalInstanceActivity({ ownerId: 'cy' })).toEqual({ koala: 'inst-cy' });
+    expect(await RootRemovalInstanceActivity({ ownerId: 'fay' })).toEqual({});
   });
 
   it('removes what the person owns on root, their account last, and says how many of each it removed', async () => {

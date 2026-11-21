@@ -9,20 +9,18 @@ import {
   deletionStuck,
   partDeleted,
   partDeleting,
-  workClosed,
-  workerRestarted,
   workStopping,
   serviceBack,
   serviceDown,
   SERVICE_BACK_SIGNAL,
   SERVICE_DOWN_SIGNAL,
   type ServiceDown,
-  type DeletionPart,
   type DeletionProgress,
   type OpenWork,
 } from '../projects/lib/project-deletion.js';
 import type { DeleteProjectArgs, FrozenWorkActivities, ProjectDeletionActivities } from '../activities/DeleteProjectActivities.js';
 import { QUEUES } from '../platform/lib/work-places.js';
+import { awaitStopped, deletingPart, innermostMessage } from './deletion-telling.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ownerIn } from '../platform/lib/workflow-owner.js';
@@ -60,12 +58,6 @@ export interface ProjectDeleted {
   records: Record<string, number>;
 }
 
-const messageOf = (err: unknown): string => {
-  let inner = err as { message?: string; cause?: unknown } | undefined;
-  while (inner?.cause) inner = inner.cause as { message?: string; cause?: unknown };
-  return inner?.message ?? String(err);
-};
-
 export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<ProjectDeleted> {
   const done: ProjectRemovalStep[] = [];
   setHandler(projectDeletionProgressQuery, () => [...done]);
@@ -86,22 +78,10 @@ export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<Pr
     if (open.length === 0) return;
     stopped.push(...open.map((work) => work.workflowId));
     await tell((current) => workStopping(current, open));
-    await Promise.all(open.map(async (work) => {
-      const { frozen, killed } = await cluster.AwaitProjectWorkActivity({ workflowId: work.workflowId });
-      await tell((current) => workClosed(current, work.workflowId, frozen, killed));
-      for (const worker of frozen) {
-        if ((await cluster.RestartWorkerActivity({ worker })) === 'restarted') restarted.push(worker);
-        await tell((current) => workerRestarted(current, worker));
-      }
-    }));
+    await Promise.all(open.map(async (work) => { restarted.push(...(await awaitStopped(work, tell, cluster))); }));
   };
 
-  const part = async <T>(name: DeletionPart, run: () => Promise<T>, count: (found: T) => number): Promise<T> => {
-    await tell((current) => partDeleting(current, name));
-    const found = await run();
-    await tell((current) => partDeleted(current, name, count(found)));
-    return found;
-  };
+  const part = deletingPart(tell);
 
   const destroyApps = async (): Promise<number> => {
     const apps = await steps.RemoveProjectAppsActivity(args);
@@ -154,7 +134,7 @@ export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<Pr
     await tellGrove(owner);
     return { ...ran, archived: false, repositories, files, records };
   } catch (err) {
-    await tell((current) => deletionStuck(current, messageOf(err)));
+    await tell((current) => deletionStuck(current, innermostMessage(err)));
     throw err;
   }
 }

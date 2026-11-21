@@ -4,6 +4,12 @@ import type { InstanceService, StatusReport } from '../services/InstanceService.
 import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import { heldBackMail } from '../lib/instance-mail-limit.js';
+import { isDeletionProgress, type DeletionProgress } from '../../projects/index.js';
+
+export interface OwnerRemovalAtRoot {
+  removing(ownerId: string): Promise<boolean>;
+  told(ownerId: string, progress: DeletionProgress): Promise<{ ok: true; value: Record<string, never> } | { ok: false; status: number; error: string }>;
+}
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
 
@@ -17,7 +23,7 @@ const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false
 
 const notifyOf = (req: Request): unknown => ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable;
 
-export const INSTANCES_OPEN: readonly OpenRoute[] = ['/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail'];
+export const INSTANCES_OPEN: readonly OpenRoute[] = ['/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail', '/owner-removal'];
 
 export function instancesRouter(deps: {
   instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf'>;
@@ -29,6 +35,7 @@ export function instancesRouter(deps: {
   administers?: RequestHandler | undefined;
   dependencies?: Pick<DependencyWatch, 'view' | 'check' | 'forRelease'> | undefined;
   mailReputation?: Pick<MailReputation, 'view' | 'check'> | undefined;
+  ownerRemoval?: OwnerRemovalAtRoot | undefined;
 }): Router {
   const router = Router();
 
@@ -173,6 +180,34 @@ export function instancesRouter(deps: {
     const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as StatusReport);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ status: outcome.value.status });
+  }));
+
+  const ownerOfCaller = async (req: Request, res: Response): Promise<string | undefined> => {
+    if (!deps.ownerRemoval) {
+      res.status(404).json({ error: 'this server removes no accounts' });
+      return undefined;
+    }
+    const { instanceId, credential } = credentialOf(req);
+    const owner = await deps.instances.ownerOf(instanceId, credential);
+    if (!owner.ok) {
+      res.status(owner.status).json({ error: owner.error });
+      return undefined;
+    }
+    return owner.value.ownerId;
+  };
+
+  router.get('/owner-removal', asyncRoute(async (req: Request, res: Response) => {
+    const ownerId = await ownerOfCaller(req, res);
+    if (ownerId === undefined) return undefined;
+    return res.json({ removing: await deps.ownerRemoval!.removing(ownerId) });
+  }));
+
+  router.put('/owner-removal', asyncRoute(async (req: Request, res: Response) => {
+    const ownerId = await ownerOfCaller(req, res);
+    if (ownerId === undefined) return undefined;
+    const progress = ((req.body ?? {}) as { progress?: unknown }).progress;
+    if (!isDeletionProgress(progress)) return res.status(400).json({ error: 'send progress: how the removal stands, its seq, phase, work and parts' });
+    return answer(res, await deps.ownerRemoval!.told(ownerId, progress));
   }));
 
   return router;

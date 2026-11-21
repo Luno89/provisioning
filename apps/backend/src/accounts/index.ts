@@ -1,5 +1,6 @@
-export { memoryWatermarkKeys, openAccountWork } from './lib/account-removal.js';
-export type { AccountCollection, AccountIds, AccountRelated } from './lib/account-removal.js';
+export { memoryWatermarkKeys, openAccountWork, OWNER_REMOVING } from './lib/account-removal.js';
+export { OwnerRemoval } from './services/OwnerRemoval.js';
+export type { AccountCollection, AccountDeletionChange, AccountIds, AccountRelated } from './lib/account-removal.js';
 export { accountsMadeBy, DEFAULT_INVITE_LIMITS, limitsProblem, projectInviteRefusal } from './lib/project-invite-limits.js';
 export type { InviteLimits } from './lib/project-invite-limits.js';
 export { readiedForProviderLink } from './lib/provider-sign-in.js';

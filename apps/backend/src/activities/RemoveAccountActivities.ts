@@ -13,6 +13,7 @@ import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemovePr
 export interface RemoveAccountArgs {
   ownerId: string;
   keepRunsFor?: string | undefined;
+  toRoot?: boolean | undefined;
 }
 
 export interface AccountProjects {

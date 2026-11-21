@@ -1,6 +1,7 @@
 import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
 import type { ProvisionReport } from '@koala/engine-core/koala-install';
 import type { InstanceStatus } from '../lib/instances.js';
+import type { DeletionProgress } from '../../projects/index.js';
 
 export interface InstanceReporterDeps {
   root: { url: string; instanceId: string; token: () => Promise<string> };
@@ -34,21 +35,36 @@ export class InstanceReporter {
     return this.send(`tells it how its setup goes at ${report.progress.stage}`, { provision: report });
   }
 
+  async ownerRemoval(progress: DeletionProgress): Promise<Reported> {
+    const answer = await this.call('tells it how the removal of its owner stands', '/api/instances/owner-removal', { method: 'PUT', body: JSON.stringify({ progress }) });
+    if (answer.ok) return { ok: true };
+    return { ok: false, status: answer.status, error: saidBy(await answer.text()) };
+  }
+
+  async ownerRemoving(): Promise<boolean> {
+    const answer = await this.call('asks it whether its owner is being removed', '/api/instances/owner-removal', { method: 'GET' });
+    if (!answer.ok) throw new Error(`root would not say whether this instance's owner is being removed: ${saidBy(await answer.text())}`);
+    return ((await answer.json()) as { removing?: unknown }).removing === true;
+  }
+
   private async send(doing: string, body: Record<string, unknown>): Promise<Reported> {
+    const answer = await this.call(doing, '/api/instances/status', { method: 'POST', body: JSON.stringify(body) });
+    if (answer.ok) return { ok: true };
+    return { ok: false, status: answer.status, error: saidBy(await answer.text()) };
+  }
+
+  private call(doing: string, path: string, init: { method: string; body?: string }): Promise<Response> {
     const call = this.deps.fetch ?? fetch;
     const log = this.deps.log ?? ((line: string) => console.log(line));
     const { url, instanceId, token } = this.deps.root;
-    const answer = await untilAnswered(
-      async () => call(`${url}/api/instances/status`, {
-        method: 'POST',
-        headers: { 'X-Instance-Id': instanceId, Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+    return untilAnswered(
+      async () => call(`${url}${path}`, {
+        ...init,
+        headers: { 'X-Instance-Id': instanceId, Authorization: `Bearer ${await token()}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
       }),
       this.wait,
       (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`),
     );
-    if (answer.ok) return { ok: true };
-    return { ok: false, status: answer.status, error: saidBy(await answer.text()) };
   }
 }
 

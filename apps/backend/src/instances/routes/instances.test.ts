@@ -56,6 +56,26 @@ describe('an instance talking to root as itself', () => {
     expect((await (await on(router)).put(`${prefix}/watch`, { notifyWhenUnreachable: false }, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: false });
   });
 
+  it('asks whether its owner is being removed and tells how its removal of them stands, as itself only', async () => {
+    const removing: string[] = [];
+    const told: Array<{ ownerId: string; progress: unknown }> = [];
+    const ownerRemoval = {
+      removing: async (ownerId: string) => { removing.push(ownerId); return true; },
+      told: async (ownerId: string, progress: unknown) => { told.push({ ownerId, progress }); return ok({}); },
+    };
+    const { instances, router } = route({ ownerRemoval: ownerRemoval as never });
+    instances.ownerOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ ownerId: 'bo' }));
+    instances.ownerOf.calledWith('inst-1', 'wrong').mockResolvedValue(no(401, 'unknown instance or credential'));
+    const progress = { seq: 2, phase: 'deleting', work: [], parts: {} };
+    expect((await (await on(router)).get(`${prefix}/owner-removal`, { headers: asInstance })).data).toEqual({ removing: true });
+    expect((await (await on(router)).put(`${prefix}/owner-removal`, { progress }, { headers: asInstance })).status).toBe(200);
+    expect((await (await on(router)).get(`${prefix}/owner-removal`, { headers: { ...asInstance, authorization: 'Bearer wrong' } })).status).toBe(401);
+    expect((await (await on(router)).put(`${prefix}/owner-removal`, { progress }, { headers: { ...asInstance, authorization: 'Bearer wrong' } })).status).toBe(401);
+    expect((await (await on(router)).put(`${prefix}/owner-removal`, { progress: { phase: 'gone' } }, { headers: asInstance })).status).toBe(400);
+    expect(removing).toEqual(['bo']);
+    expect(told).toEqual([{ ownerId: 'bo', progress }]);
+  });
+
   it('reads no credential from a request that sends none', async () => {
     const { instances, router } = route();
     instances.watchAs.mockResolvedValue(no(401, 'unknown instance or credential'));

@@ -7,7 +7,7 @@ import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '.
 import { deploymentKeys } from '../infrastructure'
 import { accountRemovalPlace } from '../platform'
 
-export { confirmMatches, refusalBlockers, removalText } from './lib/removal-text'
+export { confirmMatches, koalaAwayText, koalaProblemText, refusalBlockers, removalText } from './lib/removal-text'
 export { newPasswordProblem, proofAsked, proofReady, proofSent, sendsCode } from './lib/proof'
 
 export const dangerPanel = 'pt-6 border-t border-slate-700'

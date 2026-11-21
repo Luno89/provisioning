@@ -7,6 +7,11 @@ export const PRESENCE_RETRY_MS = 5_000;
 export const PRESENCE_RENEW = 'presence:renew';
 export const PRESENCE_TOKEN = 'presence:token';
 
+export function hearAlso(heard: Record<string, () => void>, event: string, handler: () => void): void {
+  const before = heard[event];
+  heard[event] = before ? () => { before(); handler(); } : handler;
+}
+
 export interface Reach {
   reachable: boolean;
   lastSeenAt?: string | undefined;
