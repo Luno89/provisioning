@@ -1,3 +1,4 @@
+import { METRICS_CLIENT_SECRET } from '@koala/engine-core/root-client';
 import type { Reach } from '../../infrastructure/index.js';
 import { appServiceType, placedOnPool } from '../../infrastructure/lib/cluster-places.js';
 
@@ -78,7 +79,10 @@ export interface MetricsSending {
   resource: string;
 }
 
-export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; pool?: boolean | undefined; machine?: MetricsSending | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
+export const METRICS_SECRET_MISSING = (machine: string): string =>
+  `${machine} holds no Secret ${METRICS_CLIENT_SECRET.name} in ${METRICS_CLIENT_SECRET.namespace}, which its Prometheus signs in to root with, so its monitoring is not applied: the machine's agent puts it there each time the cluster starts, so run the command from My Machines again`;
+
+export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; pool?: boolean | undefined; machine?: MetricsSending | undefined; koala?: boolean | undefined }, keepIngress: boolean, existing: readonly string[]): Record<string, string> {
   return {
     STACK_TYPE: 'cluster',
     CLUSTER_NAME: cluster.physicalName,
@@ -88,6 +92,7 @@ export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPa
     ...(cluster.pool ? { CLUSTER_MONITORING: 'crds' } : {}),
     ...(cluster.machine ? { CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: cluster.machine.url, METRICS_TOKEN_URL: cluster.machine.tokenUrl, METRICS_RESOURCE: cluster.machine.resource } : {}),
     ...(cluster.koala ? { KOALA_CLUSTER: 'true' } : {}),
+    CLUSTER_EXISTING: JSON.stringify(existing),
   };
 }
 

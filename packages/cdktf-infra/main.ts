@@ -44,7 +44,7 @@ import { KoalaDashboardsStack } from "./constructs/koala-dashboards.js";
 import { K8sProviderService, kubeconfigFrom } from "./lib/k8s-provider-service.js";
 import { type VpnConfig } from "./lib/vpn-service.js";
 import { platformService } from "./constructs/platform-services.js";
-import { platformSettingsFrom } from "./lib/platform-settings.js";
+import { clusterExistingFrom, platformSettingsFrom } from "./lib/platform-settings.js";
 
 function gpuCountFrom(name: string): number {
   const count = Number(process.env[name]);
@@ -90,12 +90,13 @@ class ClusterStack extends TerraformStack {
     // the monitoring.coreos.com/v1 CRDs kube-prometheus-stack installs. Terraform would otherwise
     // apply the two Helm releases in parallel and Traefik's render fails outright — see
     // IngressStack's constructor doc.
+    const existing = clusterExistingFrom(process.env);
     const monitoring = process.env.CLUSTER_MONITORING === "crds"
-      ? new OperatorCrdsStack(this, "monitoring")
+      ? new OperatorCrdsStack(this, "monitoring", existing)
       : process.env.CLUSTER_MONITORING === "agent"
-        ? new AgentMonitoringStack(this, "monitoring", metricsSending())
-        : new MonitoringStack(this, "monitoring");
-    if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
+        ? new AgentMonitoringStack(this, "monitoring", metricsSending(), existing)
+        : new MonitoringStack(this, "monitoring", existing);
+    if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", existing, [monitoring.prometheusRelease]);
   }
 }
 

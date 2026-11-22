@@ -21,9 +21,9 @@ const releasesOf = (build: (scope: never) => unknown): Releases =>
 
 const constructs: Record<string, (scope: never) => unknown> = {
   Audiobookshelf: (scope) => new AudiobookshelfApp(scope, "app"),
-  ingress: (scope) => new IngressStack(scope, "ingress"),
+  ingress: (scope) => new IngressStack(scope, "ingress", new Set()),
   logging: (scope) => new LoggingStack(scope, "logging"),
-  "operator CRDs": (scope) => new OperatorCrdsStack(scope, "crds"),
+  "operator CRDs": (scope) => new OperatorCrdsStack(scope, "crds", new Set()),
   Prometheus: (scope) => new PrometheusApp(scope, "app"),
   telemetry: (scope) => new TelemetryStack(scope, "telemetry", "monitoring"),
   Temporal: (scope) => new TemporalApp(scope, "app"),

@@ -1,7 +1,6 @@
 import type { Progress, Step } from '@koala/provision';
-import { machineClientOf, newClientKey } from '@koala/engine-core/root-client';
+import { machineClientOf, metricsClientManifest, newClientKey } from '@koala/engine-core/root-client';
 import { configFile, metricsClientFile } from '../../machine-config.js';
-import { metricsClientManifest } from '../../machine-metrics.js';
 import { configHome, joinedOf, type Joined, type JoinContext } from '../context.js';
 
 const machineFile = (ctx: JoinContext): string => configFile({ ...ctx.host.env, XDG_CONFIG_HOME: configHome(ctx) });

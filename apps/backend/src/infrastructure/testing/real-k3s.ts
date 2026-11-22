@@ -79,7 +79,7 @@ export async function startK3s(): Promise<RealK3s> {
   const registries = await mirrorsThroughCaches(ctx);
   const folder = mkdtempSync(join(tmpdir(), 'koala-k3s-'));
   const adminFile = join(folder, 'admin.yaml');
-  const container = containerProvider({ name, image: K3S_TEST_IMAGE, run: [...throwawayLabel(), '--privileged', '-p', '127.0.0.1::6443', '-v', `${registries}:/etc/rancher/k3s/registries.yaml:ro`], command: ['server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1'], publish: [6443] });
+  const container = containerProvider({ name, image: K3S_TEST_IMAGE, run: [...throwawayLabel(), '--privileged', '-p', '127.0.0.1::6443', '-v', `${registries}:/etc/rancher/k3s/registries.yaml:ro`, '--entrypoint', '/bin/sh'], command: ['-c', 'mount --make-rshared / && exec /bin/k3s server --disable=traefik,servicelb,metrics-server --tls-san 127.0.0.1'], publish: [6443] });
   let admin = '';
   const kubeconfig = async (): Promise<string> => {
     if (admin) return adminFile;

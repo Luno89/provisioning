@@ -53,12 +53,13 @@ describe('monitoringPlan', () => {
 
 describe('monitoringStackEnv', () => {
   it('targets an existing cluster by its kubeconfig and keeps its ingress when asked', () => {
-    expect(monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/tmp/kubeconfig-machine-desk' }, true)).toEqual({
+    expect(monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/tmp/kubeconfig-machine-desk' }, true, ['v1/Namespace//monitoring'])).toEqual({
       STACK_TYPE: 'cluster',
       CLUSTER_NAME: 'machine-desk',
       KUBECONFIG_PATH: '/tmp/kubeconfig-machine-desk',
       INGRESS_SERVICE: 'NodePort',
       CLUSTER_INGRESS: 'existing',
+      CLUSTER_EXISTING: '["v1/Namespace//monitoring"]',
     });
   });
 
@@ -73,18 +74,18 @@ describe('the cluster of a pool instance', () => {
   it('is watched by root, so it gets only the operator\'s resources and an ingress, never a monitoring stack of its own', () => {
     expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false, crdsFirst: false });
     expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true, crdsFirst: false });
-    expect(monitoringStackEnv({ physicalName: 'pool-bob', kubeconfigPath: '/k', pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
-    const machine = monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', machine: { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://koala.example/oidc/token', resource: 'urn:koala:instance:inst-1' } }, false);
+    expect(monitoringStackEnv({ physicalName: 'pool-bob', kubeconfigPath: '/k', pool: true }, false, [])).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
+    const machine = monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', machine: { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://koala.example/oidc/token', resource: 'urn:koala:instance:inst-1' } }, false, []);
     expect(machine).toMatchObject({
       INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent',
       REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics', METRICS_TOKEN_URL: 'https://koala.example/oidc/token', METRICS_RESOURCE: 'urn:koala:instance:inst-1',
     });
     expect(machine).not.toHaveProperty('ENV');
-    const kept = monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/k' }, false);
+    const kept = monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/k' }, false, []);
     expect(kept).toMatchObject({ INGRESS_SERVICE: 'NodePort' });
     expect(kept).not.toHaveProperty('CLUSTER_MONITORING');
     expect(kept).not.toHaveProperty('ENV');
-    expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', koala: true }, false)).toMatchObject({ KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' });
+    expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', koala: true }, false, [])).toMatchObject({ KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' });
   });
 
 });
@@ -95,7 +96,7 @@ describe('the stacks that monitor Koala\'s own cluster, named for that cluster\'
     const worker = koalaClusterMonitoring(false, koala);
     const deploy = { physicalName: 'machine-desk', kubeconfigPath: '/k', pool: false, koala: true };
     expect(worker.reach).toBe(koala);
-    expect(monitoringStackEnv({ ...worker, kubeconfigPath: '/k' }, true)).toEqual(monitoringStackEnv(deploy, true));
+    expect(monitoringStackEnv({ ...worker, kubeconfigPath: '/k' }, true, [])).toEqual(monitoringStackEnv(deploy, true, []));
     expect(koalaClusterMonitoring(true, koala)).toMatchObject({ pool: true, koala: true });
     expect(koalaClusterMonitoring(true, { clusterId: 'pool-bob', kind: 'koala' })).toMatchObject({ physicalName: 'pool-bob', pool: true });
     expect(koalaClusterMonitoring(false, { clusterId: 'root', kind: 'root' })).toEqual({ physicalName: 'root', koala: true, pool: false, reach: { clusterId: 'root', kind: 'root' } });

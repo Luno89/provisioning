@@ -1,9 +1,9 @@
 import { Construct } from "constructs";
 import type { ITerraformDependable } from "cdktf";
 import { Release } from "../.gen/providers/helm/release/index.js";
-import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 import { chartRepository } from "../lib/chart-source.js";
+import { ownedNamespace } from "./owned-namespace.js";
 
 export class IngressStack extends Construct {
   /**
@@ -15,14 +15,10 @@ export class IngressStack extends Construct {
    *   management cluster, which left it with no Traefik at all and silently broke app exposure
    *   (AppExposureService routes every exposed app through svc/traefik).
    */
-  constructor(scope: Construct, id: string, dependsOn?: ITerraformDependable[]) {
+  constructor(scope: Construct, id: string, existing: ReadonlySet<string>, dependsOn?: ITerraformDependable[]) {
     super(scope, id);
 
-    const ns = new Namespace(this, "ingress-ns", {
-      metadata: {
-        name: "traefik",
-      },
-    });
+    const ns = ownedNamespace(this, "ingress-ns", "traefik", existing);
 
     const serviceType = process.env.INGRESS_SERVICE;
     if (!serviceType) throw new Error("the cluster stack is told how Traefik's Service is reached, in INGRESS_SERVICE, and it was not");

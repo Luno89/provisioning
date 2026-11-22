@@ -11,7 +11,7 @@ const SENDING: MetricsSending = {
 };
 
 const releasesOf = (sending: MetricsSending): Releases =>
-  (JSON.parse(Testing.synthScope((scope) => { new AgentMonitoringStack(scope, "monitoring", sending); })) as { resource: { helm_release: Releases } }).resource.helm_release;
+  (JSON.parse(Testing.synthScope((scope) => { new AgentMonitoringStack(scope, "monitoring", sending, new Set()); })) as { resource: { helm_release: Releases } }).resource.helm_release;
 
 describe("monitoring on a machine's cluster", () => {
   it("collects in agent mode and sends everything to its Koala with a token it takes from root as a client of its own, keeping no Grafana, Alertmanager or rules of its own", () => {

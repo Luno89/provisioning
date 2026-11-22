@@ -8,6 +8,26 @@ export interface PlatformInputs {
   stamp: string;
 }
 
+function existingList(name: string, listed: string, problems: string[]): string[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(listed);
+    if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) throw new Error("not a list of strings");
+    return parsed;
+  } catch {
+    problems.push(`${name} is not a JSON list of what is already on the cluster`);
+    return undefined;
+  }
+}
+
+export function clusterExistingFrom(env: Record<string, string | undefined>): ReadonlySet<string> {
+  const problems: string[] = [];
+  const listed = env.CLUSTER_EXISTING?.trim();
+  if (!listed) throw new Error("CLUSTER_EXISTING is not set: it lists what is already on the cluster, which the cluster stack takes over rather than makes");
+  const existing = existingList("CLUSTER_EXISTING", listed, problems);
+  if (!existing) throw new Error(problems.join("\n"));
+  return new Set(existing);
+}
+
 export function platformSettingsFrom(env: Record<string, string | undefined>): { name: PlatformServiceName; inputs: PlatformInputs } {
   const problems: string[] = [];
   const setting = (name: string, why: string): string | undefined => {
@@ -18,16 +38,7 @@ export function platformSettingsFrom(env: Record<string, string | undefined>): {
   const name = setting("PLATFORM_SERVICE", "it names the platform service this stack applies");
   if (name && !(PLATFORM_SERVICES as readonly string[]).includes(name)) problems.push(`PLATFORM_SERVICE is ${name}; the platform services are ${PLATFORM_SERVICES.join(", ")}`);
   const listed = setting("PLATFORM_EXISTING", "it lists what is already on the cluster, which the stack takes over rather than makes");
-  let existing: string[] | undefined;
-  if (listed) {
-    try {
-      const parsed: unknown = JSON.parse(listed);
-      if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) throw new Error("not a list of strings");
-      existing = parsed;
-    } catch {
-      problems.push("PLATFORM_EXISTING is not a JSON list of what is already on the cluster");
-    }
-  }
+  const existing = listed === undefined ? undefined : existingList("PLATFORM_EXISTING", listed, problems);
   const koalaNamespace = setting("KOALA_NAMESPACE", "it is the namespace of the Koala the services answer");
   const pool = setting("POOL", "it says whether the services run on Koala's servers or a person's machine");
   if (pool && pool !== "true" && pool !== "false") problems.push(`POOL is ${pool}; it is true on Koala's servers and false on a person's machine`);

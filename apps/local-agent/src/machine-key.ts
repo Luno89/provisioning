@@ -1,7 +1,6 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
-import { clientRefused, newClientKey, type KeyReplacement, type MetricsClient } from '@koala/engine-core/root-client';
+import { clientRefused, metricsClientManifest, newClientKey, type KeyReplacement, type MetricsClient } from '@koala/engine-core/root-client';
 import { metricsClientFile } from './machine-config.js';
-import { metricsClientManifest } from './machine-metrics.js';
 
 type Saved = Record<string, unknown> & { key?: unknown; nextKey?: unknown };
 
