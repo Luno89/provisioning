@@ -15,9 +15,15 @@ import { harnessApp } from '../../platform/routes/test-harness.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { RUN_ID_MEMO, workflowOfRun } from '../../platform/lib/workflow-ids.js';
 import { bundled, realTemporalEnvironment } from '../../workflows/testing/temporal-test-env.js';
-import type { RunStarter, StartRunRequest } from '../../engine-host/registries/run-starter.js';
+import { createRunStarter, type RunStarter, type StartRunRequest } from '../../engine-host/registries/run-starter.js';
+import { createAgentRegistry } from '../../engine-host/registries/registry.js';
+import { temporalWorkflowStarter } from '../../engine-host/temporal/workflow-starter.js';
+import { runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { TemporalBridge } from '../services/TemporalBridge.js';
+import { testDataDir } from '../../platform/testing/data-dir.js';
+import type { ProvisioningRecord } from '../lib/provisioning.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
-import { ProvisionAsks, Provisioning, type ProvisionRoot } from '../services/Provisioning.js';
+import { ProvisionAsks, Provisioning, type ProvisionRoot, type ProvisionRuns } from '../services/Provisioning.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { pieceHeard } from '../lib/provisioning.js';
 import { isOff } from '../../platform/index.js';
@@ -89,12 +95,26 @@ async function koalaAt(clusterId: string, root: ProvisionRoot = { setup: async (
     io,
     runs,
     client: () => env.client.workflow,
+    connected: async () => undefined,
     root,
     koala: { ownerId: OWNER.id, clusterId, revision: 2 },
   });
   if (isOff(provisioning)) throw new Error(provisioning.off);
   closing.push(() => provisioning.close());
   return { db, url, owner, provisioning };
+}
+
+function provisioningOn(db: Awaited<ReturnType<typeof testDatabase>>, clusterId: string, provisionRuns: ProvisionRuns): Provisioning {
+  const provisioning = new Provisioning({
+    store: db.infrastructure,
+    runs: provisionRuns,
+    root: { setup: async () => ({ ok: true }) },
+    koala: { ownerId: OWNER.id, clusterId, revision: 2 },
+    changed: () => undefined,
+    log: () => undefined,
+  });
+  closing.push(() => provisioning.close());
+  return provisioning;
 }
 
 describe('Koala setting itself up after a new chart revision, on real Mongo and Temporal', () => {
@@ -128,15 +148,7 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
   it('starts one run when two ask at once, the cluster holding one running run', async () => {
     const clusterId = `machine-lab-${taskQueue}`;
     const db = await testDatabase();
-    const provisioning = new Provisioning({
-      store: db.infrastructure,
-      runs: engineProvisionRuns({ runs, client: () => env.client.workflow, agent: PROVISION_AGENT }),
-      root: { setup: async () => ({ ok: true }) },
-      koala: { ownerId: OWNER.id, clusterId, revision: 2 },
-      changed: () => undefined,
-      log: () => undefined,
-    });
-    closing.push(() => provisioning.close());
+    const provisioning = provisioningOn(db, clusterId, engineProvisionRuns({ runs, client: () => env.client.workflow, connected: async () => undefined, agent: PROVISION_AGENT }));
     await provisioning.start();
 
     const [one, two] = await Promise.all([provisioning.ensure({ kind: 'koala', clusterId }, 'missing'), provisioning.ensure({ kind: 'koala', clusterId }, 'asked')]);
@@ -200,5 +212,36 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
     await env.client.workflow.getHandle(`provision-${labId}`).signal('cancelRun');
     expect(await settled).toEqual({ state: 'failed', why: 'the setup\'s run finished without saying how its pieces ended' });
     await env.client.workflow.getHandle(`provision-${clusterId}`).signal('cancelRun');
+  });
+
+  async function setUpBeforeTheEngineConnects(clusterId: string) {
+    const db = await testDatabase();
+    const bridge = new TemporalBridge(db, testDataDir(), undefined, undefined, undefined, { connect: async () => env.client });
+    const engineRuns = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => (bridge.isReady() ? temporalWorkflowStarter(bridge.client.workflow) : undefined) });
+    const provisioning = provisioningOn(db, clusterId, engineProvisionRuns({ runs: engineRuns, client: () => (bridge.isReady() ? bridge.client.workflow : undefined), connected: () => bridge.connected(), agent: PROVISION_AGENT }));
+    const opened = new Promise<ProvisioningRecord>((done) => {
+      const watching = db.infrastructure.watchProvisioning((record) => { if (record.target.clusterId === clusterId) { void watching.close(); done(record); } });
+    });
+    const starting = provisioning.start();
+    return { db, bridge, starting, record: await opened };
+  }
+
+  it('waits for the engine to connect to Temporal before starting the setup it was asked for, then starts it', async () => {
+    const clusterId = `machine-early-${taskQueue}`;
+    const { db, bridge, starting, record } = await setUpBeforeTheEngineConnects(clusterId);
+    await bridge.start();
+    await starting;
+
+    expect(await db.infrastructure.getProvisioningRun(record.id)).toMatchObject({ state: 'running', workflowId: `provision-${clusterId}` });
+    expect((await env.client.workflow.getHandle(`provision-${clusterId}`).describe()).status.name).toBe('RUNNING');
+  });
+
+  it('fails the setup it was asked for, saying why, when the backend stops before the engine ever connects', async () => {
+    const clusterId = `machine-stopped-${taskQueue}`;
+    const { db, bridge, starting, record } = await setUpBeforeTheEngineConnects(clusterId);
+    await bridge.stop();
+    await starting;
+
+    expect(await db.infrastructure.getProvisioningRun(record.id)).toMatchObject({ state: 'failed', why: 'the setup could not start: the backend stopped before it connected to Temporal, so nothing it was waiting to start will start' });
   });
 });

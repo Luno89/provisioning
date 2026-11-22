@@ -16,6 +16,7 @@ export interface ProvisioningWiringDeps {
   io: SocketServer;
   runs: Pick<RunStarter, 'start'>;
   client: () => Pick<WorkflowClient, 'getHandle'> | undefined;
+  connected: () => Promise<void>;
   root: ProvisionRoot;
   koala: { ownerId: string; clusterId: string; revision: number } | Off;
 }
@@ -28,7 +29,7 @@ export function wireProvisioning(deps: ProvisioningWiringDeps): Provisioning | O
   }
   const provisioning = new Provisioning({
     store: deps.db.infrastructure,
-    runs: engineProvisionRuns({ runs: deps.runs, client: deps.client, agent: PROVISION_AGENT }),
+    runs: engineProvisionRuns({ runs: deps.runs, client: deps.client, connected: deps.connected, agent: PROVISION_AGENT }),
     root: deps.root,
     koala,
     changed: (ownerId, view) => { deps.io.to(userRoom(ownerId)).emit(PROVISIONING_CHANGED, view); },

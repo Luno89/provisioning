@@ -459,6 +459,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
+      connected: () => temporalBridge.connected(),
       root: instanceReporter,
       koala: clusterId
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }

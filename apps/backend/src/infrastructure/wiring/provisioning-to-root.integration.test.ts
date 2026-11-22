@@ -163,6 +163,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
       runs: engineProvisionRuns({
         runs: createRunStarter({ ...runsActingAsTheirOwner(GRANTS), registry, workflows: () => temporalWorkflowStarter(env.client.workflow), taskQueue: ENGINE_QUEUE }),
         client: () => env.client.workflow,
+        connected: async () => undefined,
         agent: PROVISION_AGENT,
       }),
       root: new InstanceReporter({ root: { url: root.url, instanceId: placed.value.instanceId, token: async () => tokenOfInstance(koala.value.instanceId) }, wait: reopening(1), log: () => undefined }),

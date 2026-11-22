@@ -200,6 +200,9 @@ export class TemporalBridge {
   masterKey: SecretKey
   private readonly following = new Map<string, Promise<void>>()
   private watching: Watching[] = []
+  private reached!: () => void
+  private neverReached!: (why: Error) => void
+  private readonly reaching = new Promise<void>((reached, never) => { this.reached = reached; this.neverReached = never })
   clusterService?: ClusterService
 
   lastConsolidation?: ConsolidationReport
@@ -216,6 +219,7 @@ export class TemporalBridge {
     this.io = io
     this.masterKey = masterKey || ''
     if (clusterService !== undefined) this.clusterService = clusterService
+    this.reaching.catch(ignore('a backend that stopped before it reached Temporal tells whoever waits on connected(), and nobody else'))
   }
 
   private clustersForConsolidation(): ClusterService {
@@ -256,6 +260,10 @@ export class TemporalBridge {
     return !!this.client
   }
 
+  connected(): Promise<void> {
+    return this.reaching
+  }
+
   async reach(): Promise<TemporalReach> {
     if (!this.client) return { connected: false, reason: 'the backend has not connected to Temporal yet' }
     try {
@@ -275,10 +283,12 @@ export class TemporalBridge {
   async start(address?: string): Promise<this> {
     const c = await getDefaultClient(address, this.seams.connect)
     this.client = c
+    this.reached()
     return this
   }
 
   async stop(): Promise<void> {
+    if (!this.client) this.neverReached(new Error('the backend stopped before it connected to Temporal, so nothing it was waiting to start will start'))
     await Promise.all(this.watching.splice(0).map((watching) => watching.close()))
     try {
       await this.client.connection.close()
