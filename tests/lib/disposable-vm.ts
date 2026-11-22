@@ -24,6 +24,7 @@ import { calculateRequiredVmMemoryMB } from './memory-budget.js';
 import { lanNicArgument, macFor, netplanFor, type LanSocket } from './vm-network.js';
 import { ensureImageCaches, hostFromVm, registriesYamlForVm } from './image-cache.js';
 import { randomBytes } from 'crypto';
+import { cachedDownload } from './cached-download.js';
 
 const CACHE_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.vm-cache');
 const BASE_IMAGE_URL = 'https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img';
@@ -92,17 +93,10 @@ async function checkPrereqs(): Promise<void> {
   }
 }
 
-async function ensureBaseImage(): Promise<string> {
-  await fs.mkdir(CACHE_DIR, { recursive: true });
-  if (fssync.existsSync(BASE_IMAGE_PATH)) {
-    return BASE_IMAGE_PATH;
-  }
+const ensureBaseImage = (): Promise<string> => cachedDownload(BASE_IMAGE_PATH, async (to) => {
   console.log(`  ⬇  Downloading Ubuntu 22.04 cloud image (~600MB, cached at ${BASE_IMAGE_PATH} for future runs)...`);
-  const tmpPath = `${BASE_IMAGE_PATH}.downloading`;
-  await succeeded(here, { command: 'curl', args: ['-fL', '-o', tmpPath, BASE_IMAGE_URL] });
-  await fs.rename(tmpPath, BASE_IMAGE_PATH);
-  return BASE_IMAGE_PATH;
-}
+  await succeeded(here, { command: 'curl', args: ['-fL', '-o', to, BASE_IMAGE_URL] });
+});
 
 function running(pid: number): boolean {
   try {
