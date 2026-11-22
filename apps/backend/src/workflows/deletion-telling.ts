@@ -1,4 +1,10 @@
+import { proxyActivities } from '@temporalio/workflow';
+import type { MachineWorkStop, MachineWorkStopped } from '@koala/engine-core';
+import { deviceQueue } from '../engine-host/temporal/contracts.js';
+import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
+import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import {
+  machineWorkStopped,
   partDeleted,
   partDeleting,
   workClosed,
@@ -24,10 +30,22 @@ export const deletingPart = (tell: Tell) => async <T>(name: DeletionPart, run: (
   return found;
 };
 
-export async function awaitStopped(work: OpenWork, tell: Tell, cluster: FrozenWorkActivities): Promise<string[]> {
+export interface MachineStopActivities {
+  StopMachineWorkActivity(args: MachineWorkStop): Promise<MachineWorkStopped>;
+}
+
+export type OnMachine = (deviceId: string) => MachineStopActivities;
+
+export const machineStops: OnMachine = (deviceId) => proxyActivities<MachineStopActivities>({ taskQueue: deviceQueue(deviceId), retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
+
+export async function awaitStopped(work: OpenWork, tell: Tell, cluster: FrozenWorkActivities, onMachine: OnMachine): Promise<string[]> {
   const restarted: string[] = [];
-  const { frozen, killed } = await cluster.AwaitProjectWorkActivity({ workflowId: work.workflowId });
-  await tell((current) => workClosed(current, work.workflowId, frozen, killed));
+  const { frozen, killed, machines } = await cluster.AwaitProjectWorkActivity({ workflowId: work.workflowId });
+  await tell((current) => workClosed(current, work.workflowId, frozen, killed, machines.map((machine) => machine.name)));
+  for (const machine of machines) {
+    const stopped = await onMachine(machine.id).StopMachineWorkActivity({ workflowIds: [work.workflowId] });
+    await tell((current) => machineWorkStopped(current, work.workflowId, stopped.killed));
+  }
   for (const worker of frozen) {
     const answer = await cluster.RestartWorkerActivity({ worker });
     if (answer === 'restarted') restarted.push(worker);

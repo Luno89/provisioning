@@ -65,7 +65,7 @@ export async function removalWorkers(world: RemovalWorld, client: Client, queue:
   const deletion = createProjectDeletionActivities({ work, removal, archive: temporalProjectArchive(async () => client, db.projects, queue), told: deletionToldThrough(async () => client) });
   const workers = await Promise.all([
     testWorker(env, { taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, '..', options.workflows)), activities: { ...deletion, ...options.activities?.(work) } }),
-    testWorker(env, { taskQueue: QUEUES.cluster, activities: createFrozenWorkActivities({ work, workers: { restart: async () => 'not-here' } }) }),
+    testWorker(env, { taskQueue: QUEUES.cluster, activities: createFrozenWorkActivities({ work, workers: { restart: async () => 'not-here' }, machines: () => db.machines.getLocalAgentDevices() }) }),
     testWorker(env, { taskQueue: `${queue}-step`, workflowBundle: await bundled(resolve(import.meta.dirname, 'project-step.fixture-workflow.ts'), [resolve(import.meta.dirname, '..', 'telemetry-interceptors.ts')]), activities: { ProjectStepActivity: options.step } }),
     testWorker(env, { taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities: { EngineGroveChangedActivity: async () => undefined, ProjectDeletionChangedActivity: async (change: ToldDeletion) => { options.told.push(change); } } }),
   ]);

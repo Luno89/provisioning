@@ -5,12 +5,13 @@ export interface OpenWork {
   memo?: Readonly<Record<string, unknown>> | undefined;
 }
 
-export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone';
+export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone' | 'waiting-machine';
 
 export interface StoppingWork extends OpenWork {
   state: WorkStopState;
   what?: string | undefined;
   worker?: string | undefined;
+  machine?: string | undefined;
   killed?: string[] | undefined;
 }
 
@@ -75,11 +76,27 @@ export function workStopping(progress: DeletionProgress, open: readonly OpenWork
   return next(progress, { work: [...progress.work, ...added] });
 }
 
-export function workClosed(progress: DeletionProgress, workflowId: string, frozen: readonly string[], killed: readonly string[] = []): DeletionProgress {
-  const worker = frozen[0];
+const closedAs = (frozen: readonly string[], machines: readonly string[]): Pick<StoppingWork, 'state' | 'worker' | 'machine'> => {
+  const [machine] = machines;
+  if (machine) return { state: 'waiting-machine', machine };
+  const [worker] = frozen;
+  return worker ? { state: 'restarting', worker } : { state: 'stopped' };
+};
+
+export function workClosed(progress: DeletionProgress, workflowId: string, frozen: readonly string[], killed: readonly string[] = [], machines: readonly string[] = []): DeletionProgress {
   const programs = killed.length > 0 ? { killed: [...killed] } : {};
   return next(progress, {
-    work: progress.work.map((item) => (item.workflowId !== workflowId ? item : worker ? { ...item, ...programs, state: 'restarting', worker } : { ...item, ...programs, state: 'stopped' })),
+    work: progress.work.map((item) => (item.workflowId !== workflowId ? item : { ...item, ...programs, ...closedAs(frozen, machines) })),
+  });
+}
+
+export function machineWorkStopped(progress: DeletionProgress, workflowId: string, killed: readonly string[]): DeletionProgress {
+  return next(progress, {
+    work: progress.work.map((item) => {
+      if (item.workflowId !== workflowId || item.state !== 'waiting-machine') return item;
+      const all = [...new Set([...(item.killed ?? []), ...killed])];
+      return { ...item, ...(all.length > 0 ? { killed: all } : {}), state: 'stopped' };
+    }),
   });
 }
 

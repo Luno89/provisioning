@@ -10,3 +10,4 @@ export * from './liveness.js';
 export * from './machine-cluster.js';
 export * from './machine-gpus.js';
 export * from './classified-failures.js';
+export { killOnCancel, stopWorkOf } from './stops-with.js';

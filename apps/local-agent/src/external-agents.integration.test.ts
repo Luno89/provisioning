@@ -88,6 +88,18 @@ describe('external agents on a machine', () => {
     expect(told).toEqual([['run-a'], ['run-a'], ['run-a', 'run-b'], ['run-b'], []]);
   });
 
+  it('kills at once the sessions the named workflows opened, names their programs, and leaves another workflow\'s session open', async () => {
+    const asking = { name: 'scripted', version: '1', turns: [{ steps: [{ tool: { id: 'push', title: 'git push', kind: 'execute' as const, input: { command: 'git push' } }, ask: true, output: 'pushed' }] }] };
+    const gate = new IdleGate();
+    const machineSessions = await machine(asking, 2000, gate);
+    expect(await machineSessions.step({ key: 'run-a:node:1', agent: 'scripted', op: { kind: 'open', brief: 'push it' } }, () => undefined, 'workflow-a')).toMatchObject({ state: 'asks' });
+    expect(await machineSessions.step({ key: 'run-b:node:1', agent: 'scripted', op: { kind: 'open', brief: 'push it' } }, () => undefined, 'workflow-b')).toMatchObject({ state: 'asks' });
+    expect(await machineSessions.stopWorkflows(['workflow-a'])).toEqual([path.basename(process.execPath)]);
+    expect(machineSessions.openKeys()).toEqual(['run-b:node:1']);
+    expect(gate.busyWith()).toEqual(['a session of scripted']);
+    expect(await machineSessions.stopWorkflows(['workflow-a'])).toEqual([]);
+  });
+
   it('pauses on a permission request with what is asked, and carries on with the answer', async () => {
     const machineSessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ tool: { id: 'push', title: 'git push', kind: 'execute', input: { command: 'git push' } }, ask: true, output: 'pushed' }, { say: 'Pushed.' }] }] });
     const asks = await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'push it' } });

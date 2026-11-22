@@ -17,7 +17,7 @@ const temporal = environmentForFile(temporalTestEnvironment);
 
 const work = (workflowId: string, type = 'AgentRunWorkflow') => ({ workflowId, type, startedAt: '2026-11-21T10:00:00.000Z' });
 
-const nothingFrozen = { AwaitProjectWorkActivity: async () => ({ frozen: [] }), RestartWorkerActivity: async () => 'restarted' as const };
+const nothingFrozen = { AwaitProjectWorkActivity: async () => ({ frozen: [], killed: [], machines: [] }), RestartWorkerActivity: async () => 'restarted' as const };
 
 async function deleting(activities: ProjectDeletionActivities, projectId: string, mode: 'archive' | 'permanent', ending: (ended: Promise<unknown>) => Promise<void>) {
   const taskQueue = uniqueName(`delete-${projectId}-test`);
@@ -70,7 +70,7 @@ describe('deleting a project for good through Temporal', () => {
     const clusterWorker = await testWorker(temporal.env, {
       taskQueue: QUEUES.cluster,
       activities: {
-        AwaitProjectWorkActivity: async ({ workflowId }: { workflowId: string }) => { seen.push(`await ${workflowId}`); return { frozen: workflowId === 'run-1' ? ['worker-engine-7d9f'] : [] }; },
+        AwaitProjectWorkActivity: async ({ workflowId }: { workflowId: string }) => { seen.push(`await ${workflowId}`); return { frozen: workflowId === 'run-1' ? ['worker-engine-7d9f'] : [], killed: [], machines: [] }; },
         RestartWorkerActivity: async ({ worker: identity }: { worker: string }) => { seen.push(`restart ${identity}`); return 'restarted' as const; },
       },
     });

@@ -46,6 +46,7 @@ describe('where a deletion stands, in plain words', () => {
         { workflowId: 'c', type: 'AgentRunWorkflow', startedAt: at, state: 'restarting', what: 'Koala at work', worker: 'worker-engine-7d9f' },
         { workflowId: 'd', type: 'AgentRunWorkflow', startedAt: at, state: 'restarted', what: 'Saving files you uploaded', worker: 'worker-engine-7d9f' },
         { workflowId: 'e', type: 'AgentRunWorkflow', startedAt: at, state: 'gone', what: 'Deploying shop-web', worker: 'worker-cluster-55c1' },
+        { workflowId: 'f', type: 'AgentRunWorkflow', startedAt: at, state: 'waiting-machine', what: 'Claude Code at work', machine: 'Desk' },
       ],
     }))).toEqual([
       'Tree run: Grow the tree: stopping',
@@ -53,6 +54,7 @@ describe('where a deletion stands, in plain words', () => {
       'Koala at work: worker-engine-7d9f not answering: restarting',
       'Saving files you uploaded: worker-engine-7d9f restarted',
       'Deploying shop-web: worker-cluster-55c1 not answering: it is gone',
+      'Claude Code at work: will stop when Desk wakes',
     ])
   })
 

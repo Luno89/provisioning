@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { basename } from 'node:path';
 import {
   EXTERNAL_SEGMENT_MS,
   type ExternalAgentAsk, type ExternalAgentStepArgs, type ExternalAgentStepResult, type ExternalAgentWireEvent, type ExternalServedTool, type ExternalToolCall,
@@ -69,6 +70,8 @@ interface Live {
   ended?: { stopReason: string } | { error: string } | undefined;
   wake: () => void;
   release?: Release | undefined;
+  workflowId?: string | undefined;
+  program?: string | undefined;
 }
 
 export interface ExternalAgentSessionsOptions {
@@ -135,7 +138,15 @@ export class ExternalAgentSessions {
     return keys.length;
   }
 
-  private async shut(key: string): Promise<Live | undefined> {
+  async stopWorkflows(workflowIds: readonly string[]): Promise<string[]> {
+    const named = new Set(workflowIds);
+    const keys = [...this.live.entries()].filter(([, live]) => live.workflowId !== undefined && named.has(live.workflowId)).map(([key]) => key);
+    const killed = await Promise.all(keys.map((key) => this.shut(key, 'kill')));
+    if (keys.length) this.runsChanged();
+    return [...new Set(killed.flatMap((live) => (live?.program ? [live.program] : [])))];
+  }
+
+  private async shut(key: string, ending: 'close' | 'kill' = 'close'): Promise<Live | undefined> {
     const live = this.live.get(key);
     if (!live) return undefined;
     this.live.delete(key);
@@ -143,7 +154,7 @@ export class ExternalAgentSessions {
     live.ask?.answer({ cancelled: true });
     live.ask = undefined;
     live.mounted?.unmount();
-    await live.session.close().finally(() => live.release?.());
+    await (ending === 'kill' ? live.session.kill() : live.session.close()).finally(() => live.release?.());
     return live;
   }
 
@@ -151,9 +162,9 @@ export class ExternalAgentSessions {
     this.options.onRunsChanged?.(this.openRuns());
   }
 
-  async step(args: ExternalAgentStepArgs, beat: () => void = () => {}): Promise<ExternalAgentStepResult> {
+  async step(args: ExternalAgentStepArgs, beat: () => void = () => {}, workflowId?: string): Promise<ExternalAgentStepResult> {
     const { op } = args;
-    if (op.kind === 'open') return this.open(args.key, args.agent, op, beat);
+    if (op.kind === 'open') return this.open(args.key, args.agent, op, beat, workflowId);
     const live = this.live.get(args.key);
     if (!live) return { state: 'failed', error: 'that session is no longer open on this machine', events: [] };
     if (op.kind === 'close') {
@@ -202,7 +213,7 @@ export class ExternalAgentSessions {
     if (open.length) this.runsChanged();
   }
 
-  private async open(key: string, agent: string, op: Extract<ExternalAgentStepArgs['op'], { kind: 'open' }>, beat: () => void): Promise<ExternalAgentStepResult> {
+  private async open(key: string, agent: string, op: Extract<ExternalAgentStepArgs['op'], { kind: 'open' }>, beat: () => void, workflowId: string | undefined): Promise<ExternalAgentStepResult> {
     if (this.live.has(key)) return { state: 'failed', error: 'that session is already open on this machine', events: [] };
     const launch = this.launches[agent];
     if (!launch) {
@@ -247,7 +258,7 @@ export class ExternalAgentSessions {
       mounted?.unmount();
       return { state: 'failed', error: (err as Error).message, events: [] };
     }
-    const opened = Object.assign(live, { session, mounted }) as Live;
+    const opened = Object.assign(live, { session, mounted, workflowId, program: basename(launch.command) }) as Live;
 
     if (op.model) {
       try {

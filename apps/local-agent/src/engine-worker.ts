@@ -2,7 +2,7 @@ import { Context } from '@temporalio/activity';
 import type { Worker } from '@temporalio/worker';
 import type { BlobReach, Keyring } from '@koala/engine-core/payloads';
 import { bearerMetadata, connectTemporal, createWorker } from '@koala/engine-core/temporal';
-import { executeTool, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
+import { executeTool, stopWorkOf, type MachineWorkStop, type MachineWorkStopped, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
 import { holding, type IdleGate } from './idle-gate.js';
@@ -60,7 +60,13 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
     async ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult> {
       if (!options.externalAgents) return { state: 'failed', error: 'this machine runs no external agents', events: [] };
       const context = activityContext();
-      return options.externalAgents.step(args, () => context?.heartbeat());
+      return options.externalAgents.step(args, () => context?.heartbeat(), context?.info.workflowExecution?.workflowId);
+    },
+
+    async StopMachineWorkActivity({ workflowIds }: MachineWorkStop): Promise<MachineWorkStopped> {
+      const why = 'Koala asked this machine to stop the work of a project being deleted';
+      const [programs, sessions] = await Promise.all([stopWorkOf(workflowIds, why), options.externalAgents ? options.externalAgents.stopWorkflows(workflowIds) : []]);
+      return { killed: [...new Set([...programs, ...sessions])] };
     },
 
     async MachineGitActivity(op: MachineGitOp): Promise<MachineGitResult> {
@@ -115,6 +121,7 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
     MachineGitActivity: (op: MachineGitOp) => holding(gate, 'a git fetch or push', () => activities.MachineGitActivity(op)),
     MachineClusterActivity: (op: MachineClusterOp) => holding(gate, op.kind === 'start' ? 'starting its cluster' : 'stopping its cluster', () => activities.MachineClusterActivity(op)),
     EngineToolActivity: (args: DeviceToolCall) => holding(gate, 'a tool call', () => activities.EngineToolActivity(args)),
+    StopMachineWorkActivity: activities.StopMachineWorkActivity,
   };
 }
 
