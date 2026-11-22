@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { awaitStopped, type OnMachine, type Tell } from './deletion-telling.js';
+import { awaitStopped, type MachineEnding, type OnMachine, type Tell } from './deletion-telling.js';
 import { deletionBegun, workStopping, type DeletionProgress } from '../projects/lib/project-deletion.js';
 import type { FrozenWorkActivities } from '../activities/DeleteProjectActivities.js';
 
@@ -14,6 +14,7 @@ const following = () => {
 const frozenOn = (answer: 'restarted' | 'not-here'): FrozenWorkActivities => ({
   AwaitProjectWorkActivity: async () => ({ frozen: ['worker-engine-7d9f'], killed: [], machines: [] }),
   RestartWorkerActivity: async () => answer,
+  AwaitMachineRemovedActivity: async () => { throw new Error('no machine was off'); },
 });
 
 const noMachine: OnMachine = () => { throw new Error('no machine was off'); };
@@ -32,28 +33,44 @@ describe('waiting for a running thing to stop', () => {
   });
 
   it('on a machine that is off, says it will stop when the machine wakes, asks the machine\'s own queue to stop it, and shows it stopped with what the machine killed', async () => {
-    const { tell, shown } = following();
-    const asked: string[] = [];
-    let wakes!: (answer: { killed: string[] }) => void;
-    let askedOnce!: () => void;
-    const askedMachine = new Promise<void>((done) => { askedOnce = done; });
-    const onMachine: OnMachine = (deviceId) => ({
-      StopMachineWorkActivity: ({ workflowIds }) => {
-        asked.push(`${deviceId}: ${workflowIds.join(', ')}`);
-        askedOnce();
-        return new Promise((answered) => { wakes = answered; });
-      },
-    });
-    const cluster: FrozenWorkActivities = {
-      AwaitProjectWorkActivity: async () => ({ frozen: [], killed: [], machines: [{ id: 'desk', name: 'Desk' }] }),
-      RestartWorkerActivity: async () => { throw new Error('a machine is never restarted as a pod'); },
-    };
-    const stopping = awaitStopped(run, tell, cluster, onMachine);
-    await Promise.race([askedMachine, stopping.then(() => { throw new Error('it ended without asking the machine'); })]);
-    expect(shown()).toMatchObject({ state: 'waiting-machine', machine: 'Desk' });
+    const { shown, asked, ended } = await waitingOnDesk({ ended: 'stopped', killed: ['claude'] });
     expect(asked).toEqual(['desk: run-1']);
-    wakes({ killed: ['claude'] });
-    expect(await stopping).toEqual([]);
+    expect(ended).toEqual([]);
     expect(shown()).toMatchObject({ state: 'stopped', killed: ['claude'] });
   });
+
+  it('on a machine that is removed while its work waited, says the machine was removed and restarts nothing', async () => {
+    const { shown, ended } = await waitingOnDesk({ ended: 'removed' });
+    expect(ended).toEqual([]);
+    expect(shown()).toMatchObject({ state: 'machine-removed', machine: 'Desk' });
+  });
 });
+
+async function waitingOnDesk(ending: MachineEnding) {
+  const { tell, shown } = following();
+  const asked: string[] = [];
+  const { onMachine, askedMachine, ends } = machineAsked(asked);
+  const stopping = awaitStopped(run, tell, offOnDesk, onMachine);
+  await Promise.race([askedMachine, stopping.then(() => { throw new Error('it ended without asking the machine'); })]);
+  expect(shown()).toMatchObject({ state: 'waiting-machine', machine: 'Desk' });
+  ends(ending);
+  return { shown, asked, ended: await stopping };
+}
+
+const offOnDesk: FrozenWorkActivities = {
+  AwaitProjectWorkActivity: async () => ({ frozen: [], killed: [], machines: [{ id: 'desk', name: 'Desk' }] }),
+  RestartWorkerActivity: async () => { throw new Error('a machine is never restarted as a pod'); },
+  AwaitMachineRemovedActivity: async () => { throw new Error('the machine\'s removal is waited on by the machine\'s own ending'); },
+};
+
+function machineAsked(asked: string[]) {
+  let ends!: (ending: MachineEnding) => void;
+  let askedOnce!: () => void;
+  const askedMachine = new Promise<void>((done) => { askedOnce = done; });
+  const onMachine: OnMachine = (deviceId, workflowIds) => {
+    asked.push(`${deviceId}: ${workflowIds.join(', ')}`);
+    askedOnce();
+    return new Promise((ended) => { ends = ended; });
+  };
+  return { onMachine, askedMachine, ends: (ending: MachineEnding) => ends(ending) };
+}

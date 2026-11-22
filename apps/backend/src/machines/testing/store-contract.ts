@@ -81,6 +81,28 @@ export function machinesStoreContract(make: () => Promise<MachinesStore>): void 
       expect(heard).toEqual(['desk']);
     });
 
+    it('hears a machine removed while something waits for it to go, and says at once of one already gone that it is removed', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      const waiting = store.untilDeviceGone('desk', new AbortController().signal);
+      await store.deleteLocalAgentDevice('desk');
+      expect(await waiting).toBe('removed');
+      expect(await store.untilDeviceGone('never-joined', new AbortController().signal)).toBe('removed');
+    });
+
+    it('stops waiting for a machine to go when asked to, while the machine stays', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      const stop = new AbortController();
+      const waiting = store.untilDeviceGone('desk', stop.signal);
+      stop.abort();
+      expect(await waiting).toBe('stopped');
+      const stopped = new AbortController();
+      stopped.abort();
+      expect(await store.untilDeviceGone('desk', stopped.signal)).toBe('stopped');
+      expect((await store.getLocalAgentDevices()).map((stored) => stored.id)).toEqual(['desk']);
+    });
+
     it('hands a join code out once, keeping the join\'s record with when it was used', async () => {
       const store = await make();
       const code = { hash: 'h1', id: 'join-1', ownerId: 'owner-1', expiresAt: '2030-01-01T00:00:00.000Z', keptUntil: '2030-01-01T00:00:00.000Z' };

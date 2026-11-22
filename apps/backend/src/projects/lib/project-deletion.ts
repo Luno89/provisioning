@@ -5,7 +5,7 @@ export interface OpenWork {
   memo?: Readonly<Record<string, unknown>> | undefined;
 }
 
-export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone' | 'waiting-machine';
+export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone' | 'waiting-machine' | 'machine-removed';
 
 export interface StoppingWork extends OpenWork {
   state: WorkStopState;
@@ -97,6 +97,12 @@ export function machineWorkStopped(progress: DeletionProgress, workflowId: strin
       const all = [...new Set([...(item.killed ?? []), ...killed])];
       return { ...item, ...(all.length > 0 ? { killed: all } : {}), state: 'stopped' };
     }),
+  });
+}
+
+export function machineRemoved(progress: DeletionProgress, workflowId: string): DeletionProgress {
+  return next(progress, {
+    work: progress.work.map((item) => (item.workflowId === workflowId && item.state === 'waiting-machine' ? { ...item, state: 'machine-removed' } : item)),
   });
 }
 

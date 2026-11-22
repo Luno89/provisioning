@@ -1,6 +1,6 @@
 import { type AreaStore, fieldChanges, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db, Document } from 'mongodb';
-import { keepWrittenDocuments, watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { keepWrittenDocuments, watchDeletes, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
@@ -27,6 +27,8 @@ export interface DeviceChange {
   when?: Partial<Record<keyof LocalAgentDeviceMetadata & string, string | null>> | undefined;
 }
 
+export type DeviceWait = 'removed' | 'stopped';
+
 export interface MachinesStore extends AreaStore {
   getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>;
   saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void>;
@@ -34,6 +36,7 @@ export interface MachinesStore extends AreaStore {
   deleteLocalAgentDevice(id: string): Promise<void>;
   markDevicesRemoving(ownerId: string, startedAt: string): Promise<{ id: string; name: string }[]>;
   watchDeviceRemovals(on: (device: LocalAgentDeviceMetadata) => void): Watching;
+  untilDeviceGone(id: string, stop: AbortSignal): Promise<DeviceWait>;
   saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
   takeMachineJoinCode(hash: string, usedAt: string): Promise<MachineJoinCode | undefined>;
   getMachineJoin(hash: string): Promise<MachineJoinCode | undefined>;
@@ -98,6 +101,23 @@ export class MongoMachinesStore implements MachinesStore {
 
   watchDeviceRemovals(on: (device: LocalAgentDeviceMetadata) => void): Watching {
     return watchWrites(() => this.localAgentDevices, { removal: { $exists: true } }, (doc) => on(fromDoc<LocalAgentDeviceMetadata>(doc)));
+  }
+
+  async untilDeviceGone(id: string, stop: AbortSignal): Promise<DeviceWait> {
+    if (stop.aborted) return 'stopped';
+    let ended!: (wait: DeviceWait) => void;
+    const waited = new Promise<DeviceWait>((done) => { ended = done; });
+    const watching = watchDeletes(() => this.localAgentDevices, (deleted) => { if (deleted === id) ended('removed'); });
+    const stopped = () => ended('stopped');
+    stop.addEventListener('abort', stopped, { once: true });
+    try {
+      await Promise.race([watching.ready, waited]);
+      if (!(await this.localAgentDevices.findOne({ _id: id }, { projection: { _id: 1 } }))) ended('removed');
+      return await waited;
+    } finally {
+      stop.removeEventListener('abort', stopped);
+      await watching.close();
+    }
   }
 
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {

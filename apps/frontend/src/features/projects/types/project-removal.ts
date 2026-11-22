@@ -11,7 +11,7 @@ export const ARCHIVE_DAYS = 90
 
 export type ProjectDeletionMode = 'archive' | 'permanent'
 
-export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone' | 'waiting-machine'
+export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone' | 'waiting-machine' | 'machine-removed'
 
 export interface StoppingWork {
   workflowId: string

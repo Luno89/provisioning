@@ -2,7 +2,7 @@ import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { MachineJoinCode } from '../lib/machines.js';
 import type { Watching } from '../../platform/index.js';
-import type { DeviceChange, JoinChange, MachinesStore } from '../store.js';
+import type { DeviceChange, DeviceWait, JoinChange, MachinesStore } from '../store.js';
 
 const defined = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -10,6 +10,7 @@ export class MemoryMachinesStore implements MachinesStore {
   private readonly devices: MemoryRecords<LocalAgentDeviceMetadata>;
   private readonly joinCodes: Map<string, MachineJoinCode>;
   private readonly removalWatchers = new Set<(device: LocalAgentDeviceMetadata) => void>();
+  private readonly deletionWatchers = new Set<(id: string) => void>();
 
   constructor(collections: Collections = new Map()) {
     this.devices = new MemoryRecords(collectionIn<LocalAgentDeviceMetadata>(collections, 'localAgentDevices'));
@@ -42,6 +43,23 @@ export class MemoryMachinesStore implements MachinesStore {
 
   async deleteLocalAgentDevice(id: string): Promise<void> {
     this.devices.delete(id);
+    for (const gone of this.deletionWatchers) gone(id);
+  }
+
+  async untilDeviceGone(id: string, stop: AbortSignal): Promise<DeviceWait> {
+    if (stop.aborted) return 'stopped';
+    if (!this.devices.all().some((device) => device.id === id)) return 'removed';
+    return new Promise<DeviceWait>((done) => {
+      const end = (wait: DeviceWait) => {
+        this.deletionWatchers.delete(heard);
+        stop.removeEventListener('abort', stopped);
+        done(wait);
+      };
+      const heard = (deleted: string) => { if (deleted === id) end('removed'); };
+      const stopped = () => end('stopped');
+      this.deletionWatchers.add(heard);
+      stop.addEventListener('abort', stopped, { once: true });
+    });
   }
 
   async markDevicesRemoving(ownerId: string, startedAt: string): Promise<{ id: string; name: string }[]> {
