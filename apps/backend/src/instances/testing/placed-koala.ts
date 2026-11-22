@@ -24,7 +24,7 @@ export async function koalaPlacedAndUp(service: InstanceService, db: Pick<Databa
   if (!placed.ok) throw new Error(placed.error);
   const steps = koalaInstallActivities({ db: async () => ({ db, close: async () => undefined }), now: () => new Date() });
   await steps.KoalaInstallStageActivity({ installId, progress: { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: `http://${machine.meshIp}:30320`, revision: 1 } });
-  const ended = await steps.KoalaInstallStageActivity({ installId, setup: { revision: 1, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } });
+  const ended = await steps.KoalaInstallStageActivity({ installId, setup: { revision: 1, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } });
   if (ended !== 'ready') throw new Error(`the install ended ${JSON.stringify(ended)}, not ready`);
   return { ...placed.value, token: tokenOfInstance(placed.value.instanceId) };
 }

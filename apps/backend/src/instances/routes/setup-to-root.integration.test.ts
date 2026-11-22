@@ -30,7 +30,7 @@ async function root() {
 describe('the instance telling root how its setup goes, through root\'s real route and records', () => {
   it('hands each line to the install of Koala on the machine while that install runs, and root records nothing beside it', async () => {
     const { handed, reporter, record } = await root();
-    const line = { revision: 1, progress: { ...gitea, state: 'started' as const, line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } };
+    const line = { revision: 1, run: 'run-1', progress: { ...gitea, state: 'started' as const, line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } };
     expect(await reporter.setup(line)).toEqual({ ok: true });
     expect(handed).toEqual([['install-1', line]]);
     expect(await record()).toMatchObject({ status: 'joined', install: { state: 'asked' } });
@@ -40,19 +40,19 @@ describe('the instance telling root how its setup goes, through root\'s real rou
   it('once the install has ended, records each line itself, failed at the piece that stopped and ready once the setup says so, for My Machines to show', async () => {
     const { db, instances, handed, reporter, record } = await root();
     await db.instances.updateInstall((await record()).id, 'install-1', { 'install.state': 'failed', 'install.why': 'Infisical stopped', status: 'failed', detail: 'Koala on desk stopped setting itself up at Infisical' });
-    expect(await reporter.setup({ revision: 2, progress: { ...gitea, state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } })).toEqual({ ok: true });
+    expect(await reporter.setup({ revision: 2, run: 'run-1', progress: { ...gitea, state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } })).toEqual({ ok: true });
     expect(await instances.mine('bo')).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up: Gitea, your repositories and images, waiting for statefulset/gitea in gitea: 0 of 1 ready' });
-    expect(await reporter.setup({ revision: 2, progress: { ...gitea, state: 'failed', why: 'pod gitea-0 is Init:Error' } })).toEqual({ ok: true });
+    expect(await reporter.setup({ revision: 2, run: 'run-1', progress: { ...gitea, state: 'failed', why: 'pod gitea-0 is Init:Error' } })).toEqual({ ok: true });
     expect(await instances.mine('bo')).toMatchObject({ status: 'failed', detail: 'Koala on desk stopped setting itself up at Gitea, your repositories and images: pod gitea-0 is Init:Error' });
     expect(await reporter.status({ status: 'installing', detail: 'Running v1', imageTag: 'v1', revision: 2 })).toEqual({ ok: true });
     expect(await record()).toMatchObject({ status: 'failed', running: 'v1' });
-    expect(await reporter.setup({ revision: 2, progress: setUp })).toEqual({ ok: true });
+    expect(await reporter.setup({ revision: 2, run: 'run-1', progress: setUp })).toEqual({ ok: true });
     expect(await instances.mine('bo')).toMatchObject({ status: 'ready', detail: 'Ready' });
     expect(handed).toEqual([]);
   });
 
   it('refuses a line that is not the setup\'s, saying why', async () => {
     const { reporter } = await root();
-    expect(await reporter.setup({ revision: 1, progress: { stage: 'koala', title: 'Koala', state: 'done' } })).toEqual({ ok: false, status: 400, error: expect.stringContaining('is one of egress') as unknown });
+    expect(await reporter.setup({ revision: 1, run: 'run-1', progress: { stage: 'koala', title: 'Koala', state: 'done' } })).toEqual({ ok: false, status: 400, error: expect.stringContaining('is one of egress') as unknown });
   });
 });

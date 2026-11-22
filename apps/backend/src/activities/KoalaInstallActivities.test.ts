@@ -46,16 +46,16 @@ describe('the install workflow\'s activities, with a store of records in memory'
     expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', progress: { stage: 'koala', title: 'Putting Koala', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 } })).toBe('installing');
     expect(await record()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320', install: { revision: 1 } });
     expect((await record()).servedAt).toBeUndefined();
-    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, progress: { stage: 'monitoring', title: 'Monitoring', state: 'started', line: 'waiting for deployment/grafana' } } })).toBe('installing');
+    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, run: 'run-1', progress: { stage: 'monitoring', title: 'Monitoring', state: 'started', line: 'waiting for deployment/grafana' } } })).toBe('installing');
     expect(await record()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up: Monitoring, waiting for deployment/grafana', setup: { revision: 1, state: 'running', stage: 'monitoring' } });
-    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } })).toBe('ready');
+    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } })).toBe('ready');
     expect(await record()).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', running: 'v1', servedAt: AT.toISOString(), setup: { revision: 1, state: 'up' } });
   });
 
   it('keeps nothing of a setup for a revision older than the one it has heard', async () => {
     const { activities, instances, record } = await world({ id: 'install-1', machineId: 'desk', state: 'installing', at: 't' });
-    await instances.saveInstance({ ...(await record()), setup: { revision: 2, state: 'running', stage: 'gitea', title: 'Gitea', at: 't' } });
-    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } })).toBe('installing');
+    await instances.saveInstance({ ...(await record()), setup: { revision: 2, run: 'run-1', state: 'running', stage: 'gitea', title: 'Gitea', at: 't' } });
+    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } })).toBe('installing');
     expect(await record()).toMatchObject({ install: { state: 'installing' }, setup: { revision: 2, state: 'running' } });
   });
 

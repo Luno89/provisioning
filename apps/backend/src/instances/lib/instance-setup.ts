@@ -3,6 +3,7 @@ import type { InstanceStatus } from './instances.js';
 
 export interface InstanceSetup {
   revision: number;
+  run: string;
   state: ProvisionRunState;
   stage: string;
   title: string;
@@ -23,7 +24,7 @@ const koalaOn = (machine: string | undefined): string => (machine ? `Koala on ${
 export function setupHeard(setup: InstanceSetup | undefined, report: ProvisionReport, at: string): InstanceSetup | undefined {
   if (setup && report.revision < setup.revision) return undefined;
   const { progress } = report;
-  const piece = { revision: report.revision, stage: progress.stage, title: progress.title, at };
+  const piece = { revision: report.revision, run: report.run, stage: progress.stage, title: progress.title, at };
   const ending = provisionEnding(progress);
   if (ending === 'failed') return { ...piece, state: 'failed', why: progress.why ?? 'it said no more' };
   if (ending === 'up') return { ...piece, state: 'up' };
@@ -54,6 +55,7 @@ export const setUpAgainPath = (instanceId: string): string => `/api/instances/${
 
 export interface SetupAsked {
   revision: number;
+  run: string;
   at: string;
 }
 
@@ -83,5 +85,7 @@ export function setupAgainAsked(instance: SetupAgainHeld, connected: boolean, at
   const { setup } = instance;
   if (setupAgainOf(instance) !== 'stopped' || !setup) return { ok: false, error: `${koala} has not stopped setting itself up, so there is nothing to set up again` };
   const detail = connected ? `Asking ${koala} to set itself up again from ${setup.title}` : `${koala} sets itself up again from ${setup.title} once it connects to root`;
-  return { ok: true, patch: { setupAsked: { revision: setup.revision, at }, status: 'installing', detail: detail.slice(0, DETAIL_LIMIT) } };
+  return { ok: true, patch: { setupAsked: { revision: setup.revision, run: setup.run, at }, status: 'installing', detail: detail.slice(0, DETAIL_LIMIT) } };
 }
+
+export const askedAbout = (instance: SetupAgainHeld, report: ProvisionReport): boolean => instance.setupAsked?.run === report.run;

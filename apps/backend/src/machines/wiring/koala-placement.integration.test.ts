@@ -87,10 +87,10 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     await until(async () => ((await instanceOf()).url ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320', install: { state: 'installing' } });
     const koala = new InstanceReporter({ root: { url, instanceId: placed.instanceId, token: async () => tokenOfInstance(placed.instanceId) }, wait: reopening(1), log: () => undefined });
-    expect(await koala.setup({ revision: 1, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } })).toEqual({ ok: true });
+    expect(await koala.setup({ revision: 1, run: 'run-1', progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } })).toEqual({ ok: true });
     await until(async () => ((await instanceOf()).install?.stage === 'gitea' ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up: Gitea, your repositories and images, waiting for statefulset/gitea in gitea: 0 of 1 ready' });
-    expect(await koala.setup({ revision: 1, progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
+    expect(await koala.setup({ revision: 1, run: 'run-1', progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
     await until(async () => ((await instanceOf()).status === 'ready' ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', running: 'v1', install: { state: 'ready' }, setup: { revision: 1, state: 'up' } });
     expect(world.told.length > 3 && world.told.every((said) => JSON.stringify(said) === '{}')).toBe(true);
@@ -112,7 +112,7 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     await untilWhile(following, () => (said.includes('  waiting for job/instance-seed-1 runs') ? true : undefined));
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 });
     const koala = new InstanceReporter({ root: { url, instanceId: placed.instanceId, token: async () => tokenOfInstance(placed.instanceId) }, wait: reopening(1), log: () => undefined });
-    expect(await koala.setup({ revision: 1, progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
+    expect(await koala.setup({ revision: 1, run: 'run-1', progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
     expect(await following).toBe('ready');
     expect(said.at(-1)).toBe('Koala is ready at http://100.64.0.7:30320');
   });

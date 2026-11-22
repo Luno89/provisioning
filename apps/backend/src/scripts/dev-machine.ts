@@ -79,6 +79,7 @@ export async function untilKoalaReady(cookie: string, asked: RootAsked): Promise
   const { rootApi, say, pause } = asked;
   let told = '';
   let looked = false;
+  let askedAbout: string | undefined;
   for (;;) {
     const answer = await fetch(`${rootApi}${MY_KOALA_PATH}`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
     if (!answer) {
@@ -92,13 +93,14 @@ export async function untilKoalaReady(cookie: string, asked: RootAsked): Promise
     if (koala.state === 'ready') return;
     const first = !looked;
     looked = true;
-    if (koala.state === 'failed' && first && koala.again) {
+    if (koala.state === 'failed' && first && koala.again && koala.attempt) {
       say('dev asks it to set itself up again from where it stopped');
       const asked = await fetch(`${rootApi}${koala.again}`, { method: 'POST', headers: { Cookie: cookie } });
       if (!asked.ok) throw new Error(`root would not set this computer's Koala up again: ${asked.status} ${await asked.text()}`);
+      askedAbout = koala.attempt;
       continue;
     }
-    if (koala.state === 'failed') throw new Error(`putting Koala on this computer failed: ${koala.detail}`);
+    if (koala.state === 'failed' && (askedAbout === undefined || koala.attempt !== askedAbout)) throw new Error(`putting Koala on this computer failed: ${koala.detail}`);
     await pause(2000);
   }
 }

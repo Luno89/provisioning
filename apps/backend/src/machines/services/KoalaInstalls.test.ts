@@ -107,7 +107,7 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
   });
 
   it('hands each line of Koala setting itself up to the install it ends, and answers 503 while that workflow cannot be reached', async () => {
-    const line = { revision: 1, progress: { stage: 'gitea', title: 'Gitea', state: 'started' as const, line: 'waiting for statefulset/gitea' } };
+    const line = { revision: 1, run: 'run-1', progress: { stage: 'gitea', title: 'Gitea', state: 'started' as const, line: 'waiting for statefulset/gitea' } };
     expect(await installs.setupHeard('install-1', line)).toEqual({ ok: true, value: { recorded: true } });
     expect(workflows.setup).toHaveBeenCalledWith('install-1', line);
     workflows.setup.mockRejectedValueOnce(new Error('Temporal is down'));

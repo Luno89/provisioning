@@ -4,7 +4,7 @@ export const MY_KOALA_PATH = '/api/instances/mine';
 
 export type KoalaReadiness =
   | { state: 'ready'; line: string }
-  | { state: 'failed'; line: string; detail: string; again?: string }
+  | { state: 'failed'; line: string; detail: string; attempt?: string; again?: string }
   | { state: 'not yet'; line: string };
 
 const NO_KOALA_YET = 'waiting for this computer to put Koala on itself';
@@ -24,7 +24,8 @@ export function koalaReadinessOf(answer: unknown): KoalaReadiness {
     const detail = textOf(instance.detail) ?? 'root gave no reason';
     const id = textOf(instance.id);
     const may = Array.isArray(answer.can) && answer.can.includes('set-up-again');
-    return { state: 'failed', line: `failed: ${detail}`, detail, ...(id && may && instance.setupAgain === 'stopped' ? { again: setUpAgainPath(id) } : {}) };
+    const attempt = textOf(instance.attempt);
+    return { state: 'failed', line: `failed: ${detail}`, detail, ...(attempt ? { attempt } : {}), ...(id && may && instance.setupAgain === 'stopped' ? { again: setUpAgainPath(id) } : {}) };
   }
   return { state: 'not yet', line: `${status}: ${textOf(instance.detail) ?? 'root gave no detail'}` };
 }

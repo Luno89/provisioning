@@ -44,7 +44,7 @@ describe('the instance telling root about itself', () => {
   it('reports each line of its setup as only that', async () => {
     heard.length = 0;
     answers = [];
-    const line = { revision: 4, progress: { stage: 'gitea', title: 'Gitea', state: 'started' as const, line: 'waiting for statefulset/gitea' } };
+    const line = { revision: 4, run: 'run-1', progress: { stage: 'gitea', title: 'Gitea', state: 'started' as const, line: 'waiting for statefulset/gitea' } };
     expect(await reporter().setup(line)).toEqual({ ok: true });
     expect(heard.map((entry) => entry.body)).toEqual([{ provision: line }]);
   });

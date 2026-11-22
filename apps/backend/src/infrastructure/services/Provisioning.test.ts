@@ -358,7 +358,7 @@ describe('setting Koala up after its chart', () => {
     await settled;
     await provisioning.close();
 
-    expect(reported).toEqual([{ revision: 4, progress: { stage: 'egress', title: 'The egress proxy', state: 'failed', why: 'the setup\'s run was stopped' } }]);
+    expect(reported).toEqual([{ revision: 4, run: opened!.id, progress: { stage: 'egress', title: 'The egress proxy', state: 'failed', why: 'the setup\'s run was stopped' } }]);
   });
 
   it('tells root again on a restart how the setup it runs stands, and keeps on the setup, for its card, that root refused hearing how it ended', async () => {

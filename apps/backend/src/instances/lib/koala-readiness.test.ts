@@ -12,6 +12,11 @@ describe('whether root has a person\'s Koala ready, from root\'s answer to /api/
     expect(koalaReadinessOf({ instance: { status: 'failed' } })).toEqual({ state: 'failed', line: 'failed: root gave no reason', detail: 'root gave no reason' });
   });
 
+  it('names the setup attempt that failed, so an ask about it is told from the next attempt\'s answer', () => {
+    expect(koalaReadinessOf({ instance: { status: 'failed', detail: 'stopped at Monitoring', attempt: 'provision-koala~b' } }))
+      .toEqual({ state: 'failed', line: 'failed: stopped at Monitoring', detail: 'stopped at Monitoring', attempt: 'provision-koala~b' });
+  });
+
   it('names where to ask for it to be set up again only when its setup stopped and root lets the person ask', () => {
     const stopped = { id: 'inst-1', status: 'failed', detail: 'Koala on desk stopped setting itself up at Gitea: no room', setupAgain: 'stopped' };
     expect(koalaReadinessOf({ instance: stopped, can: ['set-up-again'] })).toEqual({ state: 'failed', line: 'failed: Koala on desk stopped setting itself up at Gitea: no room', detail: 'Koala on desk stopped setting itself up at Gitea: no room', again: '/api/instances/inst-1/setup-again' });

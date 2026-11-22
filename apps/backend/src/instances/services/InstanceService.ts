@@ -8,7 +8,7 @@ import type { Reach } from '../lib/instance-watch.js';
 import { InstanceReach } from './InstanceReach.js';
 import { provisionReportOf, SETUP_AGAIN_ASKED, type KoalaInstallView, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { askedInstall, installUnfinished, installView } from '../lib/koala-installs.js';
-import { pastRevision, setupAgainAsked, setupAgainOf, setupHeard, setupSaid, statusSettled, type InstanceSetup, type SetupAgain } from '../lib/instance-setup.js';
+import { askedAbout, pastRevision, setupAgainAsked, setupAgainOf, setupHeard, setupSaid, statusSettled, type InstanceSetup, type SetupAgain } from '../lib/instance-setup.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -71,6 +71,7 @@ export interface MyKoala {
   name?: string | undefined;
   install?: KoalaInstallView | undefined;
   setupAgain?: SetupAgain | undefined;
+  attempt?: string | undefined;
   watch: WatchView;
 }
 
@@ -298,6 +299,7 @@ export class InstanceService {
     const read = provisionReportOf(raw);
     if (!read.ok) return { ok: false, status: 400, error: read.problem };
     const report = read.value;
+    if (askedAbout(instance, report)) return { ok: true, value: instance };
     if (instance.install && installUnfinished(instance.install)) {
       if (!this.settings.installs) return { ok: false, status: 503, error: 'this root follows no installs of Koala' };
       const handed = await this.settings.installs.setupHeard(instance.install.id, report);
@@ -363,6 +365,7 @@ export class InstanceService {
       id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name,
       ...(instance.install ? { install: installView(instance.install) } : {}),
       ...(again ? { setupAgain: again } : {}),
+      ...(instance.setup?.run ? { attempt: instance.setup.run } : {}),
       watch: await this.watchViewOf(instance),
     };
   }
