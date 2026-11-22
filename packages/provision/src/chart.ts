@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { releaseRollout, ROLLOUT_KINDS, type ReleaseRollout } from './rollout.js';
+import type { Judged } from '@koala/engine-core/until';
+import { listedOnce, type ClusterWatch } from './informer.js';
+import { rolledOut, workloadResources } from './rolled-out.js';
+import { releaseRollout, type ReleaseRollout } from './rollout.js';
 import type { Progress, Step, StepName, StepState } from './steps.js';
-import { waiting, waitUntil, type WaitOptions } from './wait-until.js';
 
-export interface ChartCluster {
+export interface ChartCluster extends ClusterWatch {
   helm(args: readonly string[]): Promise<string>;
-  kubectl(args: readonly string[]): Promise<string>;
 }
 
 export interface ChartRelease {
@@ -18,7 +19,6 @@ export interface ChartRelease {
 
 export interface ChartContext {
   cluster: ChartCluster;
-  wait?: WaitOptions;
 }
 
 export const INPUTS_VALUE = 'koalaInputs';
@@ -61,9 +61,10 @@ export async function runsInputs(ctx: ChartContext, release: ChartRelease): Prom
   return Boolean(await listed(ctx, release)) && await inputsOf(ctx, release) === release.inputs;
 }
 
+const resourcesOf = (release: Pick<ChartRelease, 'release' | 'namespace'>) => workloadResources(release.namespace, `app.kubernetes.io/instance=${release.release}`);
+
 async function rolloutOfRelease(ctx: ChartContext, release: Pick<ChartRelease, 'release' | 'namespace'>): Promise<ReleaseRollout> {
-  const listing: unknown = JSON.parse(await ctx.cluster.kubectl(['get', ROLLOUT_KINDS, '-n', release.namespace, '-l', `app.kubernetes.io/instance=${release.release}`, '-o', 'json']));
-  return releaseRollout(listing);
+  return releaseRollout(await listedOnce(ctx.cluster, resourcesOf(release)));
 }
 
 async function stateOf(ctx: ChartContext, release: ChartRelease): Promise<StepState> {
@@ -102,23 +103,11 @@ export function chartStep(name: StepName, release: ChartRelease): Step<ChartCont
 }
 
 export async function followRelease(ctx: ChartContext, release: Pick<ChartRelease, 'release' | 'namespace'>, what: string, progress: Progress): Promise<void> {
-  let said = '';
-  let hopeless: string | undefined;
-  await waitUntil(
-    what,
-    async () => {
-      const rollout = await rolloutOfRelease(ctx, release);
-      if (rollout.state === 'done') return true;
-      if (rollout.state === 'hopeless') {
-        hopeless = rollout.job ? `${rollout.reason}${await logTail(ctx, release, rollout.job)}` : rollout.reason;
-        return waiting(rollout.reason);
-      }
-      const line = `waiting for ${rollout.waiting.join('; ')}`;
-      if (line !== said) progress.line(line);
-      said = line;
-      return waiting(rollout.waiting.join('; '));
-    },
-    async () => hopeless,
-    ctx.wait,
-  );
+  await rolledOut(ctx.cluster, what, resourcesOf(release), (listed): Judged<true> | Promise<Judged<true>> => {
+    const rollout = releaseRollout(listed);
+    if (rollout.state === 'done') return { done: true };
+    if (rollout.state === 'rolling') return { waiting: `waiting for ${rollout.waiting.join('; ')}` };
+    const { reason, job } = rollout;
+    return job ? logTail(ctx, release, job).then((log) => ({ hopeless: `${reason}${log}` })) : { hopeless: reason };
+  }, (line) => progress.line(line));
 }

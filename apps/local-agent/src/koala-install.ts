@@ -114,7 +114,7 @@ async function releaseOf(ctx: InstallContext): Promise<ChartRelease> {
   };
 }
 
-const chartContext = (ctx: InstallContext): ChartContext => ({ cluster: machineChartCluster(ctx.host, ctx.helm), ...(ctx.wait ? { wait: ctx.wait } : {}) });
+const chartContext = (ctx: InstallContext): ChartContext => ({ cluster: machineChartCluster(ctx.host, ctx.helm) });
 
 const KOALA_STEP = { id: KOALA_INSTALL_LAST_STAGE, title: 'Putting Koala on this machine' };
 

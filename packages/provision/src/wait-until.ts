@@ -1,7 +1,8 @@
 import { AssertionError } from 'node:assert';
 import { statusFailure } from '@koala/engine-core/failures';
+import { Hopeless } from '@koala/engine-core/until';
 
-export class Hopeless extends Error {}
+export { Hopeless };
 
 export class Waiting {
   private declare readonly brand: 'waiting';

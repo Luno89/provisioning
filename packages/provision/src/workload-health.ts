@@ -15,9 +15,12 @@ const REFUSED = new Set([
   'ErrImagePull',
   'InvalidImageName',
   'CreateContainerConfigError',
+  'CreateContainerError',
 ]);
 
 const PULLING = new Set(['ImagePullBackOff', 'ErrImagePull']);
+
+const TOLD_WHY = new Set(['CreateContainerError']);
 
 interface ContainerLike {
   name?: string;
@@ -47,10 +50,15 @@ function pulled(container: ContainerLike): string {
   return `, its image ${container.image} could not be pulled${message ? `: ${message}` : ''}`;
 }
 
+const told = (waiting: string, container: ContainerLike): string => {
+  const message = container.state?.waiting?.message;
+  return TOLD_WHY.has(waiting) && message ? `: ${message}` : '';
+};
+
 function troubleOf(name: string, container: ContainerLike): Trouble | undefined {
   const waiting = container.state?.waiting?.reason;
   if (waiting === 'CrashLoopBackOff') return { kind: 'crashing', name, reason: `${name}: ${waiting}`, exitedAt: Date.parse(container.lastState?.terminated?.finishedAt ?? '') };
-  if (waiting && REFUSED.has(waiting)) return { kind: 'refused', reason: `${name}: ${waiting}${PULLING.has(waiting) ? pulled(container) : ''}` };
+  if (waiting && REFUSED.has(waiting)) return { kind: 'refused', reason: `${name}: ${waiting}${PULLING.has(waiting) ? pulled(container) : told(waiting, container)}` };
   return undefined;
 }
 

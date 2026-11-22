@@ -18,6 +18,7 @@ const noKoalaK3s: MachineHost = {
     if (file === 'lspci') return 'Slot:\t01:00.0\nClass:\tVGA compatible controller [0300]\nVendor:\tNVIDIA Corporation [10de]\nDevice:\tGA102 [GeForce RTX 3090] [2204]\nDriver:\tnvidia\n';
     throw Object.assign(new Error(`spawn ${file} ENOENT: this computer has no ${file}`), { code: 'ENOENT' });
   },
+  follow: async (file) => { throw Object.assign(new Error(`spawn ${file} ENOENT: this computer has no ${file}`), { code: 'ENOENT' }); },
   exists: async () => false,
   read: async () => { throw new Error('nothing to read'); },
   list: async () => [],

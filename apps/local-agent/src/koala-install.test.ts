@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { KOALA_INSTALL_PROGRESS, koalaInstallProgressPath } from '@koala/engine-core/koala-install';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
+import { scriptedRollout, type Snapshot } from '@koala/provision/testing';
 import { K3S_BINARY, K3S_MARKER, type KoalaHeld, type MachineHost } from './machine-cluster.js';
 import { installKoala, koalaPlacements, koalaUrlOf, koalaValues, placedFrom, type PlacedKoala } from './koala-install.js';
 
@@ -22,8 +23,10 @@ const rolledOut = (ready: boolean) => ({ items: [
   { kind: 'Job', metadata: { name: 'instance-seed-1', labels: { [SETUP_LABEL]: 'seed' } }, status: ready ? { succeeded: 1 } : { active: 1 } },
 ] });
 
-function machine(listings: unknown[] = [rolledOut(false), rolledOut(true), rolledOut(true)]) {
+function machine(rounds: Snapshot[][] = [[rolledOut(false), rolledOut(true)]]) {
   const host = mock<MachineHost>();
+  const rollout = scriptedRollout(rounds);
+  host.follow.mockImplementation(async (_file, args, heard) => rollout.watch(args.find((arg) => arg.startsWith('--raw='))!.slice('--raw='.length), heard));
   host.metricsClient.mockResolvedValue('/home/bo/.config/koala/metrics-client.json');
   const ran: string[][] = [];
   let state = 'inactive';
@@ -47,7 +50,7 @@ function machine(listings: unknown[] = [rolledOut(false), rolledOut(true), rolle
       return '';
     }
     if (file === K3S_BINARY && args.includes('jsonpath={.items[0].status.conditions[?(@.type=="Ready")].status} {.items[0].status.conditions[?(@.type=="Ready")].lastTransitionTime}')) return 'True 2026-11-05T10:00:05Z';
-    if (file === K3S_BINARY && args.includes('-l')) return JSON.stringify(listings.length > 1 ? listings.shift() : listings[0]);
+    if (file === K3S_BINARY && args.some((arg) => arg.startsWith('--raw='))) return rollout.kubectl(args.slice(args.indexOf('get')));
     return '';
   });
   return { host, ran, held: () => held };
@@ -111,13 +114,13 @@ describe('putting Koala on this machine', () => {
     expect(said(heard)).toEqual([
       'cluster started', 'cluster started k3s answers on this machine', 'cluster done',
       'chart started', 'chart done',
-      'koala started', 'koala started waiting for deployment/instance-backend has 0 of 1 available; job/instance-seed-1 runs', 'koala done http://100.64.0.7:30320',
+      'koala started', 'koala started waiting for deployment/instance-backend has 0 of 1 available; job/instance-seed-1 runs', 'koala started waiting for job/instance-seed-1 runs', 'koala done http://100.64.0.7:30320',
     ]);
     expect(new Set(heard.map(({ auth }) => auth))).toEqual(new Set(['Bearer key-token']));
   });
 
   it('finds what is already so when asked again, and says so to root, so a repeated request is safe', async () => {
-    const { host, ran } = machine([rolledOut(true)]);
+    const { host, ran } = machine([[rolledOut(true)]]);
     const { fetchImpl, heard } = root();
     await installKoala(PLACED, deps(host, fetchImpl));
     await installKoala(PLACED, deps(host, fetchImpl));
@@ -166,7 +169,7 @@ describe('putting Koala on this machine', () => {
 describe('root stopping Koala on this machine', () => {
   const STOPPED_LINE = 'Putting Koala on this machine stopped: root stopped it before it finished';
   it('stops at its next command or wait when root stops it, tells root nothing more, and says it stopped', async () => {
-    const { host, ran } = machine([rolledOut(false)]);
+    const { host, ran } = machine([[rolledOut(false)]]);
     const stop = new AbortController();
     const lines: string[] = [];
     let at = 0;
@@ -197,7 +200,7 @@ describe('root stopping Koala on this machine', () => {
   });
 
   it('notes on the machine when its Koala is ready, before root hears it, and keeps that note when the same install is asked again', async () => {
-    const { host, held } = machine([rolledOut(true)]);
+    const { host, held } = machine([[rolledOut(true)]]);
     const noted: Array<KoalaHeld | undefined> = [];
     const { fetchImpl } = root(CHART, (body) => {
       if (body.stage === 'koala' && body.state === 'done') noted.push(held());
@@ -211,7 +214,7 @@ describe('root stopping Koala on this machine', () => {
   });
 
   it('stops the install it runs for a Koala when root places that Koala again under a newer install', async () => {
-    const { host } = machine([rolledOut(false)]);
+    const { host } = machine([[rolledOut(false)]]);
     const lines: string[] = [];
     let newer: Promise<void> | undefined;
     const placements = koalaPlacements(deps(host, root(CHART, (body) => {

@@ -54,6 +54,7 @@ class DeskHost implements ClusterHost {
     if (line.includes(' get nodes ') || line.includes(' get pod ')) return this.active ? `True ${new Date(this.startedAt + 5_000).toISOString()}` : '';
     throw new Error(`the desk was asked to run what a machine's cluster never runs: ${line}`);
   }
+  async follow(file: string, args: string[]): Promise<never> { throw new Error(`the desk was asked to follow what a machine's cluster never follows: ${[file, ...args].join(' ')}`); }
   async exists(path: string): Promise<boolean> { return path === K3S_MARKER; }
   async read(path: string): Promise<string> {
     if (path !== K3S_KUBECONFIG) throw new Error(`the desk has no ${path}`);

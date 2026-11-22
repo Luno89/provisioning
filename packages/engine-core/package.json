@@ -71,6 +71,10 @@
       "types": "./src/http.ts",
       "default": "./src/http.ts"
     },
+    "./until": {
+      "types": "./src/until.ts",
+      "default": "./src/until.ts"
+    },
     "./reopening": {
       "types": "./src/reopening.ts",
       "default": "./src/reopening.ts"
