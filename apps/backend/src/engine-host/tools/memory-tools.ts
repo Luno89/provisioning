@@ -10,7 +10,10 @@ export interface KnownTools {
   servers: readonly { name: string; tools: readonly string[] }[];
 }
 
-export type MemoryToolStore = MemoryWriterStore & { search(ownerId: string, query: string, limit: number): Promise<string[]> };
+export type MemoryToolStore = MemoryWriterStore & {
+  search(ownerId: string, query: string, limit: number): Promise<string[]>;
+  markedProjects(ownerId: string): Promise<readonly string[]>;
+};
 
 const text = textArgument;
 
@@ -74,7 +77,8 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
       if (!caller.ownerId) return refuse('this run has no owner whose memories to search');
       const query = text(parsed, 'query');
       if (!query) return refuse('give a query: what to look for');
-      const mine = (await store.list(caller.ownerId)).filter((memory) => memory.ownerId === caller.ownerId);
+      const marked = new Set(await store.markedProjects(caller.ownerId));
+      const mine = (await store.list(caller.ownerId)).filter((memory) => memory.ownerId === caller.ownerId && !(memory.scope === 'project' && memory.projectId && marked.has(memory.projectId)));
       let ranked: string[];
       try {
         ranked = await store.search(caller.ownerId, query, mine.length);

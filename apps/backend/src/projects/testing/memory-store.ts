@@ -120,6 +120,10 @@ export class MemoryProjectsStore implements ProjectsStore {
     return this.projects.all().filter((project) => project.ownerId === ownerId && project.removal?.phase === 'archived');
   }
 
+  async markedProjectIds(ownerId: string): Promise<string[]> {
+    return this.projects.all().filter((project) => project.ownerId === ownerId && project.removal).map((project) => project.id);
+  }
+
   async deletion(projectId: string): Promise<ProjectRemoval | undefined> {
     return this.projects.get(projectId)?.removal;
   }

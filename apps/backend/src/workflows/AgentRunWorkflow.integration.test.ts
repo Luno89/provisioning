@@ -140,7 +140,7 @@ function activities(options: {
     models,
     tools: { run: async () => ({ ok: true, digest: '' }) },
     environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
-    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined, index: async () => undefined, unindex: async () => undefined, search: async () => ((options.memories ?? []) as { id: string }[]).map((memory) => memory.id) },
+    memories: { list: async () => (options.memories ?? []) as never[], save: async () => undefined, index: async () => undefined, unindex: async () => undefined, search: async () => ((options.memories ?? []) as { id: string }[]).map((memory) => memory.id), markedProjects: async () => [] },
     ...(options.conversationWorkspaces ? { conversationWorkspaces: options.conversationWorkspaces } : {}),
   }), ['activity', 'sandbox']).map((implementation) => (implementation.kind === options.hangValue
     ? valueImplementation(implementation.kind, ({ run }) => new Promise<never>((_, reject) => {

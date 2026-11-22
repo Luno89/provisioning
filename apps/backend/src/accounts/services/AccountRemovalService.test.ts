@@ -381,6 +381,19 @@ describe('removing an account at root whose owner has their own Koala', () => {
     expect((await service.people()).find((person) => person.id === 'bob')?.removal).toMatchObject({ state: { state: 'running', done: ['instance'] }, koala: progress });
   });
 
+  it('shows the person their own removal as root\'s People list shows it, then that it is removed, and nothing for an account not being removed', async () => {
+    const watch = { instanceId: 'inst-bob', reach: { reachable: false, unreachableSince: '2026-11-21T09:00:00.000Z', toldDown: false } } as InstanceWatchRecord;
+    const { db, workflows, service } = await withKoala({ watches: [watch] });
+    expect(await service.removalProgress('bob')).toBeUndefined();
+    await db.accounts.saveUser(user('bob', { removal: { startedAt: 'then', requestedBy: 'bob' } }));
+    workflows.state.mockResolvedValue({ state: 'running', done: ['instance'] });
+    const listed = (await service.people()).find((person) => person.id === 'bob')?.removal;
+    expect(listed).toMatchObject({ koala: progress, koalaAway: { machine: 'Desk' } });
+    expect(await service.removalProgress('bob')).toEqual({ removal: listed });
+    await db.accounts.deleteUser('bob');
+    expect(await service.removalProgress('bob')).toEqual({ removed: true });
+  });
+
   it('shows the Koala waited for while its machine is off, naming the machine and since when', async () => {
     const watch = { instanceId: 'inst-bob', reach: { reachable: false, unreachableSince: '2026-11-21T09:00:00.000Z', toldDown: false } } as InstanceWatchRecord;
     const { db, workflows, service } = await withKoala({ watches: [watch] });

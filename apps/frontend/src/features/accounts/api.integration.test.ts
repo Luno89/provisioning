@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   changePassword, endOtherSessions, forgotPassword, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople,
-  mintInvite, removeMyAccount, removePerson, resendPasswordReset, resetPassword, saveTwoFactor, sendConfirmCode, setOwnInviteAccounts, setProjectInviteLimits,
+  getMyRemovalProgress, mintInvite, removeMyAccount, removePerson, resendPasswordReset, resetPassword, saveTwoFactor, sendConfirmCode, setOwnInviteAccounts, setProjectInviteLimits,
 } from './api'
 import type { Invite, PersonEntry, ProjectInviteLimits, RemovalPreview } from './types'
 import { getMe, login } from '../platform'
@@ -113,8 +113,11 @@ describe('what someone who is not an operator may do on root', () => {
     expect(await getRemovalPreview()).toEqual({ email: 'member@koala.test', blockers: [] })
     await expect(removeMyAccount('wrong', { password: NEW_PASSWORD })).rejects.toMatchObject({ response: { status: 400 } })
     await expect(removeMyAccount('member@koala.test', { password: 'not it' })).rejects.toMatchObject({ response: { status: 403, data: { error: anyOf(String) } } })
-    expect(await removeMyAccount('member@koala.test', { password: NEW_PASSWORD })).toEqual({ state: 'running', done: [] })
+    const started = await removeMyAccount('member@koala.test', { password: NEW_PASSWORD })
+    expect(started.state).toEqual({ state: 'running', done: [] })
     expect(temporal.started).toEqual([objectWith({ workflowType: 'RootAccountRemovalWorkflow' })])
     expect(await getMe()).toBeNull()
+    expect(await getMyRemovalProgress(started.progress)).toEqual({ removal: objectWith({ requestedBy: anyOf(String), state: { state: 'running', done: [] } }) })
+    await expect(getMyRemovalProgress('not-a-removal')).rejects.toMatchObject({ response: { status: 401 } })
   })
 })

@@ -1,6 +1,7 @@
 /**
  * ── DUPLICATED, KNOWINGLY ──
- * Authority: `RemovalWorkflowState`, `PersonEntry` and `PersonInstance` in apps/backend/src/accounts/services/AccountRemovalService.ts,
+ * Authority: `RemovalWorkflowState`, `PersonEntry`, `PersonInstance` and `removalProgress`'s answer in apps/backend/src/accounts/services/AccountRemovalService.ts,
+ * the removal's answer `{ state, progress }` in apps/backend/src/accounts/routes/account.ts,
  * `InviteMetadata` in apps/backend/src/platform/lib/types.ts,
  * `RemovalStep` in apps/backend/src/accounts/lib/account-removal.ts.
  */
@@ -70,6 +71,15 @@ export interface ProjectInviteLimits {
 export interface MintedInvite extends Invite {
   code: string
 }
+
+export type PersonRemoval = NonNullable<PersonEntry['removal']>
+
+export interface RemovalStarted {
+  state: RemovalState
+  progress: string
+}
+
+export type MyRemovalProgress = { removal: PersonRemoval } | { removed: true }
 
 export interface RemovalPreview {
   email: string

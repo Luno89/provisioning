@@ -3,8 +3,8 @@ import { errorMessage } from '../../../api/client'
 import type { PersonEntry } from '../types'
 import { goesWith, instanceLine } from '../lib/person-instance'
 import { EmailConfirm, RemovalBlockers } from './RemovalConfirm'
-import { confirmMatches, dangerButton, dangerPanel, koalaAwayText, koalaProblemText, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from '../shared'
-import { deletionLines } from '../../projects'
+import { confirmMatches, dangerButton, dangerPanel, quietButton, refusalBlockers, removalText, usePeople, usePersonRemoval, useRemovePerson } from '../shared'
+import { RemovalLines } from './RemovalLines'
 
 function RemovePerson({ person, onClose }: { person: PersonEntry; onClose: () => void }) {
   const [typed, setTyped] = useState('')
@@ -52,14 +52,7 @@ export function People() {
                   {person.removal ? removalText(person.removal.state, person.removal.steps) : `Joined ${new Date(person.createdAt).toLocaleDateString()}`}
                 </div>
                 {person.instance && !person.removal && <div className="text-xs text-slate-500 mt-0.5" data-testid={`instance-${person.id}`}>{instanceLine(person.instance)}</div>}
-                {person.removal?.koalaAway && <div className="text-xs text-amber-300 mt-0.5">{koalaAwayText(person.removal.koalaAway)}</div>}
-                {person.removal?.machinesAway?.map((away) => <div key={away.machine} className="text-xs text-amber-300 mt-0.5">{koalaAwayText(away)}</div>)}
-                {person.removal?.koala?.problem && <div className="text-xs text-red-300 mt-0.5">{koalaProblemText(person.removal.koala.problem)}</div>}
-                {person.removal?.koala && (
-                  <ul className="text-xs text-slate-400 mt-1 space-y-0.5">
-                    {deletionLines(person.removal.koala).map((line) => <li key={line}>{line}</li>)}
-                  </ul>
-                )}
+                {person.removal && <RemovalLines removal={person.removal} />}
               </div>
               {(person.removal?.state.state === 'failed' || person.removal?.koala?.problem) && (
                 <button type="button" className={dangerButton} disabled={retry.isPending} onClick={() => retry.mutate({ id: person.id, confirm: person.email })}>Try again</button>

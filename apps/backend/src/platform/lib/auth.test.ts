@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, deviceToken, deviceOf } from './auth.js';
+import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, deviceToken, deviceOf, removalProgressOf, removalProgressToken } from './auth.js';
 
 describe('Auth Utilities', () => {
   describe('Password Hashing', () => {
@@ -77,6 +77,18 @@ describe('Auth Utilities', () => {
       const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
       const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ userId: 'u1', exp: Math.floor(Date.now() / 1000) + 60 })}`;
       expect(verifyJWT(`${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`, 'two-factor', secret)).toBeNull();
+    });
+
+    it('signs a token for reading one account\'s removal progress that lasts as long as the removal, and reads nothing else', () => {
+      const token = removalProgressToken('bob', secret);
+      expect(removalProgressOf(token, secret)).toBe('bob');
+      expect(verifyJWT(token, 'removal-progress', secret)).not.toHaveProperty('exp');
+      expect(verifyJWT(token, 'two-factor', secret)).toBeNull();
+      expect(deviceOf(token, secret)).toBeUndefined();
+      expect(removalProgressOf(token, 'wrongSecret')).toBeUndefined();
+      expect(removalProgressOf(signJWT('two-factor', { progressOf: 'bob' }, secret, 60), secret)).toBeUndefined();
+      expect(removalProgressOf(deviceToken('bob@example.com', secret, 'd1'), secret)).toBeUndefined();
+      expect(removalProgressOf('not-a-token', secret)).toBeUndefined();
     });
   });
 

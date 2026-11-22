@@ -28,9 +28,10 @@ describe('deleting your own account', () => {
     useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', confirmWith: 'password', permissions: { 'manage-own-account': true } } as never)
   })
 
-  it('removes the account only once the email and the password are typed, then signs out', async () => {
+  it('removes the account only once the email and the password are typed, shows how it goes, then signs out', async () => {
     vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [] })
-    vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: 'running', done: [] })
+    vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: { state: 'running', done: [] }, progress: 'progress-of-bo' })
+    const progress = vi.spyOn(accountApi, 'getMyRemovalProgress').mockResolvedValue({ removal: { startedAt: 'then', requestedBy: 'bo', state: { state: 'running', done: [] }, steps: ['instance', 'koala'] } })
     renderSection()
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete account…' }))
@@ -43,8 +44,11 @@ describe('deleting your own account', () => {
     expect(remove).toBeDisabled()
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'my-own-password' } })
     fireEvent.click(remove)
-    await waitFor(() => expect(useShellStore.getState().user).toBeNull())
+    expect(await screen.findByText('removing its instance (1 of 2)')).toBeInTheDocument()
+    expect(progress).toHaveBeenCalledWith('progress-of-bo')
     expect(accountApi.removeMyAccount).toHaveBeenCalledWith('BO@example.com', { password: 'my-own-password' })
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(useShellStore.getState().user).toBeNull())
   })
 
   it('says plainly that the projects in Deleted projects go for good with it', async () => {
@@ -73,7 +77,7 @@ describe('deleting an account with two-factor sign-in on', () => {
 
   it('asks for a code it sends on request, never the password', async () => {
     vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [] })
-    vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: 'running', done: [] })
+    vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: { state: 'running', done: [] }, progress: 'progress-of-bo' })
     const sent = vi.spyOn(accountApi, 'sendConfirmCode').mockResolvedValue(undefined)
     renderSection()
 

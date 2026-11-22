@@ -3,6 +3,7 @@ import { errorMessage } from '../../../api/client'
 import { useCan, useShellStore } from '../../platform'
 import { dangerPanel, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
 import { MyRemovalConfirm, RemovalBlockers } from './RemovalConfirm'
+import { MyRemovalProgress } from './MyRemovalProgress'
 import { safeHref } from '../../../shared/lib/safe-href'
 
 function RemovedOnRoot() {
@@ -25,15 +26,23 @@ export function DeleteAccount() {
 
 function DeleteHere() {
   const [open, setOpen] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
   const setUser = useShellStore((s) => s.setUser)
-  const pushNotification = useShellStore((s) => s.pushNotification)
   const preview = useRemovalPreview(open)
-  const remove = useRemoveMyAccount(() => {
-    pushNotification({ type: 'info', message: 'Your account is being removed, with everything in it.' })
-    setUser(null)
-  })
+  const remove = useRemoveMyAccount((started) => setRemoving(started.progress))
 
   const blockers = preview.data?.blockers.length ? preview.data.blockers : refusalBlockers(remove.error)
+
+  if (removing) {
+    return (
+      <div className={`${dangerPanel} space-y-3`} data-testid="delete-account">
+        <h4 className="text-lg font-bold text-white">Delete account</h4>
+        <p className="text-sm text-slate-300">Your account is being removed, with everything in it, and you have been signed out everywhere.</p>
+        <MyRemovalProgress progress={removing} />
+        <button type="button" className={quietButton} onClick={() => setUser(null)}>Done</button>
+      </div>
+    )
+  }
 
   return (
     <div className={dangerPanel}>

@@ -23,6 +23,7 @@ export const NO_MEMORIES: HostNodeServices['memories'] = {
   index: async () => undefined,
   unindex: async () => undefined,
   search: async () => [],
+  markedProjects: async () => [],
 };
 
 const noIndex = (): never => { throw new Error('nothing here keeps a memory index'); };

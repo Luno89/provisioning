@@ -1,6 +1,6 @@
 import type express from 'express';
 import type { Client } from '@temporalio/client';
-import { claimSettingsFrom, type AccessRevocations, type Database, type RoleConfig, holdsAccounts, principalOf, type UserMetadata } from '../../platform/index.js';
+import { claimSettingsFrom, type AccessRevocations, type Database, type RoleConfig, holdsAccounts, principalOf, type SecretKey, type UserMetadata } from '../../platform/index.js';
 import type { Mounts } from '../../platform/index.js';
 import { AccountRemovalService, temporalKoalaRemovals, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
 import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
@@ -21,6 +21,7 @@ export interface AccountsWiringDeps {
   revocations?: AccessRevocations | undefined;
   currentRelease?: string | undefined;
   tellInstance: (instanceId: string, event: string) => void;
+  sessionKey: SecretKey;
 }
 
 export function wireAccounts(deps: AccountsWiringDeps): AccountRemovalService | undefined {
@@ -42,7 +43,7 @@ export function wireAccounts(deps: AccountsWiringDeps): AccountRemovalService | 
     machines: () => db.machines.getLocalAgentDevices(),
     koalas: temporalKoalaRemovals(deps.temporal, (instanceId) => deps.tellInstance(instanceId, OWNER_REMOVING)),
   });
-  app.use('/api/account', accountRouter({ removal, clearSession: deps.clearSession, confirmed: (req) => deps.devices.confirmed(req, (req as unknown as { user: UserMetadata }).user) }));
+  app.use('/api/account', accountRouter({ removal, clearSession: deps.clearSession, progressKey: deps.sessionKey, confirmed: (req) => deps.devices.confirmed(req, (req as unknown as { user: UserMetadata }).user) }));
   app.use('/api/admin', adminRouter({ db, operatorOnly: deps.operatorOnly, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }), removal }));
   return removal;
 }

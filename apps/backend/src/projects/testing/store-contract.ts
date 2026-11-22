@@ -117,6 +117,20 @@ export function projectsStoreContract(make: () => Promise<ProjectsStore>): void 
       expect(await store.deletedProjects('owner-1')).toEqual([]);
     });
 
+    it('names an owner\'s projects being deleted or kept deleted, and none of anyone else\'s, until one is restored', async () => {
+      const store = await make();
+      await store.saveProject(project('open'));
+      await store.saveProject(project('going', { giteaRepo: 'going-repo' }));
+      await store.saveProject(project('kept', { giteaRepo: 'kept-repo' }));
+      await store.saveProject(project('theirs', { ownerId: 'owner-2', giteaRepo: 'theirs-repo' }));
+      expect(await store.markedProjectIds('owner-1')).toEqual([]);
+      for (const id of ['going', 'kept', 'theirs']) await store.markDeleting(id, { startedAt: at(1), requestedBy: 'owner-1', mode: 'archive' });
+      await store.archive('kept');
+      expect([...await store.markedProjectIds('owner-1')].sort()).toEqual(['going', 'kept']);
+      await store.restore('kept', 'kept');
+      expect(await store.markedProjectIds('owner-1')).toEqual(['going']);
+    });
+
     it('keeps where a deletion stands with its mark, never letting an older copy replace a newer one', async () => {
       const store = await make();
       await store.saveProject(project('a'));

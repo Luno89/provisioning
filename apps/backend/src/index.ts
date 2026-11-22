@@ -387,7 +387,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  late.removal = wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations, tellInstance: (instanceId, event) => late.instances?.tellInstance?.(instanceId, event) });
+  late.removal = wireAccounts({ app, role, db, temporal: getTemporalClient, currentRelease: settings.root?.imageTag, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations, sessionKey: keys.session, tellInstance: (instanceId, event) => late.instances?.tellInstance?.(instanceId, event) });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
   tenant.use('/api/tool-call-parsers', toolCallParsersRouter({ parsers: toolCallParsers }));
 

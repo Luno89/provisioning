@@ -4,15 +4,16 @@ import { errorMessage } from '../../../api/client'
 import { yoursGoes } from '../lib/person-instance'
 import { quietButton, refusalBlockers, useRemovalPreview, useRemoveMyAccount } from '../shared'
 import { MyRemovalConfirm, RemovalBlockers } from './RemovalConfirm'
+import { MyRemovalProgress } from './MyRemovalProgress'
 
 export interface RemoveAccountPageProps {
   onRemoved: () => void
 }
 
 export default function RemoveAccountPage({ onRemoved }: RemoveAccountPageProps) {
-  const [removed, setRemoved] = useState(false)
+  const [removed, setRemoved] = useState<string | null>(null)
   const preview = useRemovalPreview(true)
-  const remove = useRemoveMyAccount(() => setRemoved(true))
+  const remove = useRemoveMyAccount((started) => setRemoved(started.progress))
 
   const email = preview.data?.email ?? ''
   const blockers = preview.data?.blockers.length ? preview.data.blockers : refusalBlockers(remove.error)
@@ -24,6 +25,7 @@ export default function RemoveAccountPage({ onRemoved }: RemoveAccountPageProps)
         {removed ? (
           <>
             <p className="text-sm text-slate-300">Your account is being removed, and you have been signed out everywhere.</p>
+            <MyRemovalProgress progress={removed} />
             <button type="button" className={quietButton} onClick={onRemoved}>Done</button>
           </>
         ) : (
