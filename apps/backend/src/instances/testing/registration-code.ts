@@ -1,3 +1,4 @@
+import { clientKeysFrom, clientPublicJwkOf, MACHINE_SCOPE, newClientKey, type ClientPublicJwk } from '@koala/engine-core/root-client';
 import type { Database } from '../../platform/index.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { InstanceReach } from '../services/InstanceReach.js';
@@ -12,7 +13,16 @@ const providerAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair })
 export const registrationCodeAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair }, instance: { id: string; ownerId: string }): Promise<string> =>
   providerAt(root).registrationCode(instance);
 
-export const machineClientsAt = (db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller'> => {
+export const machineSignInKey = (): { jwk: ClientPublicJwk; since: string } => ({ jwk: clientPublicJwkOf(clientKeysFrom(newClientKey())), since: new Date(0).toISOString() });
+
+export async function machineTokenAt(db: RootDb, deviceId: string): Promise<string> {
+  const { provider } = providerAt({ db, url: 'http://127.0.0.1:1', signing: identityKeysFrom(generateIdentityKey()) });
+  const client = await provider.Client.find(deviceId);
+  if (!client) throw new Error(`root keeps no key for the machine ${deviceId}, so it gives it no token`);
+  return new provider.ClientCredentials({ client, scope: MACHINE_SCOPE }).save();
+}
+
+export const machineClientsAt =(db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller'> => {
   const provider = providerAt({ db, url, signing: identityKeysFrom(generateIdentityKey()) });
   return { machineRegistrationCode: (machine) => provider.machineRegistrationCode(machine), machineCaller: (token) => provider.machineCaller(token) };
 };

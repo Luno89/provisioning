@@ -18,6 +18,7 @@ import { forgetThisMachine, meshIp, removeThisMachine } from './machine-removal.
 import { hostCluster, startIfWanted } from './machine-cluster.js';
 import { koalaPlacements, ownValuesFile } from './koala-install.js';
 import { useDependencyHttp } from '@koala/engine-core/http';
+import { machineClientOf } from '@koala/engine-core/root-client';
 import { serviceManagerOf } from './self-update.js';
 import { ownBundle, ownVersion, readCgroup } from './agent-bundle.js';
 
@@ -61,7 +62,8 @@ async function main() {
   void startIfWanted(machineCluster, say).catch((err: Error) => say(`this machine's cluster could not start again: ${err.message}`));
   let sessionsOf: ExternalAgentSessions | undefined;
   let working: { url: string; setToken(token: string): Promise<void> } | undefined;
-  const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => (root.socket.auth as { token: string }).token, say, ownValues: ownValuesFile() });
+  const client = machineClientOf({ rootUrl, deviceId: config.deviceId, key: config.key });
+  const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => client.token(), say, ownValues: ownValuesFile() });
   const root = linkToRoot({
     rootUrl,
     token: config.token,

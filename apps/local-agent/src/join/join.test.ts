@@ -474,7 +474,7 @@ describe('following root putting Koala on the machine it joined', () => {
     ));
     const ran = await join(world, ['--yes', 'the-code']);
     expect(ran.code, ran.said).toBe(0);
-    expect(world.follows).toEqual(['Bearer token-1']);
+    expect(world.follows).toEqual(['Bearer token-for-device-1']);
     const after = ran.said.slice(ran.said.indexOf('Putting Koala on this machine'));
     expect(after.split('\n').map((line) => line.trim()).filter(Boolean)).toEqual([
       'Putting Koala on this machine',
@@ -538,7 +538,7 @@ describe('following root putting Koala on the machine it joined', () => {
     const world = linux(undefined);
     const ran = await join(world, ['--yes', 'the-code']);
     expect(ran.code).toBe(0);
-    expect(world.follows).toEqual(['Bearer token-1']);
+    expect(world.follows).toEqual(['Bearer token-for-device-1']);
     expect(ran.said).not.toContain('Putting Koala on this machine');
     expect(ran.said).toContain('This machine shows on My Machines in a moment');
   });

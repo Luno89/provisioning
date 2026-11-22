@@ -68,7 +68,7 @@ function root(chart = CHART, answer: (body: Record<string, unknown>) => Response
 }
 
 const noPause = { pause: async () => undefined };
-const deps = (host: ClusterHost, fetchImpl: typeof fetch, more: Record<string, unknown> = {}) => ({ cluster: host, helm: HELM, fetch: fetchImpl, token: () => 'device-token', say: () => undefined, wait: noPause, ...more });
+const deps = (host: ClusterHost, fetchImpl: typeof fetch, more: Record<string, unknown> = {}) => ({ cluster: host, helm: HELM, fetch: fetchImpl, token: async () => 'key-token', say: () => undefined, wait: noPause, ...more });
 const said = (heard: Array<{ body: Record<string, unknown> }>) => heard.map(({ body }) => [body.stage, body.state, body.line ?? body.why ?? body.url].filter((part) => part !== undefined).join(' '));
 
 describe('putting Koala on this machine', () => {
@@ -112,7 +112,7 @@ describe('putting Koala on this machine', () => {
       'chart started', 'chart done',
       'koala started', 'koala started waiting for deployment/instance-backend has 0 of 1 available; job/instance-seed-1 runs', 'koala done http://100.64.0.7:30320',
     ]);
-    expect(new Set(heard.map(({ auth }) => auth))).toEqual(new Set(['Bearer device-token']));
+    expect(new Set(heard.map(({ auth }) => auth))).toEqual(new Set(['Bearer key-token']));
   });
 
   it('finds what is already so when asked again, and says so to root, so a repeated request is safe', async () => {

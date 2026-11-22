@@ -3,8 +3,7 @@ import { KOALA_INSTALL_PROGRESS, type KoalaStop, type PlacedKoala, type Provisio
 import { progressOf, type MachineProgress } from '@koala/engine-core/machine-progress';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { installToStop, installUnfinished, type InstanceRecord, type PlacingMachine } from '../../instances/index.js';
-import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
+import type { MachineClients } from './MachineAccounts.js';
 import { FOLLOW_GONE, followingEnded, installFollowing, type InstallFollowing } from '../lib/koala-install-following.js';
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
@@ -44,6 +43,7 @@ interface Following {
 
 export interface KoalaInstallsDeps {
   devices(): Promise<LocalAgentDeviceMetadata[]>;
+  callers: Pick<MachineClients, 'machineCaller'>;
   places(): InstallPlaces | undefined;
   workflows: InstallWorkflows;
   toMachines: { placeKoala(deviceId: string, placed: PlacedKoala): Promise<boolean>; stopKoala(deviceId: string, stop: KoalaStop): boolean };
@@ -153,10 +153,10 @@ export class KoalaInstalls {
 
   private async deviceOf(token: string | undefined): Promise<Outcome<LocalAgentDeviceMetadata>> {
     if (!token) return { ok: false, status: 401, error: 'send this machine\'s own token as the bearer credential' };
-    const match = matchDeviceToken(await this.deps.devices(), token, this.now());
-    if (!match) return { ok: false, status: 401, error: 'this machine is not one of Koala\'s: run the command from My Machines again' };
-    if (match.expired) return { ok: false, status: 401, error: TOKEN_EXPIRED_SAID };
-    return { ok: true, value: match.device };
+    const caller = await this.deps.callers.machineCaller(token);
+    const device = caller ? (await this.deps.devices()).find((candidate) => candidate.id === caller.deviceId && candidate.ownerId === caller.ownerId) : undefined;
+    if (!device) return { ok: false, status: 401, error: 'this machine is not one of Koala\'s: run the command from My Machines again' };
+    return { ok: true, value: device };
   }
 
   async report(installId: string, token: string | undefined, body: unknown): Promise<Outcome<{ recorded: true }>> {

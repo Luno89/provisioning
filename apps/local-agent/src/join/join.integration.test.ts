@@ -413,7 +413,7 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
     expect(ready.code, ready.said).toBe(0);
     expect(followedWith).toHaveLength(2);
     expect(new Set(followedWith).size).toBe(1);
-    expect(followedWith[0]).toBe(`Bearer ${(JSON.parse(readFileSync(path.join(home, '.config/koala/machine.json'), 'utf8')) as { token: string }).token}`);
+    expect(followedWith[0]).toBe(`Bearer token-for-${(JSON.parse(readFileSync(path.join(home, '.config/koala/machine.json'), 'utf8')) as { deviceId: string }).deviceId}`);
     expect(ready.said.match(/waiting for deployment\/koala/g)).toHaveLength(1);
     expect(ready.said).toMatch(/The connection to root dropped \(.+\); following again/);
     expect(ready.said.trimEnd().endsWith('Koala is ready at https://bobby.koala.app')).toBe(true);
@@ -442,7 +442,7 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
     try {
       const said: string[] = [];
       const following = followInstall({
-        rootUrl: `https://127.0.0.1:${(secure.address() as { port: number }).port}`, token: 'token-1', fetch, say: (line) => { said.push(line); }, section: () => undefined,
+        rootUrl: `https://127.0.0.1:${(secure.address() as { port: number }).port}`, token: async () => 'token-1', fetch, say: (line) => { said.push(line); }, section: () => undefined,
         interrupted: new AbortController().signal, wait: { pause: async () => undefined },
       });
       await expect(following).rejects.toThrow(/^root could not be asked how putting Koala on this machine goes: .+/);

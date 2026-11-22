@@ -88,17 +88,18 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   };
   let toMachines: Omit<AccountSockets, 'watched'> = { removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
   let machines: MachineService | undefined;
+  const clientsOf = (): MachineClients => {
+    if (!deps.clients) throw new Error('root keeps machines\' accounts, and a machine registers at root\'s OpenID provider as it joins, but this root was given no provider to make its registration code');
+    return deps.clients;
+  };
   const installs = holdsAccounts(role) && role.signing ? new KoalaInstalls({
     devices: () => db.machines.getLocalAgentDevices(),
+    callers: clientsOf(),
     places: () => deps.instances()?.places,
     workflows: deps.installWorkflows ?? temporalInstallWorkflows(),
     toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), stopKoala: (deviceId, stop) => toMachines.stopKoala(deviceId, stop) },
     toOwner: { installChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(KOALA_INSTALL_CHANGED, {}); } },
   }) : undefined;
-  const clientsOf = (): MachineClients => {
-    if (!deps.clients) throw new Error('root keeps machines\' accounts, and a machine registers at root\'s OpenID provider as it joins, but this root was given no provider to make its registration code');
-    return deps.clients;
-  };
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
     signing: role.signing,

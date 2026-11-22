@@ -32,6 +32,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts }> {
         toMachines: { removed: () => false, koala: () => false, online: () => false },
         installs: new KoalaInstalls({
           devices: () => db.machines.getLocalAgentDevices(),
+          callers: machineClientsAt(db),
           places: () => instances,
           workflows: { start: async (installId) => { started.push(installId); }, progress: async () => undefined, setup: async () => undefined, reconnected: async () => undefined, cancel: async () => undefined },
           toMachines: { placeKoala: async () => false, stopKoala: () => false },

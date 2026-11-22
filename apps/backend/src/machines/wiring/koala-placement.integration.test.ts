@@ -15,9 +15,10 @@ import { deviceTokenHash } from '../lib/device-tokens.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { reopening } from '@koala/engine-core/reopening';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
-import { until } from '../testing/wiring-world.js';
+import { until, untilWhile } from '../testing/wiring-world.js';
 import { installWorkflowWorld, placingRoot, type InstallWorkflowWorld, type PlacingRoot } from '../testing/placing-root.js';
 import { tokenOfInstance } from '../../instances/testing/placed-koala.js';
+import { machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 
 const fresh = await emptiedEachTime();
 const TOKEN = 'the-desk-token-0123456789-0123456789';
@@ -41,7 +42,7 @@ afterAll(async () => {
   await temporal?.close();
 });
 
-const deskOf = (store: MongoDB) => store.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-11-05T00:00:00Z', tokenHash: deviceTokenHash(TOKEN), koalaWanted: { name: 'bobby' } });
+const deskOf = (store: MongoDB) => store.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-11-05T00:00:00Z', tokenHash: deviceTokenHash(TOKEN), signIn: machineSignInKey(), koalaWanted: { name: 'bobby' } });
 
 beforeEach(async () => {
   db = await fresh();
@@ -71,19 +72,20 @@ const agent = (onPlaceKoala: (raw: unknown) => boolean, token = TOKEN, onStopKoa
 
 const handing = (handed: PlacedKoala[]) => (raw: unknown) => { const placed = placedFrom(raw); if (placed) handed.push(placed); return Boolean(placed); };
 const tokenOf = (link: RootLink) => () => (link.socket.auth as { token: string }).token;
-const reporting = (placed: PlacedKoala, link: RootLink, at = url) => rootProgress(`${at}${koalaInstallProgressPath(placed.installId)}`, tokenOf(link), fetch, { pause: async () => undefined });
+const keyToken = (store: MongoDB = db) => () => machineTokenAt(store, 'desk');
+const reporting = (placed: PlacedKoala, at = url) => rootProgress(`${at}${koalaInstallProgressPath(placed.installId)}`, keyToken(), fetch, { pause: async () => undefined });
 const instanceOf = async () => (await db.instances.getInstances('bo'))[0]!;
 
 describe('Koala put on a machine by root\'s install workflow, the machine doing the work', () => {
   it('asks the machine the moment it connects on the mesh, records each stage it reports and each piece Koala sets up, and is ready with where Koala answers once the last piece is up', async () => {
     const handed: PlacedKoala[] = [];
-    const link = agent(handing(handed));
+    agent(handing(handed));
     const placed = await until(async () => handed[0]);
     expect(placed).toMatchObject({ instanceId: instanceIdFor('bo'), machineId: 'desk', meshAddress: '100.64.0.7', name: 'bobby', image: '100.64.0.1:5001/nowrinkles/app', installId: expect.any(String) as unknown });
     expect(await instanceOf()).toMatchObject({ status: 'installing', machineId: 'desk', install: { id: placed.installId, state: 'asked', imageTag: 'v1' } });
     expect((await db.machines.getLocalAgentDevices())[0]?.koalaWanted).toBeUndefined();
 
-    const root = reporting(placed, link);
+    const root = reporting(placed);
     await root.tell({ stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' });
     await root.tell({ stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'done' });
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'waiting for job/instance-seed-1 runs' });
@@ -105,17 +107,17 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
 
   it('shows the join on the machine each stage root records, from its own follow of the install, until Koala is ready', async () => {
     const handed: PlacedKoala[] = [];
-    const link = agent(handing(handed));
+    agent(handing(handed));
     const placed = await until(async () => handed[0]);
     const said: string[] = [];
     const following = followInstall({
-      rootUrl: url, token: tokenOf(link)(), fetch, say: (line) => { said.push(line); }, section: (title) => { said.push(`# ${title}`); },
+      rootUrl: url, token: keyToken(), fetch, say: (line) => { said.push(line); }, section: (title) => { said.push(`# ${title}`); },
       interrupted: new AbortController().signal, wait: { pause: async () => undefined },
     });
-    await until(async () => (said.includes('# Putting Koala on this machine') ? true : undefined));
-    const root = reporting(placed, link);
+    await untilWhile(following, () => (said.includes('# Putting Koala on this machine') ? true : undefined));
+    const root = reporting(placed);
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'waiting for job/instance-seed-1 runs' });
-    await until(async () => (said.includes('  waiting for job/instance-seed-1 runs') ? true : undefined));
+    await untilWhile(following, () => (said.includes('  waiting for job/instance-seed-1 runs') ? true : undefined));
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' });
     const koala = new InstanceReporter({ root: { url, instanceId: placed.instanceId, token: async () => tokenOfInstance(placed.instanceId) }, wait: reopening(1), log: () => undefined });
     expect(await koala.setup({ revision: 1, progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
@@ -127,13 +129,13 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     const handed: PlacedKoala[] = [];
     const first = agent(handing(handed));
     const placed = await until(async () => handed[0]);
-    await reporting(placed, first).tell({ stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' });
+    await reporting(placed).tell({ stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' });
     await until(async () => (tokenOf(first)() !== TOKEN ? true : undefined));
     first.close();
-    const second = agent(handing(handed), tokenOf(first)());
+    agent(handing(handed), tokenOf(first)());
     const again = await until(async () => handed[1]);
     expect(again.installId).toBe(placed.installId);
-    await reporting(again, second).tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'failed', why: 'job/instance-seed-2 failed: Mongo refused its password' });
+    await reporting(again).tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'failed', why: 'job/instance-seed-2 failed: Mongo refused its password' });
     await until(async () => ((await instanceOf()).status === 'failed' ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'failed', detail: 'Putting Koala on desk stopped at Putting Koala on this machine: job/instance-seed-2 failed: Mongo refused its password', install: { state: 'failed', stage: 'koala', why: 'job/instance-seed-2 failed: Mongo refused its password' } });
   });
@@ -161,9 +163,10 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     const handed: PlacedKoala[] = [];
     const link = agent(handing(handed));
     const placed = await until(async () => handed[0]);
-    const TOKEN_NOW = tokenOf(link)();
+    const TOKEN_NOW = await keyToken()();
     const post = (token: string | undefined, installId: string) => fetch(`${url}${koalaInstallProgressPath(installId)}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ stage: 'koala', title: 'Koala', state: 'started' }) });
     expect((await post(undefined, placed.installId)).status).toBe(401);
+    expect((await post(tokenOf(link)(), placed.installId)).status).toBe(401);
     expect((await post(`${TOKEN_NOW}-not`, placed.installId)).status).toBe(401);
     expect((await post(TOKEN_NOW, 'another-install')).status).toBe(404);
     expect((await post(TOKEN_NOW, placed.installId)).status).toBe(204);
@@ -178,15 +181,15 @@ describe('a machine following its install while root\'s database stops answering
     try {
       await deskOf(own);
       const handed: PlacedKoala[] = [];
-      const link = agentOf(alone.url, handing(handed));
+      agentOf(alone.url, handing(handed));
       await until(async () => handed[0]);
       const said: string[] = [];
       const watching = new AbortController();
       const following = followInstall({
-        rootUrl: alone.url, token: tokenOf(link)(), fetch, say: (line) => { said.push(line); }, section: (title) => { said.push(`# ${title}`); },
+        rootUrl: alone.url, token: keyToken(own), fetch, say: (line) => { said.push(line); }, section: (title) => { said.push(`# ${title}`); },
         interrupted: watching.signal, wait: { pause: (ms) => new Promise((done) => setTimeout(done, Math.min(ms, 20))) },
       });
-      await until(async () => (said.includes('# Putting Koala on this machine') ? true : undefined));
+      await untilWhile(following, () => (said.includes('# Putting Koala on this machine') ? true : undefined));
       await alone.sides.watched!.close();
       await own.close();
       alone.installs.wake('bo');

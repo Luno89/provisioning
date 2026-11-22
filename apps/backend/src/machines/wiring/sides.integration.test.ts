@@ -289,7 +289,7 @@ describe('a root and an instance wired as they run, against each other', () => {
     const { code } = await accounts.createJoinCode('bo');
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
     await until(async () => (heard.length === 1 ? true : undefined));
-    const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replaces: first.value.env.KOALA_DEVICE_TOKEN });
+    const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replacesKeyless: first.value.env.KOALA_DEVICE_TOKEN });
     if (!again.ok) throw new Error(again.error);
     expect(again.value.deviceId).toBe(first.value.deviceId);
     await until(async () => (heard.length === 2 ? true : undefined));

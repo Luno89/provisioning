@@ -87,6 +87,7 @@ export function machinesOf({ db, origin }: Site): Machines {
     toMachines: { removed: () => false, koala: () => false, online: () => false },
     installs: new KoalaInstalls({
       devices: () => db.machines.getLocalAgentDevices(),
+      callers: machineClientsAt(db),
       places: () => instances,
       workflows: { start: async () => undefined, progress: async () => undefined, setup: async () => undefined, reconnected: async () => undefined, cancel: async () => undefined },
       toMachines: { placeKoala: async () => false, stopKoala: () => false },
