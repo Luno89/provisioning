@@ -9,6 +9,7 @@ import { MACHINE_CODE_TTL_SECONDS } from '../lib/machines.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import { anyOf, containing } from '../../platform/lib/test-matchers.js';
 import { MachineAccounts, type MachineAccountsDeps, type MachineFollowers } from '../services/MachineAccounts.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 
 export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   const DAY = 24 * 60 * 60 * 1000;
@@ -32,7 +33,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     toMachines: { removed: (deviceId) => { told.push([deviceId, 'machine:removed', undefined]); return true; }, koala: (deviceId, koala) => { told.push([deviceId, 'machine:koala', koala]); return true; } },
     toOwner: { machinesChanged: (ownerId) => { browsersTold.push(ownerId); } },
     mesh,
-    clients: { machineRegistrationCode: async (machine) => { registrations.push(machine); return `registration-${registrations.length}`; } },
+    clients: { ...machineClientsAt(db), machineRegistrationCode: async (machine) => { registrations.push(machine); return `registration-${registrations.length}`; } },
     now: () => clock,
     ...over,
   });
@@ -125,7 +126,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const before = (await stored(first.deviceId))!;
       followers.joined.mockClear();
       const { code } = await machines.createJoinCode('bo');
-      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/work', replaces: first.env.KOALA_DEVICE_TOKEN });
+      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/work', replacesKeyless: first.env.KOALA_DEVICE_TOKEN });
       expect(again.ok && again.value.deviceId).toBe(first.deviceId);
       const replaced = (await stored(first.deviceId))!;
       expect(replaced).toMatchObject({ rootDir: '/home/me/work', createdAt: before.createdAt });
@@ -137,7 +138,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     it('adds a second machine rather than replace one that is not the person\'s own', async () => {
       const machines = accounts();
       const first = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/x' });
-      const stranger = await joined(machines, 'cy', { hostname: 'desk', rootDir: '/x', replaces: first.env.KOALA_DEVICE_TOKEN });
+      const stranger = await joined(machines, 'cy', { hostname: 'desk', rootDir: '/x', replacesKeyless: first.env.KOALA_DEVICE_TOKEN });
       expect(stranger.deviceId).not.toBe(first.deviceId);
       expect(await db.machines.getLocalAgentDevices()).toHaveLength(2);
     });
@@ -289,7 +290,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const machines = accounts();
       const before = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/home/me/koala' });
       const { code } = await machines.createJoinCode('bo');
-      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala', replaces: before.env.KOALA_DEVICE_TOKEN });
+      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala', replacesKeyless: before.env.KOALA_DEVICE_TOKEN });
       if (!again.ok) throw new Error(again.error);
       expect(again.value.deviceId).toBe(before.deviceId);
       await machines.reportJoinProgress(code, started);
@@ -309,7 +310,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       await machines.reportJoinProgress(second.code, started);
       expect(await machines.joins('bo')).toHaveLength(2);
       browsersTold = [];
-      const joined2 = await machines.join(second.code, { hostname: 'desk', rootDir: '/home/me/koala', replaces: joined1.value.env.KOALA_DEVICE_TOKEN });
+      const joined2 = await machines.join(second.code, { hostname: 'desk', rootDir: '/home/me/koala', replacesKeyless: joined1.value.env.KOALA_DEVICE_TOKEN });
       if (!joined2.ok) throw new Error(joined2.error);
       expect((await machines.joins('bo')).map((join) => join.state)).toEqual(['started']);
       expect(browsersTold).toEqual(['bo']);
@@ -370,7 +371,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(await machines.adoptFrom('bo', [{ ...before, name: 'changed' }])).toEqual({ adopted: 0 });
       expect((await stored('old-desk'))?.name).toBe('desk');
       const { code } = await machines.createJoinCode('bo');
-      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replaces: oldToken });
+      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replacesKeyless: oldToken });
       expect(again.ok && again.value.deviceId).toBe('old-desk');
     });
   });

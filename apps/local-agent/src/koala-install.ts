@@ -130,7 +130,7 @@ export interface KoalaInstallDeps {
   cluster: ClusterHost;
   helm: string;
   fetch: typeof fetch;
-  token: () => string;
+  token: () => Promise<string>;
   say: (line: string) => void;
   ownValues?: string | undefined;
   wait?: WaitOptions | undefined;

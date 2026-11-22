@@ -10,6 +10,7 @@ import { joinPins, type JoinPins } from './pins.js';
 import { JoinStopped, planJoin } from './plan.js';
 import { keepAgentsNotSetUp } from './steps/join-root.js';
 import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
+import { machineClientOf } from '@koala/engine-core/root-client';
 import { rootProgress, rootReporter, rootUrlOf } from '../root-progress.js';
 
 export interface JoinAsking {
@@ -48,7 +49,7 @@ async function folderOf(args: JoinArgs, deps: JoinDeps, say: (line: string) => v
 
 const FOLLOWED_EXIT: Record<Exclude<FollowEnd, 'none'>, number> = { ready: 0, failed: 1, stopped: 1, interrupted: 130 };
 
-async function followKoala(args: JoinArgs, token: string, deps: JoinDeps, say: (line: string) => void, section: (title: string) => void): Promise<FollowEnd> {
+async function followKoala(args: JoinArgs, token: () => Promise<string>, deps: JoinDeps, say: (line: string) => void, section: (title: string) => void): Promise<FollowEnd> {
   const watching = new AbortController();
   const release = deps.onInterrupt?.(() => { watching.abort(new Error('the person stopped watching')); });
   try {
@@ -93,7 +94,9 @@ export async function runJoin(argv: readonly string[], deps: JoinDeps): Promise<
     }
     if (plan.service) {
       await runSteps([plan.service], ctx, reporter);
-      const followed = await followKoala(args, joinedOf(ctx).token, deps, say, section);
+      const joined = joinedOf(ctx);
+      const client = machineClientOf({ rootUrl: joined.rootUrl, deviceId: joined.deviceId, key: joined.key, reach: deps.host.fetch });
+      const followed = await followKoala(args, () => client.token(), deps, say, section);
       if (followed !== 'none') return FOLLOWED_EXIT[followed];
     } else {
       section('Start it with');

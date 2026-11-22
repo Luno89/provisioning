@@ -15,8 +15,11 @@ export interface MachineConfig {
   rootUrl: string;
   token: string;
   rootDir: string;
-  deviceId?: string | undefined;
+  deviceId: string;
+  key: string;
 }
+
+const KEYLESS = 'this machine joined before machines held a key of their own: run the command from My Machines again';
 
 export const configFile = (env: NodeJS.ProcessEnv = process.env): string =>
   env.KOALA_MACHINE_CONFIG ?? path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'koala', 'machine.json');
@@ -29,15 +32,12 @@ export function machineConfigFrom(env: NodeJS.ProcessEnv, saved: Record<string, 
   if (!rootUrl) throw new Error(text(saved.backendUrl) ? 'this machine was added before machines joined through root: run the command from My Machines again' : 'this machine has no root to connect to: run the command from My Machines, or set KOALA_ROOT_URL');
   if (!token) throw new Error('this machine has no device token: run the command from My Machines, or set KOALA_DEVICE_TOKEN');
   const deviceId = text(env.KOALA_DEVICE_ID) ?? text(saved.deviceId);
+  const key = text(saved.key);
+  if (!deviceId || !key) throw new Error(KEYLESS);
   const rootDir = path.resolve(text(env.KOALA_ROOT_DIR) ?? text(saved.rootDir) ?? cwd);
   const tooWide = folderProblem(rootDir, os.homedir());
   if (tooWide) throw new Error(tooWide);
-  return {
-    rootUrl,
-    token,
-    rootDir,
-    ...(deviceId ? { deviceId } : {}),
-  };
+  return { rootUrl, token, rootDir, deviceId, key };
 }
 
 const savedSettings = (env: NodeJS.ProcessEnv): Promise<Record<string, unknown>> => readFile(configFile(env), 'utf8').then(

@@ -5,7 +5,15 @@ import { configHome, joinedOf, type Joined, type JoinContext } from '../context.
 
 const machineFile = (ctx: JoinContext): string => configFile({ ...ctx.host.env, XDG_CONFIG_HOME: configHome(ctx) });
 
-const savedToken = async (ctx: JoinContext): Promise<string | undefined> => {
+interface Saved {
+  token: string;
+  deviceId?: string | undefined;
+  key?: string | undefined;
+}
+
+const savedToken = async (ctx: JoinContext): Promise<string | undefined> => (await savedMachine(ctx))?.token;
+
+const savedMachine = async (ctx: JoinContext): Promise<Saved | undefined> => {
   const file = machineFile(ctx);
   const raw = await ctx.host.readOwn(file).catch((err: Error) => {
     throw new Error(`${err.message}. Make it yours and readable only by you (chown ${ctx.host.user} ${file}; chmod 600 ${file}), then run this command again.`, { cause: err });
@@ -18,9 +26,19 @@ const savedToken = async (ctx: JoinContext): Promise<string | undefined> => {
   } catch (err) {
     throw notKoalas((err as Error).message);
   }
-  const token = (saved as { token?: unknown } | null)?.token;
+  const { token, deviceId, key } = (saved ?? {}) as { token?: unknown; deviceId?: unknown; key?: unknown };
   if (typeof token !== 'string' || !token) throw notKoalas('it names no device token');
-  return token;
+  const keyed = typeof key === 'string' && key !== '';
+  if (keyed && (typeof deviceId !== 'string' || !deviceId)) throw notKoalas('it holds a key but names no machine');
+  return { token, ...(keyed ? { deviceId: deviceId as string, key } : {}) };
+};
+
+const replacing = async (ctx: JoinContext): Promise<{ replaces: string; replacesKeyless?: string }> => {
+  const saved = await savedMachine(ctx);
+  if (!saved) return { replaces: '' };
+  if (!saved.key || !saved.deviceId) return { replaces: '', replacesKeyless: saved.token };
+  const proof = await machineClientOf({ rootUrl: ctx.args.url, deviceId: saved.deviceId, key: saved.key, reach: ctx.host.fetch }).tokenIfKnown();
+  return proof ? { replaces: proof } : { replaces: '', replacesKeyless: saved.token };
 };
 
 const settingsOf = (joined: Joined, agentsNotSetUp?: string): string =>
@@ -50,8 +68,7 @@ function joinedFrom(raw: unknown, key: string): Joined {
 }
 
 async function join(ctx: JoinContext, progress: Progress): Promise<void> {
-  const saved = await savedToken(ctx);
-  const body = { code: ctx.args.code, hostname: ctx.host.hostname, rootDir: ctx.folder, os: ctx.host.os, replaces: saved ?? '' };
+  const body = { code: ctx.args.code, hostname: ctx.host.hostname, rootDir: ctx.folder, os: ctx.host.os, ...await replacing(ctx) };
   let response: Response;
   try {
     response = await ctx.host.fetch(`${ctx.args.url}/api/machines/join`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

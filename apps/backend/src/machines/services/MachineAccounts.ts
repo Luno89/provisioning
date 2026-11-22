@@ -54,6 +54,7 @@ export interface MachineRemovals {
 
 export interface MachineClients {
   machineRegistrationCode(machine: { id: string; ownerId: string }): Promise<string>;
+  machineCaller(token: string): Promise<{ deviceId: string; ownerId: string; until: number } | undefined>;
 }
 
 export interface OwnerBrowsers {
@@ -209,7 +210,17 @@ export class MachineAccounts {
     if (finishing.length) this.deps.toOwner.machinesChanged(device.ownerId);
   }
 
-  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown }): Promise<Outcome<{ deviceId: string; env: Record<string, string> }>> {
+  private async replaced(ownerId: string, machine: { replaces?: unknown; replacesKeyless?: unknown }): Promise<LocalAgentDeviceMetadata | undefined> {
+    const own = (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
+    if (typeof machine.replaces === 'string' && machine.replaces) {
+      const caller = await this.deps.clients.machineCaller(machine.replaces);
+      return caller && caller.ownerId === ownerId ? own.find((device) => device.id === caller.deviceId) : undefined;
+    }
+    if (typeof machine.replacesKeyless === 'string' && machine.replacesKeyless) return matchDeviceToken(own.filter((device) => !device.signIn), machine.replacesKeyless)?.device;
+    return undefined;
+  }
+
+  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown; replacesKeyless?: unknown }): Promise<Outcome<{ deviceId: string; env: Record<string, string> }>> {
     if (typeof code !== 'string' || !code) return { ok: false, status: 400, error: 'send the code from My Machines as "code"' };
     const rootDir = text(machine.rootDir, 500);
     if (!rootDir || !path.isAbsolute(rootDir)) return { ok: false, status: 400, error: 'send the folder Koala may work in as "rootDir", a full path' };
@@ -219,14 +230,12 @@ export class MachineAccounts {
     const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code), this.now().toISOString());
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
-    const replaced = typeof machine.replaces === 'string' && machine.replaces
-      ? matchDeviceToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces)?.device
-      : undefined;
+    const replaced = await this.replaced(found.ownerId, machine);
     const id = replaced?.id ?? uuidv4();
     const token = newDeviceToken();
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
-    const { os: _formerOs, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
+    const { os: _formerOs, signIn: _formerKey, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, signIn: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
     const device: LocalAgentDeviceMetadata = {
       ...kept,
       id,

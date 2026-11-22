@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { InstanceRecord } from '../../instances/index.js';
-import { deviceTokenHash, tokenLifetime, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { KoalaInstalls, type InstallPlaces, type InstallWorkflows } from './KoalaInstalls.js';
 import { FOLLOW_GONE, MACHINE_GONE, type InstallFollowing } from '../lib/koala-install-following.js';
 
 const NOW = new Date('2026-11-18T10:00:00Z');
-const TOKEN = 'desk-token-0123456789-0123456789';
-const desk: LocalAgentDeviceMetadata = { id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: NOW.toISOString(), meshIp: '100.64.0.7', tokenHash: deviceTokenHash(TOKEN), ...tokenLifetime(NOW) };
+const TOKEN = 'desk-key-token-0123456789-0123456789';
+const desk: LocalAgentDeviceMetadata = { id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: NOW.toISOString(), meshIp: '100.64.0.7' };
+const callers = { machineCaller: async (token: string) => (token === TOKEN ? { deviceId: 'desk', ownerId: 'bo', until: NOW.getTime() + 300_000 } : undefined) };
 const installOf = (state: 'asked' | 'installing' | 'ready' | 'failed', more: Partial<NonNullable<InstanceRecord['install']>> = {}): InstanceRecord => ({
   id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', meshIp: '100.64.0.7',
   install: { id: 'install-1', machineId: 'desk', state, at: 't', ...more },
@@ -35,6 +35,7 @@ beforeEach(() => {
   stopped = [];
   installs = new KoalaInstalls({
     devices: async () => [desk],
+    callers,
     places: () => places,
     workflows,
     toMachines: { placeKoala: async (deviceId) => { handed.push(deviceId); return true; }, stopKoala: (deviceId, stop) => { stopped.push([deviceId, stop]); return true; } },
@@ -153,17 +154,14 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
     expect(workflows.cancel.mock.calls).toEqual([['install-1']]);
   });
 
-  it('judges the machine\'s token by the time it is now when given no clock, refusing one that lapsed', async () => {
-    const DAY = 24 * 60 * 60 * 1000;
-    const lapsed = { ...desk, ...tokenLifetime(new Date(Date.now() - 200 * DAY)) };
-    const current = { ...desk, ...tokenLifetime(new Date()) };
-    const devices: LocalAgentDeviceMetadata[] = [lapsed];
-    const clocked = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: () => undefined } });
+  it('refuses a token root takes for a machine it no longer keeps', async () => {
+    const devices: LocalAgentDeviceMetadata[] = [];
+    const gone = new KoalaInstalls({ devices: async () => devices, callers, places: () => places, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: () => undefined } });
     places.installOf.mockResolvedValue(installOf('installing'));
     const stage = { stage: 'koala', title: 'Koala', state: 'started' };
-    expect(await clocked.report('install-1', TOKEN, stage)).toMatchObject({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
-    devices[0] = current;
-    expect(await clocked.report('install-1', TOKEN, stage)).toEqual({ ok: true, value: { recorded: true } });
+    expect(await gone.report('install-1', TOKEN, stage)).toEqual({ ok: false, status: 401, error: 'this machine is not one of Koala\'s: run the command from My Machines again' });
+    devices.push(desk);
+    expect(await gone.report('install-1', TOKEN, stage)).toEqual({ ok: true, value: { recorded: true } });
   });
 });
 
@@ -173,7 +171,7 @@ describe('a joining machine following root putting Koala on it', () => {
 
   function following(devices: LocalAgentDeviceMetadata[]) {
     const ownerTold: string[] = [];
-    const followed = new KoalaInstalls({ devices: async () => devices, places: () => places, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: (ownerId) => { ownerTold.push(ownerId); } }, now: () => NOW });
+    const followed = new KoalaInstalls({ devices: async () => devices, callers, places: () => places, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: (ownerId) => { ownerTold.push(ownerId); } }, now: () => NOW });
     const heard: InstallFollowing[] = [];
     const broken: string[] = [];
     const listener = { told: (now: InstallFollowing) => { heard.push(now); }, broke: (err: Error) => { broken.push(err.message); } };
@@ -181,13 +179,13 @@ describe('a joining machine following root putting Koala on it', () => {
   }
   const settled = () => new Promise((done) => setImmediate(done));
 
-  it('takes only the machine\'s own token, unexpired, and answers 503 where root puts Koala on no machine', async () => {
+  it('takes only a token root gave this machine for its key, and answers 503 where root puts Koala on no machine', async () => {
     const { followed, listener } = following([desk]);
     expect(await followed.follow(undefined, listener)).toMatchObject({ ok: false, status: 401 });
     expect(await followed.follow('another-token-0123456789-0123456789', listener)).toMatchObject({ ok: false, status: 401 });
-    const lapsed = following([{ ...desk, ...tokenLifetime(new Date(NOW.getTime() - 200 * 24 * 60 * 60 * 1000)) }]);
-    expect(await lapsed.followed.follow(TOKEN, lapsed.listener)).toEqual({ ok: false, status: 401, error: TOKEN_EXPIRED_SAID });
-    const nowhere = new KoalaInstalls({ devices: async () => [desk], places: () => undefined, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: () => undefined }, now: () => NOW });
+    const removed = following([]);
+    expect(await removed.followed.follow(TOKEN, removed.listener)).toMatchObject({ ok: false, status: 401 });
+    const nowhere = new KoalaInstalls({ devices: async () => [desk], callers, places: () => undefined, workflows, toMachines: { placeKoala: async () => true, stopKoala: () => true }, toOwner: { installChanged: () => undefined }, now: () => NOW });
     expect(await nowhere.follow(TOKEN, listener)).toMatchObject({ ok: false, status: 503 });
   });
 

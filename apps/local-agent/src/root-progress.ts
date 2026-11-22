@@ -33,9 +33,9 @@ export async function askRoot(fetcher: typeof fetch, url: string, init: RequestI
 
 const TELLING: RootAsking = { unreachable: 'could not be told this machine\'s progress', refused: 'did not take this machine\'s progress' };
 
-export function rootProgress(url: string, credential: string | (() => string), fetcher: typeof fetch, wait: WaitOptions = {}): ProgressSink {
+export function rootProgress(url: string, credential: string | (() => Promise<string>), fetcher: typeof fetch, wait: WaitOptions = {}): ProgressSink {
   const post = async (progress: MachineProgress): Promise<true> => {
-    await askRoot(fetcher, url, { method: 'POST', headers: { 'content-type': 'application/json', ...progressCredential(typeof credential === 'string' ? credential : credential()) }, body: JSON.stringify(progress) }, TELLING);
+    await askRoot(fetcher, url, { method: 'POST', headers: { 'content-type': 'application/json', ...progressCredential(typeof credential === 'string' ? credential : await credential()) }, body: JSON.stringify(progress) }, TELLING);
     return true;
   };
   return {

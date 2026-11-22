@@ -67,6 +67,16 @@ export async function until<T>(look: () => T | undefined | Promise<T | undefined
   }
 }
 
+export async function untilWhile<T>(going: Promise<unknown>, look: () => T | undefined | Promise<T | undefined>): Promise<T> {
+  let ended: string | undefined;
+  going.then((end) => { ended = `ended ${String(end)}`; }, (err: Error) => { ended = `failed: ${err.message}`; });
+  return until(async () => {
+    const found = await look();
+    if (found === undefined && ended) throw new Error(`what the test waits for can no longer come: it ${ended}`);
+    return found;
+  });
+}
+
 export function quietAccountSides(rootUrl = 'http://root.test'): Pick<MachineAccountsDeps, 'settings' | 'mesh' | 'koala' | 'followers' | 'toOwner' | 'toMachines'> {
   return {
     settings: { url: rootUrl, meshLoginServer: 'https://mesh.test' },

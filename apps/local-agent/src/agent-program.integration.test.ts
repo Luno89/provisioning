@@ -10,7 +10,10 @@ import { koalaInstallProgressPath, PLACE_KOALA, STOP_KOALA } from '@koala/engine
 import { deviceQueue } from './engine-worker.js';
 import { startTestTemporal, type TestTemporal, type TestTemporalServer } from '@koala/engine-core/testing/temporal';
 import { makeCertificates, type TestCertificates } from '@koala/engine-core/testing/temporal-tls';
+import { clientKeysFrom, newClientKey } from '@koala/engine-core/root-client';
+import { rootRegistration } from './testing/root-registration.js';
 
+const MACHINE_KEY = newClientKey();
 const AGENT = path.join(import.meta.dirname, '..');
 const ENTRY = path.join(import.meta.dirname, 'index.ts');
 
@@ -53,10 +56,17 @@ interface RootPlacingKoala {
 
 const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessage, res: ServerResponse) => boolean = () => false): Promise<RootPlacingKoala> => {
   const reports: RootPlacingKoala['reports'] = [];
+  const registration = rootRegistration();
+  registration.registered.push({ clientId: 'program-desk', code: 'joined-before', keys: [{ kid: clientKeysFrom(MACHINE_KEY).kid }] });
+  let rootUrl = '';
   const http = createServer((req, res) => {
     let body = '';
     req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-    req.on('end', () => {
+    req.on('end', () => void registration.answer(new Request(`${rootUrl}${req.url}`, { method: req.method ?? 'GET', headers: req.headers as Record<string, string>, ...(req.method === 'POST' ? { body } : {}) })).then(async (answered) => {
+      if (answered) {
+        res.writeHead(answered.status, { 'content-type': answered.headers.get('content-type') ?? 'application/json' }).end(await answered.text());
+        return;
+      }
       if (req.method === 'POST' && req.url === koalaInstallProgressPath(installId)) {
         reports.push({ progress: JSON.parse(body) as Record<string, unknown>, auth: req.headers.authorization });
         res.writeHead(204).end();
@@ -64,12 +74,12 @@ const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessag
       }
       if (answers(req, res)) return;
       res.writeHead(404).end('not here');
-    });
+    }));
   });
   servers.push(http);
   const io = new Server(http);
   await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
-  const rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
+  rootUrl = `http://127.0.0.1:${(http.address() as { port: number }).port}`;
   const toRoot: RootPlacingKoala['toRoot'] = [];
   io.of('/machine-account').on('connection', (socket) => {
     toRoot.push(socket);
@@ -102,7 +112,7 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     });
     const rootDir = path.join(home, 'koala');
     await fs.mkdir(path.join(home, '.config', 'koala'), { recursive: true });
-    await fs.writeFile(path.join(home, '.config', 'koala', 'machine.json'), JSON.stringify({ rootUrl: root.url, token: 'program-device-token', rootDir, deviceId: 'program-desk' }), { mode: 0o600 });
+    await fs.writeFile(path.join(home, '.config', 'koala', 'machine.json'), JSON.stringify({ rootUrl: root.url, token: 'program-device-token', rootDir, deviceId: 'program-desk', key: MACHINE_KEY }), { mode: 0o600 });
 
     const bin = path.join(home, 'bin');
     await fs.mkdir(bin);
@@ -176,7 +186,7 @@ const program = async (args: string[], extra: Record<string, string> = {}) => {
   const serviceFile = path.join(place, '.config', 'systemd', 'user', 'koala-machine.service');
   const joined = async (rootUrl: string) => {
     await fs.mkdir(path.dirname(machineFile), { recursive: true });
-    await fs.writeFile(machineFile, JSON.stringify({ rootUrl, token: 'program-device-token', rootDir: path.join(place, 'koala'), deviceId: 'program-desk' }), { mode: 0o600 });
+    await fs.writeFile(machineFile, JSON.stringify({ rootUrl, token: 'program-device-token', rootDir: path.join(place, 'koala'), deviceId: 'program-desk', key: MACHINE_KEY }), { mode: 0o600 });
     await fs.mkdir(path.dirname(serviceFile), { recursive: true });
     await fs.writeFile(serviceFile, '[Service]\n');
   };
@@ -220,8 +230,8 @@ describe('Koala placed on this machine by root, as the agent\'s own program take
     const child = here.start();
     while (!reports.some((report) => report.progress.state === 'failed') && child.exitCode === null) await new Promise((done) => setTimeout(done, 100));
     expect(reports, here.said.join('')).toEqual([
-      { progress: { stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' }, auth: 'Bearer program-device-token' },
-      { progress: { stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'failed', why: 'k3s is not installed on this machine; run the command from My Machines again to install it' }, auth: 'Bearer program-device-token' },
+      { progress: { stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' }, auth: 'Bearer token-for-program-desk' },
+      { progress: { stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'failed', why: 'k3s is not installed on this machine; run the command from My Machines again to install it' }, auth: 'Bearer token-for-program-desk' },
     ]);
     const ended = exited(child);
     toRoot[0]!.emit('machine:removed');

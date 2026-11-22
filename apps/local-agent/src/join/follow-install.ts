@@ -7,7 +7,7 @@ export type FollowEnd = 'none' | 'ready' | 'failed' | 'stopped' | 'interrupted';
 
 export interface InstallFollow {
   rootUrl: string;
-  token: string;
+  token: () => Promise<string>;
   fetch: typeof fetch;
   say(line: string): void;
   section(title: string): void;
@@ -103,7 +103,7 @@ export async function followInstall(follow: InstallFollow): Promise<FollowEnd> {
       let response: Response;
       try {
         heard();
-        response = await follow.fetch(rootUrlOf(follow.rootUrl, KOALA_INSTALL_FOLLOW_PATH), { headers: { authorization: `Bearer ${follow.token}`, accept: 'text/event-stream' }, signal });
+        response = await follow.fetch(rootUrlOf(follow.rootUrl, KOALA_INSTALL_FOLLOW_PATH), { headers: { authorization: `Bearer ${await follow.token()}`, accept: 'text/event-stream' }, signal });
       } catch (err) {
         if (!follow.interrupted.aborted && !quiet.signal.aborted && failureOf(err).kind === 'final') throw new Hopeless(`root could not be asked how putting Koala on this machine goes: ${reasonOf(err)}`, { cause: err });
         return lost(err);

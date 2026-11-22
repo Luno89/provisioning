@@ -148,6 +148,15 @@ export class OidcClient {
     if (this.held && this.held.until > this.now()) return this.held.value;
     return this.freshToken();
   }
+
+  async tokenIfKnown(): Promise<string | undefined> {
+    try {
+      return await this.token();
+    } catch (err) {
+      if (errorOf(err) === 'invalid_client') return undefined;
+      throw err;
+    }
+  }
 }
 
 export interface MachineClientSettings {

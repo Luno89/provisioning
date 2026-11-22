@@ -7,6 +7,7 @@ import { InstanceReach } from '../services/InstanceReach.js';
 import { instancesRouter } from '../routes/instances.js';
 import { KoalaInstalls, type InstallWorkflows } from '../../machines/services/KoalaInstalls.js';
 import { testInstanceClients } from './placed-koala.js';
+import { machineClientsAt } from './registration-code.js';
 
 export const NO_MESH = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
 
@@ -25,6 +26,7 @@ export async function rootInstallsServed(db: Database, workflows: InstallWorkflo
   const instances = new InstanceService(db, rootInstanceSettings(() => installs!), NO_MESH);
   installs = new KoalaInstalls({
     devices: () => db.machines.getLocalAgentDevices(),
+    callers: machineClientsAt(db),
     places: () => instances,
     workflows,
     toMachines: { placeKoala: async () => false, stopKoala: () => false },

@@ -113,7 +113,7 @@ describe('adding a machine with the command from My Machines', () => {
     await harness.db.machines.saveLocalAgentDevice({ ...before, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
     const projects = (await harness.db.projects.getProjects()).length;
 
-    const again = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/work', replaces: first.env.KOALA_DEVICE_TOKEN })).json() as { deviceId: string; env: Record<string, string> };
+    const again = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/work', replacesKeyless: first.env.KOALA_DEVICE_TOKEN })).json() as { deviceId: string; env: Record<string, string> };
 
     expect(again.deviceId).toBe(first.deviceId);
     const devices = (await harness.db.machines.getLocalAgentDevices()).filter((device) => device.name === 'desk');
@@ -246,7 +246,7 @@ describe('running the command again', () => {
     const token = joined.ok ? joined.value.env.KOALA_DEVICE_TOKEN! : '';
     const id = joined.ok ? joined.value.deviceId : '';
     expect(findDeviceByToken(await devices(), token)).toBeUndefined();
-    const again = await machinesOf(harness.db).accounts.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old', replaces: token });
+    const again = await machinesOf(harness.db).accounts.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old', replacesKeyless: token });
     expect(again.ok && again.value.deviceId).toBe(id);
   });
 });
