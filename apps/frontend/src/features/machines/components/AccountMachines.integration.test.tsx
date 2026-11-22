@@ -55,6 +55,21 @@ describe('My Machines at root follows what happens to a person\'s machines while
     panel.unmount()
   })
 
+  it('shows a machine as it joins, and lets Koala be put there once root records its private-network address', async () => {
+    const { panel, on } = openPanel()
+    await on(() => screen.queryByRole('button', { name: /Add a machine/ }))
+    const joined = await accounts.join((await accounts.createJoinCode(person.id)).code, { hostname: 'den', rootDir: '/home/me/den' })
+    if (!joined.ok) throw new Error(joined.error)
+    const den = (await on(() => screen.queryByText('den'))).closest('li')!
+    expect((within(den).getByRole('button', { name: 'Put Koala here' }) as HTMLButtonElement).disabled).toBe(true)
+    await accounts.recordMeshIp(joined.value.deviceId, '100.64.0.11')
+    await on(() => {
+      const put = within(den).getByRole('button', { name: 'Put Koala here' }) as HTMLButtonElement
+      return put.disabled ? null : put
+    })
+    panel.unmount()
+  })
+
   it('shows the step its Koala\'s install has reached as the machine reports it', async () => {
     const joined = await accounts.join((await accounts.createJoinCode(person.id)).code, { hostname: 'tower', rootDir: '/home/me/tower' })
     if (!joined.ok) throw new Error(joined.error)

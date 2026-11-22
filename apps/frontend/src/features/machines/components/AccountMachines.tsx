@@ -82,11 +82,10 @@ export interface AccountMachinesProps {
 }
 
 export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: AccountMachinesProps) {
-  const [adding, setAdding] = useState(false)
   const [putHere, setPutHere] = useState(!hasKoala)
   const [copied, setCopied] = useState(false)
   const createCode = useCreateMyJoinCode()
-  const mine = useMyMachines(adding || Boolean(createCode.data))
+  const mine = useMyMachines()
   const place = usePutKoalaOn()
   const dismissJoin = useDismissMachineJoin()
   useMyMachinesLive()
@@ -95,7 +94,6 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
   const install = mine.data?.koala?.install
 
   const add = () => {
-    setAdding(true)
     createCode.mutate(putHere && nameOk ? name : undefined, { onSuccess: () => { if (putHere) onPlacing() } })
   }
   const copy = async () => {

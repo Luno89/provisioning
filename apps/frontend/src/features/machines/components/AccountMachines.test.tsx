@@ -114,6 +114,27 @@ describe('My Machines on root, while a machine joins', () => {
     handlers.get(MACHINE_JOINS_CHANGED)!()
     expect(await screen.findByText('Installing the machine agent')).toBeDefined()
   })
+
+  it('reads the machines again only when root says they changed, never on a timer, while a machine is being added', async () => {
+    showing([])
+    vi.mocked(api.post).mockResolvedValue({ data: { code: 'c1', command: 'curl -fsSL https://root.example/machine.sh | sh -s -- c1', expiresAt: later } })
+    renderPanel()
+    const add = await screen.findByRole('button', { name: /Add a machine/ })
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(add)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.getByText('curl -fsSL https://root.example/machine.sh | sh -s -- c1')).toBeDefined()
+      const reads = vi.mocked(api.get).mock.calls.length
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(vi.mocked(api.get).mock.calls.length).toBe(reads)
+    } finally {
+      vi.useRealTimers()
+    }
+    showing([], [machine({ id: 'tower', name: 'tower' })])
+    handlers.get(MACHINE_JOINS_CHANGED)!()
+    expect(await screen.findByText('tower')).toBeDefined()
+  })
 })
 
 describe('My Machines on root, while Koala is put on a machine', () => {

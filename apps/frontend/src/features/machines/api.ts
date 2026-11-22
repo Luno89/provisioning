@@ -157,8 +157,8 @@ export function useDismissMachineJoin() {
   })
 }
 
-export function useMyMachines(following: boolean) {
-  return useQuery({ queryKey: localAgentKeys.mine(), queryFn: listMyMachines, refetchInterval: following ? 3000 : false })
+export function useMyMachines() {
+  return useQuery({ queryKey: localAgentKeys.mine(), queryFn: listMyMachines })
 }
 
 export function useCreateMyJoinCode() {

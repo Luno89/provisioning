@@ -476,6 +476,22 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   });
 
   describe('what a machine tells root', () => {
+    it('tells the owner\'s pages each time what My Machines shows of a machine changes: it joins, connects, goes off, is given its mesh address, or is removed', async () => {
+      const machines = accounts();
+      const { deviceId } = await joined(machines);
+      expect(browsersTold).toEqual(['bo']);
+      await machines.seen(deviceId);
+      expect(browsersTold).toEqual(['bo', 'bo']);
+      await machines.recordMeshIp(deviceId, '100.64.0.9');
+      expect(browsersTold).toEqual(['bo', 'bo', 'bo']);
+      await machines.recordMeshIp(deviceId, '100.64.0.9');
+      await machines.wentOff(deviceId);
+      expect(browsersTold).toEqual(['bo', 'bo', 'bo', 'bo']);
+      mesh.removeNode.mockResolvedValue(undefined);
+      expect(await machines.remove('bo', deviceId)).toBe(true);
+      expect(browsersTold).toEqual(['bo', 'bo', 'bo', 'bo', 'bo']);
+    });
+
     it('notes when it was last seen, and its mesh address, only a real one, once, telling its Koala', async () => {
       const machines = accounts();
       const { deviceId } = await joined(machines);
