@@ -168,16 +168,16 @@ describe('running the command again', () => {
   it('joins a machine that joined before machines had keys as a new one, saying its old entry stays on My Machines for the person to remove', async () => {
     const world = machine({ files: { [`${HOME}/.config/koala/machine.json`]: JSON.stringify({ rootUrl: 'https://root.test', token: 'token-before-keys', deviceId: 'device-old', rootDir: `${HOME}/koala` }) } });
     const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
-    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', undefined]]);
+    expect(world.joins.map((body) => [body.replaces, body.neverRegistered])).toEqual([['', undefined]]);
     expect(ran.said).toContain(KEYLESS_JOINS_ANEW);
   });
 
-  it('joins as a new machine when root knows no key of this machine, as after a registration root refused', async () => {
+  it('names the machine root made when root knows no key of it, as after a registration root refused, so root replaces that entry', async () => {
     const world = machine();
     await join(world, ['--yes', '--no-cluster', 'first-code']);
     world.registration.registered.splice(0);
     await join(world, ['--yes', '--no-cluster', 'second-code']);
-    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', undefined], ['', undefined]]);
+    expect(world.joins.map((body) => [body.replaces, body.neverRegistered])).toEqual([['', undefined], ['', 'device-1']]);
   });
 });
 

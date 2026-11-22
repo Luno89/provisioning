@@ -175,10 +175,10 @@ describe('GET /api/machines/koala-installs/following', () => {
 describe('/api/machines/join', () => {
   it('joins a machine with the code and what it says about itself, and hands back its settings with the bundle\'s checksum', async () => {
     machines.join.mockResolvedValue({ ok: true, value: { deviceId: 'dev-1', env: { KOALA_DEVICE_ID: 'dev-1' } } });
-    const answer = await call({ method: 'POST', path: '/join', body: { code: 'abc', hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token', replacesKeyless: 'old-token', ignored: 'x' } });
+    const answer = await call({ method: 'POST', path: '/join', body: { code: 'abc', hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token', neverRegistered: 'dev-0', replacesKeyless: 'old-token', ignored: 'x' } });
     expect(answer.status).toBe(200);
     expect(answer.data).toEqual({ deviceId: 'dev-1', env: { KOALA_DEVICE_ID: 'dev-1', KOALA_AGENT_SHA256: SHA } });
-    expect(machines.join).toHaveBeenCalledWith('abc', { hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token' });
+    expect(machines.join).toHaveBeenCalledWith('abc', { hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token', neverRegistered: 'dev-0' });
   });
 
   it('answers a refusal in plain text with its status', async () => {
@@ -198,7 +198,7 @@ describe('/api/machines/join', () => {
   it('treats a request with no body as one with no code', async () => {
     machines.join.mockResolvedValue({ ok: false, status: 400, error: 'send the code from My Machines as "code"' });
     await call({ method: 'POST', path: '/join' });
-    expect(machines.join).toHaveBeenCalledWith(undefined, { hostname: undefined, rootDir: undefined, os: undefined, replaces: undefined });
+    expect(machines.join).toHaveBeenCalledWith(undefined, { hostname: undefined, rootDir: undefined, os: undefined, replaces: undefined, neverRegistered: undefined });
   });
 });
 
