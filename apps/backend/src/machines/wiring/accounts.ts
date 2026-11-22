@@ -3,7 +3,7 @@ import type { Database, DependencyStates, Watching } from '../../platform/index.
 import { PLACE_KOALA, STOP_KOALA, type KoalaStop, type PlacedKoala } from '@koala/engine-core/koala-install';
 import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE } from '@koala/engine-core/machine-join';
 import { machineKeyDue } from '@koala/engine-core/root-client';
-import type { MachineAccounts, MachineClients } from '../services/MachineAccounts.js';
+import type { MachineAccounts, MachineClients, MachineKoala } from '../services/MachineAccounts.js';
 import { keyReplacedOf, type KeyReplaced } from '../lib/machines.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 
@@ -12,7 +12,7 @@ export const ACCOUNT_NAMESPACE = '/machine-account';
 export interface AccountSockets {
   watched: Watching;
   removed(deviceId: string): boolean;
-  koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
+  koala(deviceId: string, koala: MachineKoala | null): boolean;
   placeKoala(deviceId: string, placed: PlacedKoala): Promise<boolean>;
   stopKoala(deviceId: string, stop: KoalaStop): boolean;
   online(deviceId: string): boolean;

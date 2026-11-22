@@ -15,7 +15,7 @@ export { koalaReadinessOf, MY_KOALA_PATH } from './lib/koala-readiness.js';
 export { setupWaits, type SetupWaitsDeps } from './lib/setup-waits.js';
 export { installArgsOf, KOALA_CHART_STEP, valuesFilesIn, type InstallArgs } from './lib/koala-chart-install.js';
 export type { KoalaReadiness } from './lib/koala-readiness.js';
-export { publicJwkShaped } from './lib/oidc.js';
+export { publicJwkShaped, runResourceOf } from './lib/oidc.js';
 export type { SignInKey } from './lib/oidc.js';
 export { forPushing, kanikoRegistryArgs, registryHosts } from './lib/registry-hosts.js';
 export type { RegistryHosts } from './lib/registry-hosts.js';

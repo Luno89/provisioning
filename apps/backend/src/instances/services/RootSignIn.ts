@@ -7,10 +7,11 @@ import {
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import type { RunToken, RunTokenRoot } from '../../engine/index.js';
 import {
-  claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, ROOT_WEB_ID_TOKEN_CLAIMS, runResourceOf, safeNextPath, TOKEN_EXCHANGE,
+  ACCESS_JWT_TYP, claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, ROOT_WEB_ID_TOKEN_CLAIMS, runResourceOf, safeNextPath, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
 import { RootClient } from './RootClient.js';
+import { checkMachineAccess, type MachineAccess } from '../lib/machine-access.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -51,7 +52,6 @@ export interface CheckedRunToken {
   space?: string | undefined;
 }
 
-const RUN_TOKEN_TYP = 'at+jwt';
 
 const reasonOf = (err: unknown): string => {
   const known = err as { error?: unknown; error_description?: unknown; message?: unknown };
@@ -253,7 +253,7 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
   async checkRunToken(token: string): Promise<CheckedRunToken | string> {
     let payload: JWTPayload;
     try {
-      ({ payload } = await jwtVerify(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), typ: RUN_TOKEN_TYP }));
+      ({ payload } = await jwtVerify(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), typ: ACCESS_JWT_TYP }));
     } catch (err) {
       return `the run token could not be checked: ${(err as Error).message}`;
     }
@@ -261,6 +261,10 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
     const space = payload.koala_space;
     if (typeof payload.sub !== 'string' || typeof payload.koala_run !== 'string' || !claimsShaped(claims) || (space !== undefined && typeof space !== 'string')) return 'the run token does not say whose run it is';
     return { personId: payload.sub, runId: payload.koala_run, claims, ...(typeof space === 'string' ? { space } : {}) };
+  }
+
+  async checkMachineToken(token: string): Promise<MachineAccess | string> {
+    return checkMachineAccess(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), now: this.now() });
   }
 
   async renewRunToken(refreshToken: string): Promise<RunToken> {

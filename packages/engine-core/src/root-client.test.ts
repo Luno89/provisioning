@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, keyReplacementFrom, machineClientOf, machineKeyDue, machineKeyEnds, machineRegistration, MACHINE_SCOPE, newClientKey, rootIssuerOf } from './root-client.js';
+import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, keyReplacementFrom, machineClientOf, machineKeyDue, machineKeyEnds, machineRegistration, MachineClient, MACHINE_SCOPE, newClientKey, rootIssuerOf } from './root-client.js';
 
 describe('a client of root', () => {
   it('names its key by the hash of its public half, the same for the same key and different for another', () => {
@@ -50,6 +50,30 @@ describe('a client of root', () => {
     await expect(machine.replaceKey({ registrationAccessToken: 'rat', registrationClientUri: 'https://koala.example/oidc/reg/desk-1' }, newClientKey())).rejects.toMatchObject({ message: KEY_REPLACEMENT_REFUSED, answered: true });
     status = 500;
     await expect(machine.replaceKey({ registrationAccessToken: 'rat', registrationClientUri: 'https://koala.example/oidc/reg/desk-1' }, newClientKey())).rejects.toMatchObject({ message: 'root did not take this machine\'s new key (500): no', answered: true });
+  });
+
+  it('asks root for a token for a resource it names, holds it apart from its own token, and asks again once it nears its end', async () => {
+    const asked: Array<string | null> = [];
+    let now = 0;
+    const reach = (async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/.well-known/openid-configuration')) {
+        return Response.json({ issuer: 'https://koala.example/oidc', token_endpoint: 'https://koala.example/oidc/token', token_endpoint_auth_methods_supported: ['private_key_jwt'] });
+      }
+      const resource = new URLSearchParams(String(init?.body)).get('resource');
+      asked.push(resource);
+      return Response.json({ access_token: `token-${asked.length}-for-${resource ?? 'root'}`, token_type: 'Bearer', expires_in: 300 });
+    }) as unknown as typeof fetch;
+    const machine = new MachineClient(
+      { clientId: 'desk-1', issuer: 'https://koala.example/oidc', keys: clientKeysFrom(newClientKey()), registrationCode: '', registration: {}, refused: '', scope: MACHINE_SCOPE, reach },
+      () => now,
+    );
+    expect(await machine.token('urn:koala:instance:inst-1')).toBe('token-1-for-urn:koala:instance:inst-1');
+    expect(await machine.token()).toBe('token-2-for-root');
+    expect(await machine.token('urn:koala:instance:inst-1')).toBe('token-1-for-urn:koala:instance:inst-1');
+    now = 271_000;
+    expect(await machine.token('urn:koala:instance:inst-1')).toBe('token-3-for-urn:koala:instance:inst-1');
+    expect(await machine.freshToken('urn:koala:instance:inst-1')).toBe('token-4-for-urn:koala:instance:inst-1');
+    expect(asked).toEqual(['urn:koala:instance:inst-1', null, 'urn:koala:instance:inst-1', 'urn:koala:instance:inst-1']);
   });
 
   it('says a key is due to be replaced in the last 30 of its 90 days', () => {

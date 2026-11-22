@@ -6,6 +6,11 @@ export const WORK_TOKEN_RENEW_SECONDS = 7 * 24 * 3600;
 const ALG = 'EdDSA';
 const TYP = 'nowrinkles-machine';
 
+export interface WorkTokenTrust {
+  keys: ReadonlyMap<string, crypto.KeyObject>;
+  audience: string;
+}
+
 export interface WorkClaims {
   sub: string;
   owner: string;

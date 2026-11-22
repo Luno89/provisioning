@@ -330,7 +330,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  const signedInSockets = wireSockets({ io, db, role, payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
+  const signedInSockets = wireSockets({ io, db, role, payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, machineTokens: signsInThroughRoot(role.role) ? rootSignIn : undefined, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient(), dependencies), closed: runClosedVia(() => getTemporalClient(), dependencies) } });
 
   const signInWith = settings.root ? settings.root.signIn : { providers: [], problems: [] };
   const signInReturn = settings.root ? settings.root.signInReturn : {};

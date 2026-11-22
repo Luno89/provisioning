@@ -102,7 +102,7 @@ export const clientRefused = (err: unknown): boolean => errorOf(err) === 'invali
 
 export class OidcClient {
   private configured: Promise<client.Configuration> | undefined;
-  private held: { value: string; until: number } | undefined;
+  private readonly held = new Map<string, { value: string; until: number }>();
   private markRegistered: () => void = () => undefined;
   readonly registered: Promise<void> = new Promise((resolve) => { this.markRegistered = resolve; });
 
@@ -118,7 +118,7 @@ export class OidcClient {
   protected useKeys(keys: ClientKeys, registration: Record<string, unknown>): void {
     this.parts = { ...this.parts, keys, registration };
     this.configured = undefined;
-    this.held = undefined;
+    this.held.clear();
   }
 
   get issuer(): string {
@@ -150,10 +150,10 @@ export class OidcClient {
     return this.configured;
   }
 
-  async freshToken(): Promise<string> {
+  async freshToken(resource?: string): Promise<string> {
     const now = this.now();
-    const granted = await client.clientCredentialsGrant(await this.config(), { scope: this.parts.scope });
-    this.held = { value: granted.access_token, until: now + Math.max(30, (granted.expires_in ?? 60) - 30) * 1000 };
+    const granted = await client.clientCredentialsGrant(await this.config(), { scope: this.parts.scope, ...(resource ? { resource } : {}) });
+    this.held.set(resource ?? '', { value: granted.access_token, until: now + Math.max(30, (granted.expires_in ?? 60) - 30) * 1000 });
     return granted.access_token;
   }
 
@@ -174,9 +174,10 @@ export class OidcClient {
     this.markRegistered();
   }
 
-  async token(): Promise<string> {
-    if (this.held && this.held.until > this.now()) return this.held.value;
-    return this.freshToken();
+  async token(resource?: string): Promise<string> {
+    const held = this.held.get(resource ?? '');
+    if (held && held.until > this.now()) return held.value;
+    return this.freshToken(resource);
   }
 
   async tokenIfKnown(): Promise<string | undefined> {

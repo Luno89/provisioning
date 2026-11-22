@@ -5,21 +5,18 @@ import { IdleGate } from '../../../../local-agent/src/idle-gate.js';
 import { SelfUpdate } from '../../../../local-agent/src/self-update.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { issueWorkToken } from '../lib/work-tokens.js';
+import { machineSignInKey } from '../../instances/testing/registration-code.js';
 import { MachineService } from '../services/MachineService.js';
-import { servedAgentSockets, until, onlineMachines } from '../testing/wiring-world.js';
+import { agentAccess, servedAgentSockets, until, onlineMachines, type AgentAccess } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
-const root = identityKeysFrom(generateIdentityKey());
-const workTokens = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
-const TOKEN = issueWorkToken(root, { machineId: 'desk', ownerId: 'owner-1', audience: 'inst-1' });
 const keys = testKeys('agent-updates-test-secret');
 
 let db: MongoDB;
+let access: AgentAccess;
 let machines: MachineService;
 let served: string;
 let koala: Awaited<ReturnType<typeof servedAgentSockets>>;
@@ -27,8 +24,8 @@ let url = '';
 let ending: Map<string, () => void>;
 const clients: ClientSocket[] = [];
 
-function agent(auth: Record<string, unknown>): Promise<{ socket: ClientSocket; named: Promise<unknown> }> {
-  const socket = connect(`${url}/agent`, { auth: { token: TOKEN, ...auth }, transports: ['websocket'], reconnection: false, forceNew: true });
+async function agent(auth: Record<string, unknown>): Promise<{ socket: ClientSocket; named: Promise<unknown> }> {
+  const socket = connect(`${url}/agent`, { auth: { token: await access.token('desk'), ...auth }, transports: ['websocket'], reconnection: false, forceNew: true });
   clients.push(socket);
   const named = new Promise<unknown>((resolve) => socket.once('machine:bundle', resolve));
   return new Promise((resolve, reject) => {
@@ -45,10 +42,11 @@ beforeEach(async () => {
   ending = new Map();
   machines = onlineMachines(db.machines, { bundle: { sha256: async () => served } });
   await db.machines.saveLocalAgentDevice({
-    id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: new Date().toISOString(),
+    id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: new Date().toISOString(), signIn: machineSignInKey(),
   });
+  access = await agentAccess(db);
   koala = await servedAgentSockets({
-    db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens,
+    db, payloadKey: keys.payload, dataKey: keys.data, machines, machineTokens: access.machineTokens,
     runs: {
       life: async (runId) => (runId === 'chat-gone-koala-1' ? 'ended' : 'running'),
       closed: (runId) => new Promise((resolve) => ending.set(runId, () => resolve('ended'))),

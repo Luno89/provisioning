@@ -17,6 +17,8 @@ export const inService = (instance: ServiceState): boolean =>
   || instance.status === 'ready'
   || (Boolean(instance.servedAt) && (instance.status === 'installing' || instance.status === 'failed'));
 
+export const servingOf = <T extends ServiceState>(instances: readonly T[]): T | undefined => instances.find(inService);
+
 export const stampServed = <T extends ServiceState & { updatedAt: string }>(instance: T): T & { servedAt?: string | undefined } =>
   instance.status === 'ready' && !instance.servedAt ? { ...instance, servedAt: instance.updatedAt } : instance;
 

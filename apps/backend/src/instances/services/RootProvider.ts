@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
-import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type InteractionResults, type KoaContextWithOIDC } from 'oidc-provider';
+import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type InteractionResults, type KoaContextWithOIDC, type ResourceServer } from 'oidc-provider';
+import { servingOf } from '../lib/instances.js';
 import { SignJWT } from 'jose';
 import { reopening, type AccessRevoked, type Database, type Reopening, type Watching } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
+  ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   machineClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
@@ -77,6 +78,17 @@ export class RootProvider {
 
   private runServer(resource: string): InstanceType<Provider['ResourceServer']> {
     return new this.provider.ResourceServer(resource, { audience: resource, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } });
+  }
+
+  async resourceServerInfo(indicator: string, client: unknown): Promise<ResourceServer> {
+    const kind = kindOf(client);
+    if (kind.kind === 'machine') {
+      const koala = kind.owner ? servingOf(await this.store.instances.getInstances(kind.owner)) : undefined;
+      if (!koala || indicator !== runResourceOf(koala.id)) throw new errors.InvalidTarget('a machine takes tokens only for its owner\'s Koala');
+      return { audience: indicator, scope: MACHINE_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: MACHINE_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
+    }
+    if (indicator !== runResourceOf((client as KoalaClient).clientId)) throw new errors.InvalidTarget('root serves no such resource');
+    return { audience: indicator, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
   }
 
   private async liveSignIn(accountId: string, clientId: string): Promise<boolean> {
@@ -293,10 +305,7 @@ export class RootProvider {
           enabled: true,
           defaultResource: async () => undefined,
           useGrantedResource: async () => true,
-          getResourceServerInfo: async (_ctx, indicator, client) => {
-            if (indicator !== runResourceOf(client.clientId)) throw new errors.InvalidTarget('root serves no such resource');
-            return { audience: indicator, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
-          },
+          getResourceServerInfo: async (_ctx, indicator, client) => this.resourceServerInfo(indicator, client),
         },
         registration: {
           enabled: true,
@@ -333,7 +342,7 @@ export class RootProvider {
       ttl: {
         AccessToken: CLAIMS_SECONDS,
         AuthorizationCode: 60,
-        ClientCredentials: SERVICE_TOKEN_SECONDS,
+        ClientCredentials: (_ctx, token) => token.resourceServer?.accessTokenTTL ?? SERVICE_TOKEN_SECONDS,
         IdToken: CLAIMS_SECONDS,
         Interaction: 60 * 60,
         RegistrationAccessToken: SERVICE_TOKEN_SECONDS,

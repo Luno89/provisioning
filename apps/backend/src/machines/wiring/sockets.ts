@@ -1,5 +1,4 @@
 import fs from 'fs/promises';
-import type { KeyObject } from 'crypto';
 import path from 'path';
 import type { Server as SocketServer } from 'socket.io';
 import {
@@ -7,8 +6,7 @@ import {
   type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SignedInSockets, type SessionSockets, nodeStreams, type Followed, type Streams,
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
-import { checkWorkToken, WORK_TOKEN_REFUSED } from '../lib/work-tokens.js';
-import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
 import { machinePayloads, type GetAnswer, type MachineTemporal, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
 import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -25,9 +23,8 @@ interface MachineSocketData {
   until: number;
 }
 
-export interface WorkTokenTrust {
-  keys: ReadonlyMap<string, KeyObject>;
-  audience: string;
+export interface MachineTokens {
+  checkMachineToken(token: string): Promise<{ deviceId: string; until: number } | string>;
 }
 
 const signedInUser = (data: unknown): UserMetadata | undefined => {
@@ -55,7 +52,7 @@ export interface SocketsWiringDeps {
   auth: Pick<ReturnType<typeof createAuth>, 'sessionOf' | 'sessionHandle' | 'principalFor'>;
   sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
   machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
-  workTokens?: WorkTokenTrust | undefined;
+  machineTokens?: MachineTokens | undefined;
   machineClusters?: Pick<MachineClusters, 'reported'> | undefined;
   clusters: ClusterService;
   apps: AppService;
@@ -75,32 +72,50 @@ export function wireSockets(deps: SocketsWiringDeps): SignedInSockets {
   const agentNamespace = io.of('/agent');
   const admitted = new WeakMap<object, MachineSocketData>();
   const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: deps.payloadBlobs, ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });
+  const now = deps.now ?? (() => new Date());
+  const ownerId = role.instance?.ownerId;
+  const admit = async (tokens: MachineTokens, token: string): Promise<MachineSocketData | string> => {
+    const checked = await tokens.checkMachineToken(token);
+    if (typeof checked === 'string') return `Unauthorized: ${checked}`;
+    const device = (await db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === checked.deviceId && candidate.ownerId === ownerId);
+    return device ? { device, until: checked.until } : 'this machine is not one of this Koala\'s: run the command from My Machines again';
+  };
   agentNamespace.use((socket, next) => {
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
     const token = tokenOf(auth);
-    if (!token) return next(new Error('Missing work token'));
-    if (!deps.workTokens) return next(new Error('this Koala takes no machines'));
-    const check = checkWorkToken(token, deps.workTokens.keys, deps.workTokens.audience, Math.floor((deps.now ?? (() => new Date()))().getTime() / 1000));
-    if (!check.ok) return next(new Error(WORK_TOKEN_REFUSED[check.reason]));
-    db.machines.getLocalAgentDevices().then((devices) => {
-      const device = devices.find((candidate) => candidate.id === check.claims.sub && candidate.ownerId === check.claims.owner);
-      if (!device) return next(new Error('this machine is not one of this Koala\'s: run the command from My Machines again'));
-      admitted.set(socket, { device, until: check.claims.exp });
+    if (!token) return next(new Error('Unauthorized: send a token root gave this machine for this Koala'));
+    if (!deps.machineTokens) return next(new Error('this Koala takes no machines'));
+    admit(deps.machineTokens, token).then((admission) => {
+      if (typeof admission === 'string') return next(new Error(admission));
+      admitted.set(socket, admission);
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
   const runWatch = deps.runs ? new MachineRunWatch(deps.runs) : undefined;
   agentNamespace.on('connection', (socket) => {
     const machine = admitted.get(socket);
-    if (!machine) {
+    const tokens = deps.machineTokens;
+    if (!machine || !tokens) {
       socket.disconnect(true);
       return;
     }
-    const { device, until } = machine;
-    socket.use((_packet, next) => {
-      if (Math.floor((deps.now ?? (() => new Date()))().getTime() / 1000) < until) return next();
-      socket.emit(WORK_TOKEN_ENDED, { said: WORK_TOKEN_REFUSED.expired });
-      socket.disconnect(true);
+    const { device } = machine;
+    let { until } = machine;
+    let checked = Promise.resolve();
+    socket.use((packet, next) => {
+      checked = checked.then(async () => {
+        if (packet[0] === MACHINE_CLIENT_TOKEN) {
+          const fresh = await tokens.checkMachineToken(tokenOf(packet[1] as Record<string, unknown> | undefined) ?? '');
+          if (typeof fresh === 'string' || fresh.deviceId !== device.id) return void socket.disconnect(true);
+          until = fresh.until;
+          return;
+        }
+        if (now().getTime() >= until) return void socket.disconnect(true);
+        next();
+      }).catch((err: Error) => {
+        console.warn(`[machines] ${device.id}: what it sent could not be checked (${err.message}); it is cut off and connects again by itself`);
+        socket.disconnect(true);
+      });
     });
     const tellRunEnded = (runId: string) => { if (socket.connected) socket.emit('machine:run-ended', { runId }); };
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;

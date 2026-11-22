@@ -40,7 +40,8 @@ export function rootRegistration(): RootRegistration {
         const clientId = JSON.parse(Buffer.from(assertion.split('.')[1] ?? '', 'base64url').toString() || '{}') as { sub?: string };
         const known = registered.findLast((client) => client.clientId === clientId.sub);
         if (!known?.keys.some((key) => key.kid === header.kid)) return json(401, { error: 'invalid_client', error_description: 'client authentication failed' });
-        return json(200, { access_token: `token-for-${known.clientId}`, token_type: 'Bearer', expires_in: 300, scope: form.get('scope') ?? '' });
+        const resource = form.get('resource');
+        return json(200, { access_token: `token-for-${known.clientId}${resource ? `-at-${resource}` : ''}`, token_type: 'Bearer', expires_in: 300, scope: form.get('scope') ?? '' });
       }
       if (url.pathname === `${OIDC_PATH}/reg` && request.method === 'POST') {
         const code = (request.headers.get('authorization') ?? '').replace(/^Bearer /, '');
