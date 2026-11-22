@@ -23,6 +23,7 @@ export const machineMonitoringOf = (steps: Pick<ClusterSteps, 'machineMetricsUrl
 export interface MonitoringSaid {
   logFile?: string | undefined;
   report?: ((line: string) => void) | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 async function monitoringPlanOn(steps: Pick<ClusterSteps, 'access'>, cluster: Pick<MonitoredCluster, 'reach' | 'pool'> & { machine?: unknown }) {
@@ -45,7 +46,7 @@ export async function monitoringMissing(steps: Pick<ClusterSteps, 'access'>, clu
 }
 
 export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, said: MonitoringSaid = {}, wait?: Pause): Promise<void> {
-  const { logFile, report } = said;
+  const { logFile, report, signal } = said;
   const plan = await monitoringPlanOn(steps, cluster);
   if (plan.stacks.length === 0) return;
   if (plan.crdsFirst) await applyChartCrds(steps.access, cluster.reach, MONITORING_CHARTS.stack, MONITORING_CHARTS.repo);
@@ -56,7 +57,7 @@ export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access
   };
   log(`${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : cluster.machine ? 'sends its metrics to this Koala; installing what collects them' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}`);
   for (const part of plan.stacks) {
-    const watched = { what: `the monitoring of ${cluster.physicalName}`, reach: cluster.reach, namespaces: monitoringNamespaces(part, plan.keepIngress), log };
+    const watched = { what: `the monitoring of ${cluster.physicalName}`, reach: cluster.reach, namespaces: monitoringNamespaces(part, plan.keepIngress), log, signal };
     await applyWatched(steps, monitoringStackName(cluster.physicalName, part), { env, ...(logFile ? { logFile } : {}) }, watched, wait);
     await untilRolledOut(steps, watched, wait);
   }

@@ -24,6 +24,7 @@ export interface ProvisionPieceDeps {
   steps: Pick<ClusterSteps, 'access' | 'infra' | 'database' | 'machineMetricsUrl'>;
   place: ProvisionPlace;
   lines: ProvisionLines;
+  signal?: AbortSignal | undefined;
 }
 
 type Report = (line: string) => void;
@@ -38,19 +39,19 @@ export const recordedLines = (records: ProvisioningRecords, now: () => string = 
 
 const titleOf = (piece: ProvisionPieceInput['piece']): string => PROVISION_PIECES.find((entry) => entry.key === piece)?.title ?? piece;
 
-function workFor(run: ProvisionPieceRun, { steps, place }: ProvisionPieceDeps, wait: Pause | undefined): (report: Report) => Promise<void> {
+function workFor(run: ProvisionPieceRun, { steps, place, signal }: ProvisionPieceDeps, wait: Pause | undefined): (report: Report) => Promise<void> {
   const { target, piece } = run;
   if (target.kind === 'machine') {
     if (piece !== 'monitoring') throw ApplicationFailure.nonRetryable(`${target.machine} gets only its collector set up, not ${titleOf(piece)}`, 'NotAMachinePiece');
     if (!run.kubeconfig) throw ApplicationFailure.nonRetryable(`the collector of ${target.machine} was handed no way to reach ${target.clusterId}, so start its setup again`, 'NoReachHanded');
     const cluster = { physicalName: target.clusterId, reach: startedMachine(target.clusterId, run.kubeconfig), pool: false, machine: machineMonitoringOf(steps) };
-    return (report) => installClusterMonitoring(steps, cluster, { report }, wait);
+    return (report) => installClusterMonitoring(steps, cluster, { report, signal }, wait);
   }
   const reach = steps.access.own();
-  if (piece === 'monitoring') return (report) => installClusterMonitoring(steps, koalaClusterMonitoring(place.pool, reach), { report }, wait);
+  if (piece === 'monitoring') return (report) => installClusterMonitoring(steps, koalaClusterMonitoring(place.pool, reach), { report, signal }, wait);
   const service = PLATFORM_PLAN.find((entry) => entry.key === piece);
   if (!service) throw ApplicationFailure.nonRetryable(`Koala has no platform service ${piece} to set up`, 'UnknownPiece');
-  return (report) => provisionPlatformService(steps, { ...place, reach }, service, report, wait);
+  return (report) => provisionPlatformService(steps, { ...place, reach }, service, report, wait, signal);
 }
 
 function inOrder(run: ProvisionPieceRun, lines: ProvisionLines): { say(change: PieceChange): void; said(): Promise<void> } {

@@ -1,4 +1,4 @@
-import { memoryIndexOf, QUEUES } from './platform/index.js';
+import { memoryIndexOf, nodeRunner, QUEUES } from './platform/index.js';
 import { getModelRateLimiterSnapshot } from '@koala/agent-engine';
 import express from 'express';
 import cors from 'cors';
@@ -7,6 +7,7 @@ import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
+import { hostname } from 'os';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -49,7 +50,7 @@ import { generateIdentityKey, identityKeysFrom, IdentityService, INTERACTION_PAT
 import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHttp, ToolCallParsers, toolCallParsersRouter } from './models/index.js';
 
 import {
-  InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
+  InfrastructureService, StateLocks, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, MEMORY_INDEX_APPS_MIGRATION, removeMemoryIndexApps, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
   savedHuggingFaceTokenOf,
@@ -159,9 +160,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
-  const infraService = new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources));
-  const builderService = new BuilderService(db, infraService);
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
+  const infraService = new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources), nodeRunner, new StateLocks({ access: clusterAccess, target: () => clusterAccess.own(), here: hostname() }));
+  const builderService = new BuilderService(db, infraService);
   const koalasCluster = (): string => clusterAccess.own().clusterId;
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: role.instance?.ownerId });
   const appService = new AppService(db, infraService, clusterService, builderService);

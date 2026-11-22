@@ -379,10 +379,11 @@ export class InstanceService {
     return { ok: true, value: await this.myKoala(saved) };
   }
 
-  async setupAskedAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ asked: boolean }>> {
+  async setupAskedAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ asked: boolean; at?: string }>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
-    return { ok: true, value: { asked: setupAgainOf(instance) === 'asked' } };
+    const { setupAsked } = instance;
+    return { ok: true, value: setupAgainOf(instance) === 'asked' && setupAsked ? { asked: true, at: setupAsked.at } : { asked: false } };
   }
 
   async ownerOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ ownerId: string }>> {

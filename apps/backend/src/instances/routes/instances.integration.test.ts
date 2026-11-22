@@ -284,7 +284,7 @@ describe('a Koala whose setup stopped, set up again from root', () => {
     expect(asked.status).toBe(202);
     expect(asked.data).toMatchObject({ status: 'installing', detail: 'Asking Koala on desk to set itself up again from Gitea, your repositories and images', setupAgain: 'asked' });
     expect(told).toEqual([['inst-1', SETUP_AGAIN_ASKED]]);
-    expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: true });
+    expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: true, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as unknown });
     expect((await call('get', '/api/instances/setup-again', undefined, 'wrong')).status).toBe(401);
 
     expect((await call('post', '/api/instances/status', { provision: { revision: 4, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for gitea-0' } } })).status).toBe(200);

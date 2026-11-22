@@ -81,6 +81,7 @@ export { savedHuggingFaceTokenOf } from './services/hugging-face-token.js';
 export { InfisicalService } from './services/InfisicalService.js';
 export type { InfisicalAt } from './services/InfisicalService.js';
 export { InfrastructureService, terraformPlacesFor } from './services/InfrastructureService.js';
+export { StateLocks } from './services/StateLocks.js';
 export type { ExecuteOptions, TerraformPlaces } from './services/InfrastructureService.js';
 export { RegistryService } from './services/RegistryService.js';
 export { ServerOrderProblem, ServerOrderService } from './services/ServerOrderService.js';

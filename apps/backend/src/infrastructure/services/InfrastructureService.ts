@@ -8,6 +8,7 @@ import os from 'os';
 import { CommandFailedError, DOCKER_CLIENT, nodeRunner, passedOn, type Processes, type Streams } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { cdktfStateEnv, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, type TerraformStateHome, type TerraformStateKind } from '../lib/terraform-state.js';
+import type { StateLocks } from './StateLocks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +58,8 @@ export class TerraformStopped extends Error {
 const reasonOf = (reason: unknown): string => (reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : 'it was stopped');
 const stoppedBy = (signal: AbortSignal): TerraformStopped => new TerraformStopped(reasonOf(signal.reason));
 
+const applying = new Map<string, number>();
+
 const sharedOutputGone = new Map<string, Promise<void>>();
 const dropSharedOutput = (stateDir: string): Promise<void> => {
   const gone = sharedOutputGone.get(stateDir) ?? fs.rm(path.join(stateDir, 'cdktf.out'), { recursive: true, force: true });
@@ -87,7 +90,7 @@ export const terraformPlacesFor = (state: TerraformStateKind | { off: string }, 
 
 export class InfrastructureService {
 
-  constructor(private readonly terraform: TerraformPlaces, private readonly processes: Processes & Streams = nodeRunner) {}
+  constructor(private readonly terraform: TerraformPlaces, private readonly processes: Processes & Streams = nodeRunner, private readonly locks?: StateLocks) {}
 
   getLogPath(logId: string) {
     return path.join(this.terraform.logDir, `${logId}-${Date.now()}.log`);
@@ -105,6 +108,29 @@ export class InfrastructureService {
   private async cdktf(verb: 'deploy' | 'destroy', stackName: string, extra: string[], options: ExecuteOptions) {
     if ('off' in this.terraform.home) throw new Error(this.terraform.home.off);
     const home = this.terraform.home;
+    if (home.kind === 'kubernetes' && !this.locks) throw new Error(`this process keeps the state of ${stackName} in the cluster but was given no way to free a lock a killed run left there`);
+    const applyingHere = (applying.get(stackName) ?? 0) > 0;
+    applying.set(stackName, (applying.get(stackName) ?? 0) + 1);
+    try {
+      if (home.kind === 'kubernetes' && this.locks) await this.freeLeftBehind(this.locks, home.namespace, stackName, applyingHere, options.logFile);
+      return await this.cdktfIn(home, verb, stackName, extra, options);
+    } finally {
+      const left = (applying.get(stackName) ?? 1) - 1;
+      if (left > 0) applying.set(stackName, left);
+      else applying.delete(stackName);
+    }
+  }
+
+  private async freeLeftBehind(locks: StateLocks, namespace: string, stackName: string, applyingHere: boolean, logFile: string | undefined): Promise<void> {
+    const freed = await locks.freeLeftBehind(namespace, stackName, applyingHere);
+    if (!freed) return;
+    const line = `[terraform] the state of ${stackName} was still locked (${freed.id}) by ${freed.who}, whose run is gone; Koala freed it`;
+    console.log(line);
+    await fs.mkdir(this.terraform.logDir, { recursive: true });
+    if (logFile) await fs.appendFile(logFile, `${line}\n`).catch(ignore('the log only shows progress, and the apply goes on without it'));
+  }
+
+  private async cdktfIn(home: TerraformStateHome, verb: 'deploy' | 'destroy', stackName: string, extra: string[], options: ExecuteOptions) {
     await adoptStateFromBefore(stackName, this.terraform);
     await dropSharedOutput(this.terraform.stateDir);
     const run = await fs.mkdtemp(path.join(this.terraform.runsDir ?? os.tmpdir(), 'koala-cdktf-'));

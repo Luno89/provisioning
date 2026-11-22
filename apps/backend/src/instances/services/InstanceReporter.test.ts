@@ -9,12 +9,12 @@ const heard: Array<{ headers: Record<string, string | null>; body: unknown }> = 
 let answers: Array<() => Response> = [];
 const removalAsked: Array<Record<string, string | null>> = [];
 let removing = false;
-let setupAsked = false;
+let setupAsked: { asked: boolean; at?: string } = { asked: false };
 
 interceptHttp(
   http.get(`${ROOT}/api/instances/setup-again`, ({ request }) => {
     removalAsked.push({ instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') });
-    return HttpResponse.json({ asked: setupAsked });
+    return HttpResponse.json(setupAsked);
   }),
   http.get(`${ROOT}/api/instances/owner-removal`, ({ request }) => {
     removalAsked.push({ instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') });
@@ -77,10 +77,10 @@ describe('the instance telling root about itself', () => {
 
   it('asks root whether its owner asked it to set itself up again, as itself', async () => {
     removalAsked.length = 0;
-    setupAsked = true;
-    expect(await reporter().setupAsked()).toBe(true);
-    setupAsked = false;
-    expect(await reporter().setupAsked()).toBe(false);
+    setupAsked = { asked: true, at: '2026-11-22T18:37:00.000Z' };
+    expect(await reporter().setupAsked()).toBe('2026-11-22T18:37:00.000Z');
+    setupAsked = { asked: false };
+    expect(await reporter().setupAsked()).toBeUndefined();
     expect(removalAsked).toEqual([{ instance: 'inst-bo', authorization: 'Bearer service-token' }, { instance: 'inst-bo', authorization: 'Bearer service-token' }]);
   });
 });

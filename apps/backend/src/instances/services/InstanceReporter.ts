@@ -48,10 +48,13 @@ export class InstanceReporter {
     return ((await answer.json()) as { removing?: unknown }).removing === true;
   }
 
-  async setupAsked(): Promise<boolean> {
+  async setupAsked(): Promise<string | undefined> {
     const answer = await this.call('asks it whether its owner asked it to set itself up again', SETUP_AGAIN_PATH, { method: 'GET' });
     if (!answer.ok) throw new Error(`root would not say whether this Koala's owner asked it to set itself up again: ${saidBy(await answer.text())}`);
-    return ((await answer.json()) as { asked?: unknown }).asked === true;
+    const said = (await answer.json()) as { asked?: unknown; at?: unknown };
+    if (said.asked !== true) return undefined;
+    if (typeof said.at !== 'string' || said.at === '') throw new Error('root says this Koala\'s owner asked it to set itself up again but not when, so the ask cannot be told from one already answered');
+    return said.at;
   }
 
   private async send(doing: string, body: Record<string, unknown>): Promise<Reported> {

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { InfrastructureService, TerraformStopped, type TerraformPlaces } from './InfrastructureService.js';
+import { StateLocks } from './StateLocks.js';
 import { terraformCliConfig } from '../lib/terraform-state.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../');
@@ -70,6 +71,9 @@ async function standUp(home: 'local' | 'kubernetes'): Promise<Stand> {
   };
   return { root, places, cluster, capture };
 }
+
+const noLeaseInTheStand = new StateLocks({ access: { kubectl: async () => '' }, target: () => 'stand', here: 'stand' });
+const inTheStand = (places: TerraformPlaces): InfrastructureService => new InfrastructureService(places, undefined, noLeaseInTheStand);
 
 const resourcesIn = async (file: string): Promise<Array<{ instances: Array<{ attributes: { id: string; input: { value: string } } }> }>> =>
   (JSON.parse(await readFile(file, 'utf8')) as { resources: Array<{ instances: Array<{ attributes: { id: string; input: { value: string } } }> }> }).resources;
@@ -176,7 +180,7 @@ describe('moving state kept in the data folder into the backend in the cluster, 
       await writeFile(kept, before);
       const id = (await resourcesIn(kept))[0]?.instances[0]?.attributes.id;
 
-      await new InfrastructureService(stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log') });
+      await inTheStand(stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log') });
       expect(existsSync(kept)).toBe(false);
       expect(existsSync(`${kept}.backup`)).toBe(false);
       const inCluster = path.join(stand.cluster, 'koala-desk.tfstate');
@@ -184,7 +188,7 @@ describe('moving state kept in the data folder into the backend in the cluster, 
       expect((await resourcesIn(inCluster))[0]?.instances[0]?.attributes.id).toBe(id);
       expect(await readdir(stand.places.runsDir)).toEqual([]);
 
-      await new InfrastructureService(stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log'), env: { INPUT: 'changed' } });
+      await inTheStand(stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log'), env: { INPUT: 'changed' } });
       expect((await resourcesIn(inCluster))[0]?.instances[0]?.attributes.input.value).toBe('changed');
     } finally {
       await rm(local.root, { recursive: true, force: true });
@@ -192,13 +196,13 @@ describe('moving state kept in the data folder into the backend in the cluster, 
   });
 
   it('refuses, keeping the file, when the backend already holds a state that the file did not lead to', async () => {
-    await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    await inTheStand(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     const unrelated = await standUp('local');
     try {
       await new InfrastructureService(unrelated.places).deploy('shelf', { logFile: path.join(unrelated.root, 'shelf.log') });
       const kept = path.join(stand.places.stateDir, 'terraform.shelf.tfstate');
       await writeFile(kept, await readFile(path.join(unrelated.places.stateDir, 'terraform.shelf.tfstate'), 'utf8'));
-      await expect(new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') }))
+      await expect(inTheStand(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') }))
         .rejects.toThrow(/shelf has a state in the data folder and another in the cluster/);
       expect(existsSync(kept)).toBe(true);
       expect(await readdir(stand.places.runsDir)).toEqual([]);
