@@ -1,8 +1,9 @@
-import { Construct } from "constructs";
+import type { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { BlackboxExporterStack } from "./blackbox-exporter.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 import { chartRepository } from "../lib/chart-source.js";
+import { InMonitoringNamespace } from "./owned-namespace.js";
 
 // ── DUPLICATED, KNOWINGLY ── packages/engine-core/src/root-client.ts wins (METRICS_CLIENT_SECRET, METRICS_SCOPE); cdktf imports no other package, and the machine agent writes the Secret by that one.
 export const METRICS_CLIENT_SECRET = { name: "koala-metrics", idKey: "client_id", secretKey: "client_secret" } as const;
@@ -41,17 +42,18 @@ export function agentValues(sending: MetricsSending): Record<string, unknown> {
   };
 }
 
-export class AgentMonitoringStack extends Construct {
+export class AgentMonitoringStack extends InMonitoringNamespace {
   public readonly prometheusRelease: Release;
 
-  constructor(scope: Construct, id: string, sending: MetricsSending) {
-    super(scope, id);
+  constructor(scope: Construct, id: string, sending: MetricsSending, existing: ReadonlySet<string>) {
+    super(scope, id, existing);
     this.prometheusRelease = new Release(this, "prometheus-agent", {
       name: "kube-prometheus-stack",
       repository: chartRepository("https://prometheus-community.github.io/helm-charts"),
       chart: "kube-prometheus-stack",
       version: "91.7.0",
       namespace: "monitoring",
+      dependsOn: [this.namespace],
       reuseValues: true,
       wait: false,
       timeout: HELM_CEILING_SECONDS,

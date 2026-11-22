@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
-import type { Reach } from '../infrastructure/index.js';
-import { MONITORING_CHARTS, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES, type MetricsSending } from '../monitoring/index.js';
+import { METRICS_CLIENT_SECRET } from '@koala/engine-core/root-client';
+import { existingOnCluster, type Reach } from '../infrastructure/index.js';
+import { METRICS_SECRET_MISSING, MONITORING_CHARTS, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES, type MetricsSending } from '../monitoring/index.js';
 import { applyChartCrds } from './chart-crds.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -49,8 +50,14 @@ export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access
   const { logFile, report, signal } = said;
   const plan = await monitoringPlanOn(steps, cluster);
   if (plan.stacks.length === 0) return;
+  const kubectl = (args: string[]) => steps.access.kubectl(cluster.reach, args);
+  if (cluster.machine) {
+    const secret = await kubectl(['get', 'secret', METRICS_CLIENT_SECRET.name, '-n', METRICS_CLIENT_SECRET.namespace, '--ignore-not-found', '-o', 'name']);
+    if (secret.trim() === '') throw new Error(METRICS_SECRET_MISSING(cluster.physicalName));
+  }
   if (plan.crdsFirst) await applyChartCrds(steps.access, cluster.reach, MONITORING_CHARTS.stack, MONITORING_CHARTS.repo);
-  const env = monitoringStackEnv({ ...cluster, kubeconfigPath: await steps.access.kubeconfigOf(cluster.reach) }, plan.keepIngress);
+  const existing = existingOnCluster(monitoringNamespaces('cluster', plan.keepIngress), JSON.parse(await kubectl(['get', 'namespaces', '-o', 'json'])) as unknown, [], []);
+  const env = monitoringStackEnv({ ...cluster, kubeconfigPath: await steps.access.kubeconfigOf(cluster.reach) }, plan.keepIngress, existing);
   const log = (line: string) => {
     report?.(line);
     if (logFile) void fs.appendFile(logFile, `[monitoring] ${line}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));

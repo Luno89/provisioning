@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess, InfrastructureService, Reach } from '../infrastructure/index.js';
 import { ROLLOUT_KINDS } from '@koala/provision';
-import { koalaClusterMonitoring, MONITORING_CHARTS } from '../monitoring/lib/cluster-monitoring.js';
+import { METRICS_CLIENT_SECRET } from '@koala/engine-core/root-client';
+import { koalaClusterMonitoring, METRICS_SECRET_MISSING, MONITORING_CHARTS } from '../monitoring/lib/cluster-monitoring.js';
 import { installClusterMonitoring } from './cluster-monitoring.js';
 
 const PROBES = 'probes.monitoring.coreos.com\n';
@@ -11,13 +12,15 @@ const SENDING = { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl:
 const DESK: Reach = { clusterId: 'machine-desk', kind: 'machine', kubeconfig: 'apiVersion: v1' };
 const OWN: Reach = { clusterId: 'machine-desk', kind: 'koala' };
 
-function cluster(seen: { operator: boolean; blackbox: boolean; rolled?: (namespace: string) => unknown[]; charts?: Record<string, string>; telemetry?: boolean }) {
+function cluster(seen: { operator: boolean; blackbox: boolean; rolled?: (namespace: string) => unknown[]; charts?: Record<string, string>; telemetry?: boolean; namespaces?: string[]; metricsSecret?: false }) {
   const access = mock<ClusterAccess>();
   const reached: Reach[] = [];
   access.kubectl.mockImplementation(async (target, args) => {
     reached.push(target as Reach);
     if (args[0] === 'api-resources') return seen.operator ? PROBES : '';
     if (args[0] === 'get' && args[1] === 'service') return (args[2] === 'blackbox-exporter' && seen.blackbox) || (seen.telemetry && (args[2] === 'otel-collector' || args[2] === 'tempo')) ? `service/${args[2]}` : '';
+    if (args[0] === 'get' && args[1] === 'namespaces') return JSON.stringify({ items: (seen.namespaces ?? ['default', 'kube-system']).map((name) => ({ apiVersion: 'v1', kind: 'Namespace', metadata: { name } })) });
+    if (args[0] === 'get' && args[1] === 'secret') return seen.metricsSecret === false ? '' : `secret/${args[2]}`;
     if (args[0] === 'get' && args[1] === ROLLOUT_KINDS) return JSON.stringify({ items: seen.rolled?.(args[3]!) ?? [] });
     return '';
   });
@@ -47,6 +50,19 @@ describe('monitoring a machine\'s cluster', () => {
         REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics', METRICS_TOKEN_URL: 'https://koala.example/oidc/token', METRICS_RESOURCE: 'urn:koala:instance:inst-1',
       },
     });
+  });
+
+  it('takes over the monitoring namespace the machine\'s agent made for its Secret, rather than making it again', async () => {
+    const steps = cluster({ operator: false, blackbox: false, namespaces: ['default', 'kube-system', 'monitoring'] });
+    await installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: SENDING });
+    expect(JSON.parse(steps.infra.deploy.mock.calls[0]![1]!.env!.CLUSTER_EXISTING!)).toEqual(['v1/Namespace//monitoring']);
+  });
+
+  it('applies nothing while the Secret its Prometheus signs in to root with is not on the machine, saying why', async () => {
+    const steps = cluster({ operator: false, blackbox: false, metricsSecret: false });
+    await expect(installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: SENDING })).rejects.toThrow(METRICS_SECRET_MISSING('machine-desk'));
+    expect(steps.access.kubectl).toHaveBeenCalledWith(DESK, ['get', 'secret', METRICS_CLIENT_SECRET.name, '-n', METRICS_CLIENT_SECRET.namespace, '--ignore-not-found', '-o', 'name']);
+    expect(steps.infra.deploy).not.toHaveBeenCalled();
   });
 
   it('changes nothing on a machine whose collectors are already there', async () => {

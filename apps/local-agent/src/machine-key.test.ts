@@ -2,10 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
+import { metricsClientManifest, newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
 import { heldMachineKey, replaceMachineKey, settleMachineKey, type MachineKeyClient } from './machine-key.js';
 import { metricsClientFile } from './machine-config.js';
-import { metricsClientManifest } from './machine-metrics.js';
 
 let dir: string | undefined;
 afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
