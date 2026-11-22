@@ -426,6 +426,15 @@ export const DECISIONS: Decision[] = [
     reading: 'Root stays one hardened VPS run as systemd services from signed releases, with no Kubernetes cluster or load balancer in front of it (one server has nothing to balance). Exposure is cut by making less reachable: only Caddy on 443, and mail on 25, answer from the internet, and the smoke test fails on anything else; anything root runs with a known exploited vulnerability is told to the operator daily and released the same day; an outside check watches root\'s uptime and integrity; snapshots and the restore drill let a compromised root be rebuilt rather than cleaned. Putting root behind Cloudflare\'s proxy is declined for now: Cloudflare would read all traffic in plain text, uploads over 100 MB would be refused, mail and the mesh publish the server\'s address anyway, and OVHcloud\'s own anti-DDoS covers floods; it is reconsidered if root is targeted, with the web front split from mail and the mesh.',
   },
   {
+    id: 'oauth-wherever-it-can',
+    subject: 'A program that can take part in OAuth itself does, a machine\'s metrics first',
+    terms: ['metrics', 'prometheus', 'remote write', 'oauth2', 'client credentials'],
+    words: [
+      { at: '2026-11-22T10:51', text: 'Yeah that makes sense, anything that can probaby should' },
+    ],
+    reading: 'Every program that can speak OAuth for itself gets its own client and short-lived tokens instead of a fixed password. A machine\'s Prometheus is a client at root (client credentials, its secret in a Secret root can replace and revoke) and asks for a five-minute token for its owner\'s Koala alone, checked where git and the /agent socket are checked; the fixed per-cluster metrics token goes.',
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
