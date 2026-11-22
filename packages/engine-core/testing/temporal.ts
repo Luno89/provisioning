@@ -135,6 +135,12 @@ export const workflowBundle = (): Promise<WorkflowBundle> => {
 
 export const queueFor = (what: string): string => `${what}-${randomUUID()}`;
 
+export const EVERY_ACTIVITY = ['heartbeatsWhileRunning', 'tracesActivities', 'carriesWhoseWorkItIs', 'killsProgramsOnCancel', 'classifiesFailures'] as const;
+
+export const REFUSING_DELETING_WORK = [...EVERY_ACTIVITY, 'refusesDeletingWork'] as const;
+
+export const interceptorsOf = (worker: Pick<Worker, 'options'>): string[] => worker.options.interceptors.activity.map((interceptor) => interceptor.name);
+
 export interface WatchedRun {
   running: Promise<void>;
   ended(): string | undefined;

@@ -1,5 +1,5 @@
 import { hostname } from 'node:os';
-import { pollersOf, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
+import { interceptorsOf, pollersOf, REFUSING_DELETING_WORK, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import { describe, expect, it } from 'vitest';
 import { HOST_ACTIVITIES, hostWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey } from './platform/testing/keys.js';
@@ -25,7 +25,7 @@ describe('the host worker, started the way its entry starts it', () => {
       const polling = { namespace: env.namespace, queue: QUEUES.host, identity, ended };
       await untilPolling(env.client, polling);
       expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual([...HOST_ACTIVITIES[role]].sort());
-      expect(worker.options.interceptors.activity).toHaveLength(6);
+      expect(interceptorsOf(worker), 'the shared interceptors and the refusal of work being deleted').toEqual(REFUSING_DELETING_WORK);
       expect(worker.options.identity, 'Temporal knows an instance\'s worker by its own pod, and root\'s by its process').toBe(identity);
       expect(await pollersOf(env.client, polling), 'the worker is up, polling as itself').toContain(identity);
       worker.shutdown();

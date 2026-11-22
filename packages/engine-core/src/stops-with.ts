@@ -64,7 +64,7 @@ interface CancellableContext {
 }
 
 export function killOnCancel() {
-  return (ctx: CancellableContext): { inbound: Execute } => ({
+  const killsProgramsOnCancel = (ctx: CancellableContext): { inbound: Execute } => ({
     inbound: {
       async execute(input, next) {
         const stop = new AbortController();
@@ -85,4 +85,5 @@ export function killOnCancel() {
       },
     },
   });
+  return killsProgramsOnCancel;
 }

@@ -1,4 +1,4 @@
-import { pollersOf, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
+import { interceptorsOf, pollersOf, REFUSING_DELETING_WORK, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import { afterAll, describe, expect, it } from 'vitest';
 import { startCorpusStandIn } from './engine/testing/corpus-stand-in.js';
 import { engineWorkerSettingsFrom, QUEUES } from './platform/index.js';
@@ -46,7 +46,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     const registered = [...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort();
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity', 'StopProjectWorkActivity', 'SweepProjectActivity']));
-    expect(worker.options.interceptors.activity).toHaveLength(6);
+    expect(interceptorsOf(worker), 'the shared interceptors and the refusal of work being deleted').toEqual(REFUSING_DELETING_WORK);
     expect(worker.options.identity, 'Temporal knows the worker by its own pod').toBe('luno-worker-engine-7d9f-abcde');
     const at = '2026-11-13T10:00:00.000Z';
     await db.projects.saveTree({ id: 'tree-shop', ownerId: 'owner-1', name: 'Shop', projectIds: ['project-shop'], createdAt: at, updatedAt: at } as never);

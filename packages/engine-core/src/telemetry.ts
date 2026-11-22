@@ -203,7 +203,7 @@ interface ActivityInputLike {
 }
 
 export function traceActivities() {
-  return (ctx: { info: ActivityInfoLike }) => ({
+  const tracesActivities = (ctx: { info: ActivityInfoLike }) => ({
     inbound: {
       async execute<I extends ActivityInputLike, R>(input: I, next: Next<I, R>): Promise<R> {
         const { info } = ctx;
@@ -231,4 +231,5 @@ export function traceActivities() {
       },
     },
   });
+  return tracesActivities;
 }

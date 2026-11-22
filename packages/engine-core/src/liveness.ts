@@ -18,7 +18,7 @@ export const lateBy = (expectedMs: number, actualMs: number): number | undefined
   (actualMs - expectedMs > expectedMs * LATE_BEAT_SHARE ? (actualMs - expectedMs) / 1000 : undefined);
 
 export function heartbeatWhileRunning(every: number = LIVENESS_EVERY_MS) {
-  return (ctx: Beating): { inbound: Execute } => ({
+  const heartbeatsWhileRunning = (ctx: Beating): { inbound: Execute } => ({
     inbound: {
       async execute(input, next) {
         let last = Date.now();
@@ -39,4 +39,5 @@ export function heartbeatWhileRunning(every: number = LIVENESS_EVERY_MS) {
       },
     },
   });
+  return heartbeatsWhileRunning;
 }

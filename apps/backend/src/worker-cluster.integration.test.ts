@@ -1,4 +1,4 @@
-import { pollersOf, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
+import { interceptorsOf, pollersOf, REFUSING_DELETING_WORK, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import { describe, expect, it } from 'vitest';
 import { clusterWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey } from './platform/testing/keys.js';
@@ -23,7 +23,7 @@ describe('the cluster worker, started the way its entry starts it', () => {
     const polling = { namespace: env.namespace, queue: QUEUES.cluster, identity: 'luno-worker-cluster-7d9f-abcde', ended };
     await untilPolling(env.client, polling);
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(EXPECTED);
-    expect(worker.options.interceptors.activity).toHaveLength(6);
+    expect(interceptorsOf(worker), 'the shared interceptors and the refusal of work being deleted').toEqual(REFUSING_DELETING_WORK);
     expect(worker.options.identity, 'Temporal knows the worker by its own pod').toBe('luno-worker-cluster-7d9f-abcde');
     expect(await pollersOf(env.client, polling), 'the worker is up, polling as its pod').toContain('luno-worker-cluster-7d9f-abcde');
     worker.shutdown();
