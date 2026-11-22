@@ -2,7 +2,7 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import { stampServed, type InstanceRecord } from '../lib/instances.js';
 import type { InstanceRelease, Withdrawal } from '../lib/instance-updates.js';
-import { keptRootSession, type SignInKey } from '../lib/oidc.js';
+import { keptRootSession, REGISTERING_FIELD, registeringOf, type RegisteringClient, type SignInKey } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from '../lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from '../lib/dependency-findings.js';
@@ -21,6 +21,7 @@ interface Artifact {
   userCode?: string;
   accountId?: string;
   instanceId?: string;
+  deviceId?: string;
 }
 
 
@@ -229,19 +230,20 @@ export class MemoryInstancesStore implements InstancesStore {
     return [...this.artifacts.values()].filter((artifact) => artifact.model === 'Grant' && artifact.accountId === accountId).map((artifact) => JSON.parse(artifact.payload) as Record<string, unknown>);
   }
 
-  async oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void> {
+  async oidcBindRegistration(code: string, client: RegisteringClient & { ownerId: string }): Promise<void> {
     const key = `InitialAccessToken:${code}`;
-    for (const [other, artifact] of [...this.artifacts]) if (other !== key && artifact.model === 'InitialAccessToken' && artifact.instanceId === instance.id) this.artifacts.delete(other);
+    const field = REGISTERING_FIELD[client.kind];
+    for (const [other, artifact] of [...this.artifacts]) if (other !== key && artifact.model === 'InitialAccessToken' && artifact[field] === client.id) this.artifacts.delete(other);
     const found = this.artifacts.get(key);
-    if (found) this.artifacts.set(key, { ...found, instanceId: instance.id, accountId: instance.ownerId });
+    if (found) this.artifacts.set(key, { ...found, [field]: client.id, accountId: client.ownerId });
   }
 
-  async oidcTakeRegistration(code: string): Promise<string | undefined> {
+  async oidcTakeRegistration(code: string): Promise<RegisteringClient | undefined> {
     const key = `InitialAccessToken:${code}`;
     const found = this.artifacts.get(key);
-    if (found?.instanceId === undefined) return undefined;
-    this.artifacts.delete(key);
-    return found.instanceId;
+    const taken = registeringOf(found ? { ...found } : undefined);
+    if (taken) this.artifacts.delete(key);
+    return taken;
   }
 
   async oidcForgetAccount(accountId: string, keepRootSid?: string): Promise<string[]> {

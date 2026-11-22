@@ -23,6 +23,7 @@ import { InstanceSide, wireInstancePresence } from '../../instances/wiring/insta
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
 import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { AccountRemovalService, temporalKoalaRemovals, temporalRemovalWorkflows } from '../../accounts/services/AccountRemovalService.js';
 import { OwnerRemoval } from '../../accounts/services/OwnerRemoval.js';
@@ -96,7 +97,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>,
   });
   rootSide = machineSides({
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: pem }),
-    db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh, meshLoginServer: 'https://mesh.koala.test',
+    db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh, meshLoginServer: 'https://mesh.koala.test', clients: machineClientsAt(rootDb, root.url),
     devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY),
     instances: () => ({ service: instances, tellInstance }),
     dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),

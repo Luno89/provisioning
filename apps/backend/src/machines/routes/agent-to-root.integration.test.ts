@@ -30,6 +30,7 @@ import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import { closedAfterEach, quietAccountSides } from '../testing/wiring-world.js';
 import { openRoutesOf } from '../../open-routes.js';
 import { testInstanceClients } from '../../instances/testing/placed-koala.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 
 const closers = closedAfterEach();
 
@@ -49,7 +50,7 @@ async function root(followBeatMs?: number) {
   });
   const accounts = new MachineAccounts({
     ...quietAccountSides(),
-    store: db.machines, signing: identityKeysFrom(generateIdentityKey()),
+    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db),
     toOwner: { machinesChanged: (ownerId) => { installs.wake(ownerId); } },
     installs,
   });

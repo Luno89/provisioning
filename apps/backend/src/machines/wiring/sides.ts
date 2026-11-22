@@ -5,7 +5,7 @@ import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install';
 import { getTemporalClient, holdsAccounts, QUEUES, runOnce, servesTenants, startedFor, watchingAll, type Database, type DependencyStates, type RoleConfig, type SecretKey, type Watching } from '../../platform/index.js';
 import { KOALA_INSTALL_SIGNALS, koalaInstallWorkflowId, RootMachines, type InstanceRecord } from '../../instances/index.js';
 import { KoalaInstallWorkflow } from '../../workflows/KoalaInstallWorkflow.js';
-import { MachineAccounts, type KoalaPlace, type MachineRemovals } from '../services/MachineAccounts.js';
+import { MachineAccounts, type KoalaPlace, type MachineClients, type MachineRemovals } from '../services/MachineAccounts.js';
 import { KoalaInstalls, type InstallPlaces, type InstallWorkflows } from '../services/KoalaInstalls.js';
 import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
@@ -25,6 +25,7 @@ export interface MachineSidesDeps {
   registry?: string | undefined;
   koalaMachineId?: string | undefined;
   mesh: NonNullable<ConstructorParameters<typeof MachineAccounts>[0]['mesh']>;
+  clients?: MachineClients | undefined;
   devices: MachineDeps['devices'];
   projects: MachineDeps['projects'];
   bundle?: MachineDeps['bundle'];
@@ -94,9 +95,14 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     toMachines: { placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), stopKoala: (deviceId, stop) => toMachines.stopKoala(deviceId, stop) },
     toOwner: { installChanged: (ownerId) => { deps.io.to(userRoom(ownerId)).emit(KOALA_INSTALL_CHANGED, {}); } },
   }) : undefined;
+  const clientsOf = (): MachineClients => {
+    if (!deps.clients) throw new Error('root keeps machines\' accounts, and a machine registers at root\'s OpenID provider as it joins, but this root was given no provider to make its registration code');
+    return deps.clients;
+  };
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
     signing: role.signing,
+    clients: clientsOf(),
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
     koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
     followers: { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },

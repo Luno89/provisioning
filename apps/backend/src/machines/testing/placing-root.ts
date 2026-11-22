@@ -10,6 +10,7 @@ import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { generateIdentityKey } from '../../instances/lib/identity-token.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { NO_MESH, rootInstanceSettings } from '../../instances/testing/root-installs.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
 import { bundled, temporalTestEnvironment, type TestTemporal } from '../../workflows/testing/temporal-test-env.js';
@@ -89,6 +90,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: generateIdentityKey() }),
     db, io, dataKey: 'koala-placement-key', publicUrl: 'http://root.test', meshLoginServer: 'https://mesh.test',
     mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
+    clients: machineClientsAt(db),
     devices: { status: () => ({ online: false }), tell: () => true, ask: async () => undefined as never, drop: () => undefined },
     projects: new ProjectRepoService(db, {} as GiteaService, 'koala-placement-key'),
     instances: () => ({ places: instances }),

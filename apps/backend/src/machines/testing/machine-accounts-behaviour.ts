@@ -21,6 +21,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   let browsersTold: string[];
   let mesh: ReturnType<typeof mock<Required<NonNullable<MachineAccountsDeps['mesh']>>>>;
   let clock: Date;
+  let registrations: Array<{ id: string; ownerId: string }>;
 
   const accounts = (over: Partial<MachineAccountsDeps> = {}, meshLoginServer: string | undefined = 'https://mesh.koala.example') => new MachineAccounts({
     store: db.machines,
@@ -31,6 +32,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     toMachines: { removed: (deviceId) => { told.push([deviceId, 'machine:removed', undefined]); return true; }, koala: (deviceId, koala) => { told.push([deviceId, 'machine:koala', koala]); return true; } },
     toOwner: { machinesChanged: (ownerId) => { browsersTold.push(ownerId); } },
     mesh,
+    clients: { machineRegistrationCode: async (machine) => { registrations.push(machine); return `registration-${registrations.length}`; } },
     now: () => clock,
     ...over,
   });
@@ -47,6 +49,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   beforeEach(async () => {
     db = await make();
     clock = new Date(Math.floor(Date.now() / 1000) * 1000);
+    registrations = [];
     followers = mock<MachineFollowers>();
     followers.joined.mockResolvedValue(undefined);
     followers.removed.mockResolvedValue(undefined);
@@ -77,7 +80,8 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const outcome = await machines.join(code, { hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
       if (!outcome.ok) throw new Error(outcome.error);
       const { deviceId, env } = outcome.value;
-      expect(env).toMatchObject({ KOALA_ROOT_URL: ROOT_URL, KOALA_DEVICE_ID: deviceId, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: 'https://mesh.koala.example', MESH_AUTH_KEY: 'preauth-key', KOALA_REGISTRY: '100.64.0.1:5001' });
+      expect(env).toMatchObject({ KOALA_ROOT_URL: ROOT_URL, KOALA_DEVICE_ID: deviceId, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: 'https://mesh.koala.example', MESH_AUTH_KEY: 'preauth-key', KOALA_REGISTRY: '100.64.0.1:5001', KOALA_REGISTRATION_TOKEN: 'registration-1' });
+      expect(registrations).toEqual([{ id: deviceId, ownerId: 'bo' }]);
       const saved = (await stored(deviceId))!;
       expect(saved).toMatchObject({ ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64', createdAt: clock.toISOString() });
       expect(saved.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));

@@ -9,6 +9,7 @@ import { linkToRoot, type Koala, type RootLink } from '../../../../local-agent/s
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
 import { MachineAccounts, type MachineRemovals } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
@@ -29,7 +30,7 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   await sockets.watched.ready;
   accounts = new MachineAccounts({
     ...(removals ? { removals } : {}),
-    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test' },
+    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db), settings: { url: 'http://root.test' },
     koala: { of: async () => koala ?? undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
     toOwner: { machinesChanged: () => undefined },

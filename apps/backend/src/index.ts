@@ -213,7 +213,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { accounts: machineAccounts, installs: koalaInstalls, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
-    projects: projectRepoService, bundle: machineBundle, rootToken,
+    projects: projectRepoService, bundle: machineBundle, rootToken, clients: rootProvider,
     side: instanceSide, dependencies,
     instances: () => (late.instances ? { service: late.instances.instanceService, places: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });

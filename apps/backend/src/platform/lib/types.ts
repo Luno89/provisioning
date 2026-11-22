@@ -1,5 +1,6 @@
 import type { Router } from 'express';
 import type { GpuWithoutDriver, MachineGpu } from '@koala/engine-core';
+import type { ClientPublicJwk } from '@koala/engine-core/root-client';
 import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/lib/dns-providers.js';
 import type { AgentUpdateReport, MachineAgent, ManualMachineAgent } from '../../machines/index.js';
 export type Mounts = { use(path: string, router: Router): unknown };
@@ -229,6 +230,7 @@ export interface LocalAgentDeviceMetadata {
   tokenRenewal?: { reason: string; failedAt: string } | undefined;
   removal?: { startedAt: string } | undefined;
   offSince?: string | undefined;
+  signIn?: { jwk: ClientPublicJwk; since: string } | undefined;
   [key: string]: unknown;
 }
 

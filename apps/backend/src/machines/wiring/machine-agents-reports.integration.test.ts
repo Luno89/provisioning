@@ -19,6 +19,7 @@ import { testKeys } from '../../platform/testing/keys.js';
 import { testDatabase, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from '../routes/machines.js';
@@ -66,7 +67,7 @@ async function koala() {
   const db: MongoDB = await testDatabase();
   const accounts = new MachineAccounts({
     ...quietAccountSides(),
-    store: db.machines, signing,
+    store: db.machines, signing, clients: machineClientsAt(db),
   });
   const app = express();
   app.use(express.json());
