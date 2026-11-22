@@ -7,7 +7,7 @@ command=$(jq -r '.tool_input.command // ""' <<<"$input")
 if ! grep -qE '(^|[;&|( ]|&&)[[:space:]]*(npm (run )?(test|gate|ship|lint)([: ]|$)|npm run test:[a-z0-9:-]+|npx vitest)' <<<"$command"; then
   exit 0
 fi
-if grep -qE '(^|[^0-9&])>[^&]|\|[[:space:]]*tee([[:space:]]|$)' <<<"$command"; then
+if sed -E 's#[0-9]?>+[[:space:]]*/dev/null##g' <<<"$command" | grep -qE '(^|[^0-9&])>[^&]|\|[[:space:]]*tee([[:space:]]|$)'; then
   exit 0
 fi
 
