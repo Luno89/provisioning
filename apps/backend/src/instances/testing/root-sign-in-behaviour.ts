@@ -9,7 +9,7 @@ import { AccessRevocations } from '../../platform/services/AccessRevocations.js'
 import { claimsFor, clientMetadata, publicJwkOf, RUN_TOKEN_SECONDS, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
-import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, MACHINE_KEY_DAYS, MACHINE_REGISTRATION_REFUSED, MACHINE_SCOPE, machineClientOf, newClientKey, type MachineClient } from '@koala/engine-core/root-client';
+import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, MACHINE_KEY_DAYS, MACHINE_REGISTRATION_REFUSED, MACHINE_SCOPE, machineClientOf, metricsClientFrom, METRICS_SCOPE, newClientKey, rootTokenUrlOf, type MachineClient, type MetricsClient } from '@koala/engine-core/root-client';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
@@ -602,7 +602,7 @@ export function machinesThroughRoot<S extends Served>(world: SignInWorld<S>): vo
     expect(await world.provider.machineCaller(await after.token())).toMatchObject({ deviceId: 'desk-1', ownerId: 'u1' });
   });
 
-  it('replaces a machine\'s key through registration management with a one-use access token root gives it, after which root keeps only the new public key and refuses a token of the old one', async () => {
+  it('replaces a machine\'s key through registration management with a one-use access token root gives it, after which root keeps only the new public key once the machine first uses it and refuses a token of the old one', async () => {
     await desk();
     const machine = machineAt(await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' }), newClientKey());
     await machine.register();
@@ -613,10 +613,66 @@ export function machinesThroughRoot<S extends Served>(world: SignInWorld<S>): vo
     const [device] = await world.rootDb.machines.getLocalAgentDevices();
     expect(device?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(next)));
     expect(JSON.stringify(device)).not.toContain(offer.registrationAccessToken);
-    expect(await world.provider.machineCaller(oldToken)).toBeUndefined();
     expect(await world.provider.machineCaller(await machine.token())).toMatchObject({ deviceId: 'desk-1', ownerId: 'u1' });
+    expect(await world.provider.machineCaller(oldToken)).toBeUndefined();
     await expect(machine.replaceKey(offer, newClientKey())).rejects.toThrow(KEY_REPLACEMENT_REFUSED);
     expect((await world.rootDb.machines.getLocalAgentDevices())[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(next)));
+  });
+
+  const asPrometheus = (metrics: MetricsClient): Promise<number> => fetch(rootTokenUrlOf(world.root.url), {
+    method: 'POST',
+    headers: { authorization: `Basic ${Buffer.from(`${encodeURIComponent(metrics.clientId)}:${encodeURIComponent(metrics.clientSecret)}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', scope: METRICS_SCOPE, resource: runResourceOf('inst-u1') }).toString(),
+  }).then((answer) => answer.status);
+  const asMachine = async (key: string): Promise<boolean> => {
+    const token = await machineClientOf({ rootUrl: world.root.url, deviceId: 'desk-1', key }).tokenIfKnown();
+    return token !== undefined && (await world.provider.machineCaller(token)) !== undefined;
+  };
+  const replacementLost = async (key: string, next: string): Promise<MetricsClient> => {
+    let lost: Record<string, unknown> | undefined;
+    const answerLost: typeof fetch = async (input, init) => {
+      const answer = await fetch(input, init);
+      if (init?.method !== 'PUT') return answer;
+      lost = await answer.json() as Record<string, unknown>;
+      throw new Error('the connection dropped before root\'s answer came');
+    };
+    const machine = machineClientOf({ rootUrl: world.root.url, deviceId: 'desk-1', key, reach: answerLost });
+    await expect(machine.replaceKey(await world.provider.keyReplacement('desk-1'), next)).rejects.toThrow('the connection dropped');
+    return metricsClientFrom(lost);
+  };
+
+  it('keeps a machine\'s old key and its Prometheus\'s old secret working when root\'s answer to a replacement is lost, gives the same waiting secret when the machine asks again with its old key, and ends each old one at the first use of its new one', async () => {
+    await desk();
+    const first = newClientKey();
+    const machine = machineAt(await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' }), first);
+    const firstMetrics = await machine.registerMachine();
+    const oldToken = await machine.token();
+    const waiting = await replacementLost(first, newClientKey());
+    expect(waiting.clientSecret).not.toBe(firstMetrics.clientSecret);
+    expect(await asMachine(first)).toBe(true);
+    expect(await world.provider.machineCaller(oldToken)).toMatchObject({ deviceId: 'desk-1' });
+    expect(await asPrometheus(firstMetrics)).toBe(200);
+
+    const third = newClientKey();
+    expect(await machine.replaceKey(await world.provider.keyReplacement('desk-1'), third)).toEqual(waiting);
+    expect(await asMachine(first)).toBe(true);
+    expect(await asMachine(third)).toBe(true);
+    expect(await asMachine(first)).toBe(false);
+    expect(await world.provider.machineCaller(oldToken)).toBeUndefined();
+    expect(await asPrometheus(firstMetrics)).toBe(200);
+    expect(await asPrometheus(waiting)).toBe(200);
+    expect(await asPrometheus(firstMetrics)).toBe(401);
+    expect(await asPrometheus(waiting)).toBe(200);
+  });
+
+  it('ends the old and the waiting key and secret of a machine at once when it is removed while root\'s answer to a replacement was lost', async () => {
+    await desk();
+    const first = newClientKey();
+    const firstMetrics = await machineAt(await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' }), first).registerMachine();
+    const next = newClientKey();
+    const waiting = await replacementLost(first, next);
+    await world.rootDb.machines.deleteLocalAgentDevice('desk-1');
+    expect([await asMachine(first), await asMachine(next), await asPrometheus(firstMetrics), await asPrometheus(waiting)]).toEqual([false, false, 401, 401]);
   });
 
   it('refuses a machine whose key has lived its 90 days, and names when a live key ends', async () => {

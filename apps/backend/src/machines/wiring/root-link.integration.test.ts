@@ -11,7 +11,8 @@ import { MachineAccounts, type MachineRemovals } from '../services/MachineAccoun
 import { wireMachineAccounts } from './accounts.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
-import { clientKeysFrom, clientPublicJwkOf, keyReplacementFrom, machineClientOf, newClientKey } from '@koala/engine-core/root-client';
+import { clientKeysFrom, clientPublicJwkOf, keyReplacementFrom, machineClientOf, METRICS_CLIENT_SECRET, metricsClientFrom, newClientKey } from '@koala/engine-core/root-client';
+import { metricsClientFile } from '../../../../local-agent/src/machine-config.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -98,7 +99,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     expect((await db.machines.getLocalAgentDevices())[0]?.keyReplacement?.reason).toBe('the disk was full');
   });
 
-  it('connects again with its new key the moment root refuses the old one, when root took the new key though its answer never reached the agent, and keeps only the new key', async () => {
+  it('connects again with its old key when root took a new one though its answer never reached the agent, and the repeated replacement brings the Prometheus secret root kept waiting, after which root keeps only the newest key', async () => {
     const now = new Date();
     const { db, io, url } = await root(() => now);
     await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: now.toISOString() });
@@ -109,10 +110,12 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     closers.push(() => rm(home, { recursive: true, force: true }));
     const file = path.join(home, 'machine.json');
     await writeFile(file, JSON.stringify({ rootUrl: url, deviceId: 'desk', rootDir: home, key: first }), { mode: 0o600 });
+    let lost: Record<string, unknown> | undefined;
     const answerLost: typeof fetch = async (input, init) => {
       const answer = await fetch(input, init);
-      if (init?.method === 'PUT') throw new Error('the connection dropped before root\'s answer came');
-      return answer;
+      if (init?.method !== 'PUT' || lost) return answer;
+      lost = await answer.json() as Record<string, unknown>;
+      throw new Error('the connection dropped before root\'s answer came');
     };
     const held = await heldMachineKey(file, (key) => machineClientOf({ rootUrl: provider.url, deviceId: 'desk', key, reach: answerLost }));
     const koalas: Koala[] = [];
@@ -140,7 +143,15 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     expect((await db.machines.getLocalAgentDevices())[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(saved.nextKey!)));
     for (const socket of io.of('/machine-account').sockets.values()) socket.conn.close();
     await koalaNumber(2);
-    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ rootUrl: url, deviceId: 'desk', rootDir: home, key: saved.nextKey });
+    await held.replaceKey(await provider.root.provider.keyReplacement('desk'));
+    const kept = JSON.parse(await readFile(file, 'utf8')) as { key: string; nextKey?: string };
+    expect(kept).toEqual({ rootUrl: url, deviceId: 'desk', rootDir: home, key: kept.key });
+    expect([first, saved.nextKey]).not.toContain(kept.key);
+    const metrics = JSON.parse(await readFile(metricsClientFile(file), 'utf8')) as { items: Array<{ stringData?: Record<string, string> }> };
+    expect(metrics.items[1]?.stringData?.[METRICS_CLIENT_SECRET.secretKey]).toBe(metricsClientFrom(lost).clientSecret);
+    await held.freshToken();
+    const [device] = await db.machines.getLocalAgentDevices();
+    expect([device?.signIn?.jwk, device?.previousSignIn]).toEqual([clientPublicJwkOf(clientKeysFrom(kept.key)), undefined]);
   });
 
   it('tells root its mesh address, takes the Koala root names when it connects and when root tells it, and asks again without asking forever though root\'s clock is a month behind', async () => {
