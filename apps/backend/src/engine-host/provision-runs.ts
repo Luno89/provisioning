@@ -22,6 +22,7 @@ export function endedWhy(closed: { as: ClosedAs; why?: string | undefined }): st
 export function engineProvisionRuns(deps: {
   runs: Pick<RunStarter, 'start'>;
   client: () => Pick<WorkflowClient, 'getHandle'> | undefined;
+  connected: () => Promise<void>;
   agent: string;
 }): ProvisionRuns {
   const handle = (workflowId: string) => {
@@ -32,6 +33,7 @@ export function engineProvisionRuns(deps: {
 
   return {
     async start(input) {
+      await deps.connected();
       try {
         await deps.runs.start({
           ownerId: input.ownerId,
@@ -48,6 +50,7 @@ export function engineProvisionRuns(deps: {
     },
 
     async ended(workflowId) {
+      await deps.connected();
       return endedWhy(await closedWith(handle(workflowId)));
     },
   };

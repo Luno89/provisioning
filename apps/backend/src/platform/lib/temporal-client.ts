@@ -1,4 +1,4 @@
-import type { Client, Connection, WorkflowClientInterceptor } from '@temporalio/client'
+import { isGrpcServiceError, type Client, type Connection, type WorkflowClientInterceptor } from '@temporalio/client'
 import { connectTemporal, createClient } from '@koala/engine-core/temporal'
 import protos from '@temporalio/proto'
 import Long from 'long'
@@ -107,17 +107,25 @@ export const namesItsWork: WorkflowClientInterceptor = {
   signalWithStart: (input, next) => next(withItsWork(input)),
 }
 
+const GRPC_ALREADY_EXISTS = 6
+
+const alreadyThere = (err: unknown): boolean => isGrpcServiceError(err) && err.code === GRPC_ALREADY_EXISTS
+
+async function madeOrThere(make: () => Promise<unknown>): Promise<void> {
+  try {
+    await make()
+  } catch (err) {
+    if (!alreadyThere(err)) throw err
+  }
+}
+
 export async function registerOwnerAttribute(connection: Connection, namespace: string, adminKey?: string): Promise<void> {
   for (const attribute of [OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE]) {
     const add = () => connection.operatorService.addSearchAttributes({
       namespace,
       searchAttributes: { [attribute.name]: protos.temporal.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD },
     })
-    try {
-      await (adminKey ? connection.withApiKey(adminKey, add) : add())
-    } catch (err) {
-      if (!/already exists|AlreadyExists/i.test(String((err as Error)?.message ?? err))) throw err
-    }
+    await madeOrThere(() => (adminKey ? connection.withApiKey(adminKey, add) : add()))
   }
 }
 
@@ -133,11 +141,7 @@ export async function readyNamespace(connection: Connection, namespace: string, 
     namespace,
     workflowExecutionRetentionPeriod: { seconds: Long.fromNumber(NAMESPACE_RETENTION_SECONDS) },
   })
-  try {
-    await (keys ? connection.withApiKey(keys.system, register) : register())
-  } catch (err) {
-    if (!/already exists|AlreadyExists/i.test(String((err as Error)?.message ?? err))) throw err
-  }
+  await madeOrThere(() => (keys ? connection.withApiKey(keys.system, register) : register()))
   await registerOwnerAttribute(connection, namespace, keys?.namespace)
 }
 
@@ -149,11 +153,14 @@ export async function getTemporalClient(): Promise<Client> {
   const connection = await connectTemporal(temporalDial('koala-backend', given), 'client').catch((err: unknown) => {
     throw thrownFor(reporter, 'temporal', err)
   })
-  reporter?.answered('temporal')
   await readyNamespace(connection, temporal.namespace, {
     system: temporalToken(keys.temporal, { subject: 'koala-backend', namespace: 'temporal-system', role: 'admin' }),
     namespace: temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }),
+  }).catch(async (err: unknown) => {
+    await connection.close()
+    throw thrownFor(reporter, 'temporal', err)
   })
+  reporter?.answered('temporal')
   shared = createClient({
     connection,
     namespace: temporal.namespace,

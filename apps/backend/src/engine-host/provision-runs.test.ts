@@ -11,7 +11,7 @@ describe('starting and following a Koala setup run in the engine', () => {
   it('starts the setup persona as the owner, the run id the record\'s, its inputs the run\'s, and answers the workflow it runs under', async () => {
     const runs = mock<Pick<RunStarter, 'start'>>();
     runs.start.mockImplementation(async (request: StartRunRequest): Promise<StartedRun> => ({ runId: request.runId!, agentSlug: request.agentSlug, loopId: 'provision' }));
-    const provision = engineProvisionRuns({ runs, client: () => undefined, agent: 'provision' });
+    const provision = engineProvisionRuns({ runs, client: () => undefined, connected: async () => undefined, agent: 'provision' });
 
     expect(await provision.start(INPUT)).toBe('provision-machine-desk');
     expect(runs.start).toHaveBeenCalledWith({ ownerId: 'owner-1', agentSlug: 'provision', message: 'Set Koala up.', runId: INPUT.recordId, inputs: { ...INPUT }, startedBy: 'platform' });
@@ -20,17 +20,17 @@ describe('starting and following a Koala setup run in the engine', () => {
   it('answers the run\'s workflow when Temporal says that run has started already, as when another of Koala\'s processes started it', async () => {
     const runs = mock<Pick<RunStarter, 'start'>>();
     runs.start.mockRejectedValue(new WorkflowExecutionAlreadyStartedError('Workflow execution already started', 'provision-machine-desk', 'AgentRunWorkflow'));
-    expect(await engineProvisionRuns({ runs, client: () => undefined, agent: 'provision' }).start(INPUT)).toBe('provision-machine-desk');
+    expect(await engineProvisionRuns({ runs, client: () => undefined, connected: async () => undefined, agent: 'provision' }).start(INPUT)).toBe('provision-machine-desk');
   });
 
   it('hands on any other refusal to start, for the run to be failed with it', async () => {
     const runs = mock<Pick<RunStarter, 'start'>>();
     runs.start.mockRejectedValue(new Error('There is no procedure called "provision".'));
-    await expect(engineProvisionRuns({ runs, client: () => undefined, agent: 'provision' }).start(INPUT)).rejects.toThrow('There is no procedure called');
+    await expect(engineProvisionRuns({ runs, client: () => undefined, connected: async () => undefined, agent: 'provision' }).start(INPUT)).rejects.toThrow('There is no procedure called');
   });
 
   it('refuses to follow a run while Temporal cannot be reached, rather than saying how it ended', async () => {
-    const provision = engineProvisionRuns({ runs: mock(), client: () => undefined, agent: 'provision' });
+    const provision = engineProvisionRuns({ runs: mock(), client: () => undefined, connected: async () => undefined, agent: 'provision' });
     await expect(provision.ended('provision-machine-desk')).rejects.toThrow('Temporal is not reachable');
   });
 
