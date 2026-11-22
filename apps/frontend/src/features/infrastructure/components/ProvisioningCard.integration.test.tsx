@@ -1,13 +1,12 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { Router } from 'express'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProvisioningCard } from './ProvisioningCard'
 import { startBackend, type Site } from '../../../test/backend/site'
 import { pageSocketsOf, type PageSockets } from '../../../test/backend/sockets'
 import { temporalOnPaper } from '../../../test/backend/projects'
-import { shown } from '../../../test/backend/hooks'
+import { openPage } from '../../../test/backend/hooks'
 import { roleFromEnv } from '../../../../../backend/src/platform/lib/platform-role'
 import { testIdentityKey } from '../../../../../backend/src/platform/testing/keys'
 import { createAgentRegistry } from '../../../../../backend/src/engine-host/registries/registry'
@@ -37,8 +36,8 @@ const temporal = temporalOnPaper()
 const db = site!.db
 
 const openCard = () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}><ProvisioningCard /></QueryClientProvider>)
+  const { page, on } = openPage(<ProvisioningCard />, { followsSocket: true })
+  return { card: page, on }
 }
 
 const provisioning = new Provisioning({
@@ -62,26 +61,26 @@ const setups = async () => db.infrastructure.getProvisioning('desk')
 
 describe('the "Setting Koala up" card follows Koala setting itself up while it is open', () => {
   it('shows each piece as Koala reaches it, says where it stopped and why, sets up again, and collapses to one line once everything is up', async () => {
-    const card = openCard()
-    await shown(() => screen.queryByText('Koala has not started setting itself up yet.'))
+    const { card, on } = openCard()
+    await on(() => screen.queryByText('Koala has not started setting itself up yet.'))
 
-    const opened = shown(() => screen.queryByText('Koala\'s own services and monitoring, revision 3'))
+    const opened = on(() => screen.queryByText('Koala\'s own services and monitoring, revision 3'))
     await provisioning.start()
     await opened
     const [first] = await setups()
     expect(first).toMatchObject({ reason: 'revision', state: 'running', ownerId: person.id })
     expect(temporal.workflows.get(first!.workflowId!)).toMatchObject({ workflowType: 'AgentRunWorkflow', status: 'RUNNING' })
 
-    const egressLine = shown(() => screen.queryByText('waiting for deployment/egress in egress: 0 of 1 ready'))
+    const egressLine = on(() => screen.queryByText('waiting for deployment/egress in egress: 0 of 1 ready'))
     await say(first!.id, 'egress', { state: 'started', line: 'waiting for deployment/egress in egress: 0 of 1 ready' })
     await egressLine
 
     for (const key of ['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei'] as const) await say(first!.id, key, { state: 'done' })
-    const stopped = shown(() => screen.queryByRole('alert'))
+    const stopped = on(() => screen.queryByRole('alert'))
     await say(first!.id, 'gitea', { state: 'failed', why: 'pod gitea-0 is Init:Error' })
     expect((await stopped).textContent).toContain('Stopped at Gitea, your repositories and images: pod gitea-0 is Init:Error')
 
-    const again = shown(() => screen.queryByText('because you asked'))
+    const again = on(() => screen.queryByText('because you asked'))
     await userEvent.click(screen.getByRole('button', { name: 'Set up again' }))
     await again
     const asked = (await setups()).filter((record) => record.reason === 'asked')
@@ -90,7 +89,7 @@ describe('the "Setting Koala up" card follows Koala setting itself up while it i
     expect(screen.queryByRole('button', { name: 'Set up again' })).toBeNull()
 
     for (const piece of PROVISION_PIECES) await say(asked[0]!.id, piece.key, { state: 'done' })
-    const collapsed = shown(() => screen.queryByText('Koala\'s services and monitoring are set up (revision 3).'))
+    const collapsed = on(() => screen.queryByText('Koala\'s services and monitoring are set up (revision 3).'))
     await say(asked[0]!.id, 'set-up')
     await collapsed
     expect(within(card.container).queryByText('The egress proxy')).toBeNull()

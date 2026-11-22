@@ -52,6 +52,12 @@ describe('a person\'s machines at root', () => {
     expect(line.textContent).toMatch(/unless it is$/)
   })
 
+  it('says why the person\'s machines could not be read rather than show none', async () => {
+    vi.mocked(api.get).mockRejectedValue(new Error('root could not read its machines'))
+    renderPanel()
+    expect((await screen.findByRole('alert')).textContent).toBe('Your machines could not be read: root could not read its machines')
+  })
+
   it('says nothing of either when nothing went wrong', async () => {
     showing([], [machine()])
     renderPanel()
@@ -113,6 +119,27 @@ describe('My Machines on root, while a machine joins', () => {
     showing([join({ stage: 'agent', title: 'Installing the machine agent' })])
     handlers.get(MACHINE_JOINS_CHANGED)!()
     expect(await screen.findByText('Installing the machine agent')).toBeDefined()
+  })
+
+  it('reads the machines again only when root says they changed, never on a timer, while a machine is being added', async () => {
+    showing([])
+    vi.mocked(api.post).mockResolvedValue({ data: { code: 'c1', command: 'curl -fsSL https://root.example/machine.sh | sh -s -- c1', expiresAt: later } })
+    renderPanel()
+    const add = await screen.findByRole('button', { name: /Add a machine/ })
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(add)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(screen.getByText('curl -fsSL https://root.example/machine.sh | sh -s -- c1')).toBeDefined()
+      const reads = vi.mocked(api.get).mock.calls.length
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(vi.mocked(api.get).mock.calls.length).toBe(reads)
+    } finally {
+      vi.useRealTimers()
+    }
+    showing([], [machine({ id: 'tower', name: 'tower' })])
+    handlers.get(MACHINE_JOINS_CHANGED)!()
+    expect(await screen.findByText('tower')).toBeDefined()
   })
 })
 

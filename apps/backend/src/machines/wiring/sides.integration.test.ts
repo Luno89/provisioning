@@ -282,32 +282,35 @@ describe('a root and an instance wired as they run, against each other', () => {
     expect(await heard.saidTimes(1)).toEqual([{}]);
     const joined = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
+    expect(await heard.saidTimes(2)).toEqual([{}, {}]);
     expect(await accounts.joins('bo')).toHaveLength(1);
     await (await machineConnected(root, rootDb, joined.value.deviceId)).saidTimes(1);
-    expect(await heard.saidTimes(2)).toEqual([{}, {}]);
+    expect(await heard.saidTimes(4)).toEqual([{}, {}, {}, {}]);
     expect(await accounts.joins('bo')).toEqual([]);
   });
 
-  it('root tells the owner\'s browsers when a machine joins again in its own place and when a join is dismissed, and says the machine is connected once its agent is', async () => {
+  it('root tells the owner\'s browsers when a machine joins, joins again in its own place, has a join dismissed and connects, and says the machine is connected once its agent is', async () => {
     const { root, rootDb, rootSide } = await rootAndInstance();
     const heard = await ownerBrowserHearing(root);
     const accounts = rootSide.accounts!;
     const first = await accounts.join((await accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!first.ok) throw new Error(first.error);
+    expect(await heard.saidTimes(1)).toEqual([{}]);
     const { code } = await accounts.createJoinCode('bo');
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
-    expect(await heard.saidTimes(1)).toEqual([{}]);
+    expect(await heard.saidTimes(2)).toEqual([{}, {}]);
     await rootDb.machines.updateLocalAgentDevice(first.value.deviceId, { set: { signIn: machineSignInKey() } });
     const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replaces: await machineTokenAt(rootDb, first.value.deviceId) });
     if (!again.ok) throw new Error(again.error);
     expect(again.value.deviceId).toBe(first.value.deviceId);
-    expect(await heard.saidTimes(2)).toEqual([{}, {}]);
+    expect(await heard.saidTimes(3)).toEqual([{}, {}, {}]);
     const [shown] = await accounts.joins('bo');
     expect(await accounts.dismissJoin('bo', shown!.id)).toEqual({ ok: true, value: { dismissed: true } });
-    expect(await heard.saidTimes(3)).toEqual([{}, {}, {}]);
+    expect(await heard.saidTimes(4)).toEqual([{}, {}, {}, {}]);
     expect(await accounts.joins('bo')).toEqual([]);
     expect((await accounts.listOnline('bo')).map((machine) => machine.online)).toEqual([false]);
     await machineConnected(root, rootDb, again.value.deviceId);
-    expect(await until(async () => ((await accounts.listOnline('bo'))[0]?.online ? true : undefined))).toBe(true);
+    expect(await heard.saidTimes(5)).toHaveLength(5);
+    expect((await accounts.listOnline('bo')).map((machine) => machine.online)).toEqual([true]);
   });
 });

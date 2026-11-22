@@ -242,7 +242,8 @@ export class MachineAccounts {
     };
     await this.deps.store.saveLocalAgentDevice(device);
     await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id }, unset: ['keptUntil'] });
-    if (await this.deps.store.deleteMachineJoinsOf(id, found.hash)) this.deps.toOwner.machinesChanged(found.ownerId);
+    await this.deps.store.deleteMachineJoinsOf(id, found.hash);
+    this.deps.toOwner.machinesChanged(found.ownerId);
     if (!replaced) await this.deps.followers.joined(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${name} joined, but its Koala could not be told: ${err.message}`));
     const preAuthKey = (await this.deps.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key;
     const registrationCode = await this.deps.clients.machineRegistrationCode({ id, ownerId: found.ownerId });
@@ -338,7 +339,8 @@ export class MachineAccounts {
   private async forget(device: LocalAgentDeviceMetadata): Promise<void> {
     const ownerId = device.ownerId;
     await this.deps.store.deleteLocalAgentDevice(device.id);
-    if (await this.deps.store.deleteMachineJoinsOf(device.id)) this.deps.toOwner.machinesChanged(device.ownerId);
+    await this.deps.store.deleteMachineJoinsOf(device.id);
+    this.deps.toOwner.machinesChanged(device.ownerId);
     if (device.meshIp && this.deps.mesh?.removeNode) {
       await this.deps.mesh.removeNode(ownerId, device.meshIp).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its mesh node ${device.meshIp} could not be: ${err.message}`));
     }
@@ -347,11 +349,18 @@ export class MachineAccounts {
 
   async seen(deviceId: string): Promise<void> {
     await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: this.now().toISOString() }, unset: ['offSince'] });
+    await this.ownerTold(deviceId);
   }
 
   async wentOff(deviceId: string): Promise<void> {
     const at = this.now().toISOString();
     await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: at, offSince: at } });
+    await this.ownerTold(deviceId);
+  }
+
+  private async ownerTold(deviceId: string): Promise<void> {
+    const device = await this.byId(deviceId);
+    if (device) this.deps.toOwner.machinesChanged(device.ownerId);
   }
 
   async keyReplaced(deviceId: string, outcome: KeyReplaced): Promise<void> {
@@ -368,6 +377,7 @@ export class MachineAccounts {
     const device = await this.byId(deviceId);
     if (!device || device.meshIp === meshIp) return;
     await this.deps.store.updateLocalAgentDevice(device.id, { set: { meshIp } });
+    this.deps.toOwner.machinesChanged(device.ownerId);
     await this.deps.followers.changed(device.ownerId).catch((err: Error) => console.warn(`[machines] ${device.name}'s mesh address is recorded, but its Koala could not be told: ${err.message}`));
   }
 }

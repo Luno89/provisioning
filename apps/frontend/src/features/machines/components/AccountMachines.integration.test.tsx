@@ -2,14 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AccountMachines from './AccountMachines'
 import { startBackend } from '../../../test/backend/site'
 import { rootSidesOf, type RootSides } from '../../../test/backend/machines'
 import { pageSocketsOf, type PageSockets } from '../../../test/backend/sockets'
-import { shown, type ShownPage } from '../../../test/backend/hooks'
+import { openPage } from '../../../test/backend/hooks'
 import { koalaInstallActivities } from '../../../../../backend/src/activities/KoalaInstallActivities'
 import { runSteps } from '@koala/provision'
 import { joinArgsOf } from '../../../../../local-agent/src/join/args'
@@ -30,14 +29,8 @@ await sockets!.open()
 const accounts = root!.sides.accounts!
 
 const openPanel = () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const panel = render(
-    <QueryClientProvider client={client}>
-      <AccountMachines name="kangaroo" nameOk hasKoala={false} onPlacing={() => undefined} />
-    </QueryClientProvider>,
-  )
-  const page: ShownPage = { client }
-  return { panel, on: <T,>(find: () => T | null) => shown(find, page) }
+  const { page, on } = openPage(<AccountMachines name="kangaroo" nameOk hasKoala={false} onPlacing={() => undefined} />, { followsSocket: true })
+  return { panel: page, on }
 }
 
 const home = await mkdtemp(path.join(tmpdir(), 'koala-account-machines-'))
@@ -52,6 +45,21 @@ describe('My Machines at root follows what happens to a person\'s machines while
     const step = on(() => screen.queryByText('Installing k3s'))
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toEqual({ ok: true, value: { recorded: true } })
     expect((await step).closest('li')?.textContent).toContain('Joining:')
+    panel.unmount()
+  })
+
+  it('shows a machine as it joins, and lets Koala be put there once root records its private-network address', async () => {
+    const { panel, on } = openPanel()
+    await on(() => screen.queryByRole('button', { name: /Add a machine/ }))
+    const joined = await accounts.join((await accounts.createJoinCode(person.id)).code, { hostname: 'den', rootDir: '/home/me/den' })
+    if (!joined.ok) throw new Error(joined.error)
+    const den = (await on(() => screen.queryByText('den'))).closest('li')!
+    expect((within(den).getByRole('button', { name: 'Put Koala here' }) as HTMLButtonElement).disabled).toBe(true)
+    await accounts.recordMeshIp(joined.value.deviceId, '100.64.0.11')
+    await on(() => {
+      const put = within(den).getByRole('button', { name: 'Put Koala here' }) as HTMLButtonElement
+      return put.disabled ? null : put
+    })
     panel.unmount()
   })
 
