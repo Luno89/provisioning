@@ -77,7 +77,7 @@ function hearing(socket: Socket) {
   return { heard, when };
 }
 
-async function koalaAt(clusterId: string, root: ProvisionRoot = { setup: async () => ({ ok: true }) }) {
+async function koalaAt(clusterId: string, root: ProvisionRoot = { setup: async () => ({ ok: true }), setupAsked: async () => false }) {
   const db = await testDatabase();
   const app = await harnessApp({ prefix: '/unused', router: () => Router(), claims: { role: 'instance', instanceOwnerId: OWNER.id } }, db, () => OWNER);
   const server = http.createServer(app);
@@ -109,7 +109,7 @@ function provisioningOn(db: Awaited<ReturnType<typeof testDatabase>>, clusterId:
   const provisioning = new Provisioning({
     store: db.infrastructure,
     runs: provisionRuns,
-    root: { setup: async () => ({ ok: true }) },
+    root: { setup: async () => ({ ok: true }), setupAsked: async () => false },
     koala: { ownerId: OWNER.id, clusterId, revision: 2 },
     changed: () => undefined,
     log: () => undefined,

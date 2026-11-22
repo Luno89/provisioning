@@ -152,6 +152,8 @@ export const PROVISION_PROGRESS: ProgressContract = { lines: true };
 
 export const PROVISIONING_CHANGED = 'provisioning-changed';
 
+export const SETUP_AGAIN_ASKED = 'koala-set-up-again';
+
 export const PROVISION_PIECE_STATES = ['waiting', 'working', 'up', 'failed'] as const;
 
 export type ProvisionPieceState = (typeof PROVISION_PIECE_STATES)[number];

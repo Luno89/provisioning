@@ -1,5 +1,5 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
-import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute, type OpenRoute } from '../../platform/index.js';
+import { mailProblem, MailError, type MailReputation, type MailService, allowed, asyncRoute, principalFrom, type OpenRoute } from '../../platform/index.js';
 import type { InstanceService, StatusReport } from '../services/InstanceService.js';
 import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
@@ -23,10 +23,12 @@ const answer = <T,>(res: Response, outcome: { ok: true; value: T } | { ok: false
 
 const notifyOf = (req: Request): unknown => ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable;
 
-export const INSTANCES_OPEN: readonly OpenRoute[] = ['/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail', '/owner-removal'];
+export const INSTANCES_OPEN: readonly OpenRoute[] = ['/chart.tgz', '/chart/:file', '/release', '/status', '/addresses', '/updates', '/release-findings', '/groups', '/groups/check', '/groups/:projectId', '/watch', '/mail', '/owner-removal', '/setup-again'];
+
+export type MyKoalaAction = 'set-up-again';
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf'>;
+  instances: Pick<InstanceService, 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'setUpAgain' | 'setupAskedAs'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -46,7 +48,20 @@ export function instancesRouter(deps: {
   const admin: RequestHandler = deps.operatorOnly ?? ((_req: Request, res: Response, _next: NextFunction) => { res.status(403).json({ error: 'Admin only' }); });
 
   router.get('/mine', asyncRoute(async (req: Request, res: Response) => {
-    res.json({ instance: await deps.instances.mine(userOf(req).id) });
+    const ownerId = userOf(req).id;
+    const instance = await deps.instances.mine(ownerId);
+    const can: MyKoalaAction[] = instance?.setupAgain === 'stopped' && allowed(principalFrom(req), 'set-up-again', { kind: 'koala', ownerId }) ? ['set-up-again'] : [];
+    res.json({ instance, can });
+  }));
+
+  router.post('/:id/setup-again', asyncRoute(async (req: Request, res: Response) => {
+    const asked = await deps.instances.setUpAgain(principalFrom(req), String(req.params.id));
+    return asked.ok ? res.status(202).json(asked.value) : res.status(asked.status).json({ error: asked.error });
+  }));
+
+  router.get('/setup-again', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    return answer(res, await deps.instances.setupAskedAs(instanceId, credential));
   }));
 
   router.put('/mine/watch', asyncRoute(async (req: Request, res: Response) => {

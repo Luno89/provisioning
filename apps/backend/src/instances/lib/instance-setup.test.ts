@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROVISION_DONE_STAGE, PROVISION_DONE_TITLE } from '@koala/engine-core/koala-install';
-import { setupHeard, setupSaid, statusSettled, type InstanceSetup } from './instance-setup.js';
+import { setupAgainAsked, setupAgainOf, setupHeard, setupSaid, statusSettled, type InstanceSetup } from './instance-setup.js';
 
 const AT = '2026-11-18T10:01:00.000Z';
 const gitea = { stage: 'gitea', title: 'Gitea, your repositories and images' };
@@ -41,5 +41,24 @@ describe('what root keeps of a Koala setting itself up after its chart', () => {
     expect(statusSettled({ status: 'ready', detail: 'Installed' }, undefined, { ...working, state: 'up' }, 'desk')).toEqual({ status: 'ready', detail: 'Installed' });
     expect(statusSettled({ status: 'ready', detail: 'Installed' }, undefined, undefined, 'desk')).toEqual({ status: 'ready', detail: 'Installed' });
     expect(statusSettled({ status: 'failed', detail: 'The upgrade to v8 failed, so it was rolled back to v7' }, undefined, { ...working, state: 'up' }, 'desk')).toEqual({ status: 'failed', detail: 'The upgrade to v8 failed, so it was rolled back to v7' });
+  });
+});
+
+describe('setting a Koala up again after its setup stopped', () => {
+  const stopped: InstanceSetup = { ...working, state: 'failed', line: undefined, why: 'pod gitea-0 is Init:Error' };
+  const koala = { status: 'failed' as const, machine: 'desk', install: { revision: 4 }, setup: stopped };
+
+  it('offers it only where the setup of the revision the Koala was put on stopped', () => {
+    expect(setupAgainOf(koala)).toBe('stopped');
+    expect(setupAgainOf({ ...koala, setupAsked: { revision: 4, at: AT } })).toBe('asked');
+    expect(setupAgainOf({ ...koala, setup: working, status: 'installing' })).toBeUndefined();
+    expect(setupAgainOf({ ...koala, setup: undefined })).toBeUndefined();
+    expect(setupAgainOf({ ...koala, install: { revision: 5 } })).toBeUndefined();
+  });
+
+  it('asks from the step that stopped, saying whether the Koala hears it now or once it connects', () => {
+    expect(setupAgainAsked(koala, true, AT)).toEqual({ ok: true, patch: { setupAsked: { revision: 4, at: AT }, status: 'installing', detail: 'Asking Koala on desk to set itself up again from Gitea, your repositories and images' } });
+    expect(setupAgainAsked(koala, false, AT)).toMatchObject({ ok: true, patch: { detail: 'Koala on desk sets itself up again from Gitea, your repositories and images once it connects to root' } });
+    expect(setupAgainAsked({ ...koala, setup: working, status: 'installing' }, true, AT)).toEqual({ ok: false, error: 'Koala on desk has not stopped setting itself up, so there is nothing to set up again' });
   });
 });

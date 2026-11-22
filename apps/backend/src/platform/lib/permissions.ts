@@ -48,6 +48,7 @@ export const operatorsAmong = <T extends ClaimedUser & { space?: unknown }>(user
 export interface Actions {
   install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces' | 'see-platform-dependencies' | 'set-up-again';
   'instance-settings': 'change';
+  koala: 'set-up-again';
   account: 'remove';
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   deployment: 'see' | 'change';
@@ -61,6 +62,7 @@ export type ResourceKind = keyof Actions;
 export type Resource =
   | { kind: 'install' }
   | { kind: 'instance-settings' }
+  | { kind: 'koala'; ownerId: string | undefined }
   | { kind: 'account'; id: string }
   | { kind: 'cluster'; id: string; ownerId?: string | undefined }
   | { kind: 'deployment'; ownerId?: string | undefined }
@@ -91,6 +93,9 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
   },
   'instance-settings': {
     change: { who: ['instance-owner'], hidden: false, said: 'Only the owner of this instance changes its settings.' },
+  },
+  koala: {
+    'set-up-again': OWN('Koala not found'),
   },
   account: {
     remove: { who: ['self', 'operator'], hidden: false, said: 'Only an admin can remove someone else\'s account' },
@@ -128,6 +133,7 @@ export type Decision = { allowed: true } | { allowed: false; status: 403 | 404; 
 const ownerOf = (resource: Resource): string | undefined => {
   switch (resource.kind) {
     case 'cluster':
+    case 'koala':
     case 'deployment':
     case 'project':
     case 'record':

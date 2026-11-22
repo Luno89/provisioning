@@ -47,3 +47,41 @@ export function statusSettled(said: StatusSaid, revision: number | undefined, se
 
 export const pastRevision = (followed: InstanceSetup, report: ProvisionReport): string =>
   `root follows the setup of revision ${followed.revision}, so revision ${report.revision}'s is no longer this Koala's`;
+
+export const SETUP_AGAIN_PATH = '/api/instances/setup-again';
+
+export const setUpAgainPath = (instanceId: string): string => `/api/instances/${encodeURIComponent(instanceId)}/setup-again`;
+
+export interface SetupAsked {
+  revision: number;
+  at: string;
+}
+
+export type SetupAgain = 'stopped' | 'asked';
+
+export interface SetupAgainHeld {
+  status?: InstanceStatus | undefined;
+  machine?: string | undefined;
+  install?: { revision?: number | undefined } | undefined;
+  setup?: InstanceSetup | undefined;
+  setupAsked?: SetupAsked | undefined;
+}
+
+export function setupAgainOf(instance: SetupAgainHeld): SetupAgain | undefined {
+  if (instance.setupAsked) return 'asked';
+  const { setup } = instance;
+  if (instance.status !== 'failed' || setup?.state !== 'failed') return undefined;
+  return setup.revision >= (instance.install?.revision ?? 0) ? 'stopped' : undefined;
+}
+
+export type SetupAgainAsk =
+  | { ok: true; patch: { setupAsked: SetupAsked; status: InstanceStatus; detail: string } }
+  | { ok: false; error: string };
+
+export function setupAgainAsked(instance: SetupAgainHeld, connected: boolean, at: string): SetupAgainAsk {
+  const koala = koalaOn(instance.machine);
+  const { setup } = instance;
+  if (setupAgainOf(instance) !== 'stopped' || !setup) return { ok: false, error: `${koala} has not stopped setting itself up, so there is nothing to set up again` };
+  const detail = connected ? `Asking ${koala} to set itself up again from ${setup.title}` : `${koala} sets itself up again from ${setup.title} once it connects to root`;
+  return { ok: true, patch: { setupAsked: { revision: setup.revision, at }, status: 'installing', detail: detail.slice(0, DETAIL_LIMIT) } };
+}

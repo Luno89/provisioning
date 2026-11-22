@@ -203,6 +203,32 @@ describe('setting Koala up after its chart', () => {
     await provisioning.close();
   });
 
+  it('sets up again from the piece that failed, the pieces that came up kept, on the same revision', async () => {
+    const { provisioning, store, started } = setUp();
+    let stopped = earlier(KOALA, 4, 'a');
+    stopped = pieceHeard(stopped, { stage: 'egress', title: 'The egress proxy', state: 'done' }, '2026-11-17T09:10:00.000Z');
+    stopped = pieceHeard(stopped, { stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'no room' }, '2026-11-17T09:20:00.000Z');
+    await store.openProvisioning(stopped);
+
+    const again = await provisioning.again(KOALA.clusterId);
+    expect(again).toMatchObject({ target: KOALA, revision: 4, reason: 'asked', state: 'running' });
+    expect(again?.pieces.slice(0, 2)).toEqual([stopped.pieces[0], { key: 'searxng', title: 'SearXNG, web search', state: 'waiting' }]);
+    expect(started).toEqual([expect.objectContaining({ recordId: again?.id, revision: 4, reason: 'asked' })]);
+    await provisioning.close();
+  });
+
+  it('sets its own cluster up again only when root says the owner asked for it there', async () => {
+    const { provisioning, store, started, root } = setUp();
+    await store.openProvisioning(earlier(KOALA, 4, 'a', { state: 'failed', why: 'SearXNG, web search: no room' }));
+    root.setupAsked.mockResolvedValueOnce(false);
+    expect(await provisioning.rootAsked()).toBeUndefined();
+    expect(started).toEqual([]);
+    root.setupAsked.mockResolvedValueOnce(true);
+    expect(await provisioning.rootAsked()).toMatchObject({ target: KOALA, reason: 'asked', state: 'running' });
+    expect(started).toHaveLength(1);
+    await provisioning.close();
+  });
+
   it('answers the latest run of each place, Koala\'s own first', async () => {
     const { provisioning, store } = setUp();
     await store.openProvisioning(earlier(LAB, 4, 'b'));

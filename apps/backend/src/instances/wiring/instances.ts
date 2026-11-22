@@ -236,6 +236,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     }
   }, (message) => console.warn(message));
   let presenceOf: ((instanceId: string) => boolean) | undefined;
+  let tellInstance: InstancesWiring['tellInstance'];
   const provider = deps.provider;
   if (!provider) throw new Error('root holds the instances, and it has no OpenID provider to register them and check their tokens with');
   const instanceService = new InstanceService(db, {
@@ -254,9 +255,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     registrationCode: (instance) => provider.registrationCode(instance),
     reach: new InstanceReach(settings.reach),
     installs: deps.installs,
+    tell: (instanceId, event) => tellInstance?.(instanceId, event),
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed());
   instanceRoutes?.start();
-  let tellInstance: InstancesWiring['tellInstance'];
   if (role.role === 'root') {
     const presence = new InstancePresence({
       store: db.instances,

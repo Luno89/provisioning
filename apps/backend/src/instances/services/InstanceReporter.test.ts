@@ -9,8 +9,13 @@ const heard: Array<{ headers: Record<string, string | null>; body: unknown }> = 
 let answers: Array<() => Response> = [];
 const removalAsked: Array<Record<string, string | null>> = [];
 let removing = false;
+let setupAsked = false;
 
 interceptHttp(
+  http.get(`${ROOT}/api/instances/setup-again`, ({ request }) => {
+    removalAsked.push({ instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') });
+    return HttpResponse.json({ asked: setupAsked });
+  }),
   http.get(`${ROOT}/api/instances/owner-removal`, ({ request }) => {
     removalAsked.push({ instance: request.headers.get('x-instance-id'), authorization: request.headers.get('authorization') });
     return HttpResponse.json({ removing });
@@ -67,6 +72,15 @@ describe('the instance telling root about itself', () => {
     expect(await reporter().ownerRemoving()).toBe(true);
     removing = false;
     expect(await reporter().ownerRemoving()).toBe(false);
+    expect(removalAsked).toEqual([{ instance: 'inst-bo', authorization: 'Bearer service-token' }, { instance: 'inst-bo', authorization: 'Bearer service-token' }]);
+  });
+
+  it('asks root whether its owner asked it to set itself up again, as itself', async () => {
+    removalAsked.length = 0;
+    setupAsked = true;
+    expect(await reporter().setupAsked()).toBe(true);
+    setupAsked = false;
+    expect(await reporter().setupAsked()).toBe(false);
     expect(removalAsked).toEqual([{ instance: 'inst-bo', authorization: 'Bearer service-token' }, { instance: 'inst-bo', authorization: 'Bearer service-token' }]);
   });
 });

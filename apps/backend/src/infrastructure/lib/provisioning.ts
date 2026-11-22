@@ -58,7 +58,15 @@ export function piecesFor(target: ProvisionTarget): ProvisionPieceView[] {
   return PROVISION_PIECES.map((piece) => ({ key: piece.key, title: piece.title, state: 'waiting' }));
 }
 
-export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string }): ProvisioningRecord {
+export function againPieces(last: ProvisioningRecord | undefined, target: ProvisionTarget, revision: number): ProvisionPieceView[] {
+  if (!last || last.state !== 'failed' || last.revision !== revision || last.target.clusterId !== target.clusterId) return piecesFor(target);
+  return last.pieces.map((piece) => (piece.state === 'up' ? piece : { key: piece.key, title: piece.title, state: 'waiting' }));
+}
+
+export const retryStartsAt = (pieces: readonly ProvisionPieceView[]): ProvisionPieceKey | undefined =>
+  pieces.find((piece) => piece.state !== 'up')?.key;
+
+export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string; pieces?: ProvisionPieceView[] | undefined }): ProvisioningRecord {
   return {
     id: given.runId,
     runId: given.runId,
@@ -67,7 +75,7 @@ export function openedRecord(given: { ownerId: string; target: ProvisionTarget; 
     revision: given.revision,
     reason: given.reason,
     state: 'running',
-    pieces: piecesFor(given.target),
+    pieces: given.pieces ?? piecesFor(given.target),
     startedAt: given.at,
   };
 }

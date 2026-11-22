@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { HardDrive, Loader2, LogOut } from 'lucide-react'
-import { useInstanceReady, useMySetup, useNameCheck, type InstanceStatus } from '../api/instances'
+import { HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
+import { useInstanceReady, useMySetup, useNameCheck, useSetMyKoalaUpAgain, type InstanceStatus, type MySetup } from '../api/instances'
+import { errorMessage } from '../../../api/client'
 import { useCan } from '../../platform'
 import { UnreachableSwitch } from './InstanceWatch'
 import { useSetMyWatch } from '../api/instance-watch'
@@ -43,6 +44,29 @@ function InstanceDown({ since }: { since: string }) {
   )
 }
 
+function SetupStopped({ mine }: { mine: MySetup }) {
+  const can = useCan()
+  const again = useSetMyKoalaUpAgain()
+  return (
+    <div className="space-y-2">
+      <p role="alert" className="text-xs text-rose-300">{mine.detail ?? 'Koala stopped setting itself up.'}</p>
+      {can('set-up-again', mine) && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => again.mutate(mine.id)}
+            disabled={again.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--bark-700)] px-2 py-1 text-[11px] font-medium text-slate-200 disabled:opacity-50"
+          >
+            {again.isPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />} Set up again
+          </button>
+          {again.isError && <span className="text-[11px] text-rose-300">{errorMessage(again.error)}</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function NoInstance({ hasInstance, unreachableSince, signInWaiting, onLogout }: NoInstanceProps) {
   const operator = useCan()('manage-accounts')
   const [ownMachine, setOwnMachine] = useState(false)
@@ -50,6 +74,7 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
   const setup = useMySetup(false)
   const ready = useInstanceReady()
   const status = setup.data?.status
+  const following = placing || Boolean(status && status !== 'waiting')
   const fixedName = setup.data?.name
   const [typed, setTyped] = useState<string | undefined>(undefined)
   const suggestion = useNameCheck('')
@@ -77,7 +102,7 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
           <>
             <p className="text-sm font-semibold">You don't have an instance yet</p>
             <p className="text-xs leading-relaxed text-slate-400">Your work runs on an instance of your own, on a machine you choose. Nothing about it is visible to anyone else.</p>
-            {!placing && (
+            {!following && (
               <div className="space-y-1">
                 <label className="block text-xs text-slate-300" htmlFor="instance-name">Your name, in your instance's address</label>
                 {fixedName ? (
@@ -98,7 +123,7 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
                 ) : null}
               </div>
             )}
-            {!ownMachine && !placing ? (
+            {!ownMachine && !following ? (
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -113,8 +138,8 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
               </div>
             ) : (
               <div className="space-y-3">
-                <AccountMachines name={name} nameOk={nameOk} hasKoala={placing && status !== 'failed'} onPlacing={() => setPlacing(true)} />
-                {placing && (
+                <AccountMachines name={name} nameOk={nameOk} hasKoala={following && status !== 'failed'} onPlacing={() => setPlacing(true)} />
+                {following && (
                   <>
                 <ol className="space-y-1">
                   {STEPS.map((step, index) => {
@@ -128,7 +153,8 @@ export default function NoInstance({ hasInstance, unreachableSince, signInWaitin
                     )
                   })}
                 </ol>
-                {status === 'failed' && <p role="alert" className="text-xs text-rose-300">{setup.data?.detail ?? 'The install stopped.'} Put Koala on the machine again.</p>}
+                {status === 'failed' && setup.data?.setupAgain === 'stopped' && <SetupStopped mine={setup.data} />}
+                {status === 'failed' && setup.data?.setupAgain !== 'stopped' && <p role="alert" className="text-xs text-rose-300">{setup.data?.detail ?? 'The install stopped.'} Put Koala on the machine again.</p>}
                 {setup.data?.detail && status !== 'failed' && <p className="text-[11px] text-slate-400">{setup.data.detail}</p>}
                   </>
                 )}

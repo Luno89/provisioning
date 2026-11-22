@@ -63,6 +63,11 @@ export function createProvisionOperations(deps: ProvisionOperationDeps): Record<
 
   const piece = async (request: NodeRequest, key: ProvisionPieceKey): Promise<StepResult> => {
     const run = runInput(request);
+    const before = await records.getProvisioningRun(run.recordId).then((record) => ({ record }), (err: unknown) => ({ broke: reasonOf(err) }));
+    if ('broke' in before) return failed(before.broke);
+    if (!before.record) return gone(run.recordId);
+    if (before.record.state !== 'running') return endedAlready(before.record);
+    if (before.record.pieces.find((entry) => entry.key === key)?.state === 'up') return done();
     const unstarted = await written(run.recordId, (record) => pieceHeard(record, pieceProgress(record, key, { state: 'started' }), now()));
     if (unstarted) return unstarted;
     const result = await deps.pieces.run({ ownerId: run.ownerId, recordId: run.recordId, target: run.target, revision: run.revision, piece: key }, request.run.signal)

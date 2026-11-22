@@ -13,6 +13,7 @@ import { testInstanceClients, tokenOfInstance } from '../testing/placed-koala.js
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
 import { MailService } from '../../platform/services/MailService.js';
 import type { InstanceRelease } from '../lib/instance-updates.js';
+import { SETUP_AGAIN_ASKED } from '@koala/engine-core/koala-install';
 
 const TOKEN = tokenOfInstance('inst-1');
 
@@ -247,5 +248,51 @@ describe('root\'s mail on its admin page', () => {
   it('says so where this server sends no mail itself', async () => {
     harness = await mount(true);
     expect((await axios.get(harness.url('/api/instances/mail-reputation'), { validateStatus: () => true })).status).toBe(404);
+  });
+});
+
+describe('a Koala whose setup stopped, set up again from root', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  const stoppedAtGitea = { revision: 4, state: 'failed' as const, stage: 'gitea', title: 'Gitea, your repositories and images', why: 'the volume is full', at: 'then' };
+  const install = { id: 'install-1', machineId: 'desk', state: 'failed' as const, revision: 4, at: 'then' };
+
+  it('lets only its owner ask, tells the Koala, and follows the new attempt as the Koala reports it', async () => {
+    const told: [string, string][] = [];
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: (db) => instancesRouter({
+        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 't', domain: 'koala.dev', connected: () => true, tell: (instanceId, event) => { told.push([instanceId, event]); } }, undefined),
+        chart: async () => '',
+      }),
+    });
+    await harness.db.instances.saveInstance({ id: 'inst-1', ownerId: TEST_USER.id, name: 'alice', machine: 'desk', status: 'failed', detail: 'Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is full', url: '', createdAt: 'then', updatedAt: 'then', install, setup: stoppedAtGitea });
+    await harness.db.instances.saveInstance({ id: 'inst-2', ownerId: 'someone-else', name: 'bob', machine: 'lab', status: 'failed', url: '', createdAt: 'then', updatedAt: 'then', install, setup: stoppedAtGitea });
+    const person = (method: 'get' | 'post', path: string) => axios.request<Record<string, unknown>>({ method, url: harness!.url(path), validateStatus: () => true });
+    const call = asInstance(harness);
+
+    expect((await person('get', '/api/instances/mine')).data).toMatchObject({ instance: { status: 'failed', setupAgain: 'stopped' }, can: ['set-up-again'] });
+
+    const theirs = await person('post', '/api/instances/inst-2/setup-again');
+    expect(theirs.status).toBe(404);
+    expect(theirs.data).toEqual({ error: 'Koala not found' });
+    expect(told).toEqual([]);
+
+    const asked = await person('post', '/api/instances/inst-1/setup-again');
+    expect(asked.status).toBe(202);
+    expect(asked.data).toMatchObject({ status: 'installing', detail: 'Asking Koala on desk to set itself up again from Gitea, your repositories and images', setupAgain: 'asked' });
+    expect(told).toEqual([['inst-1', SETUP_AGAIN_ASKED]]);
+    expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: true });
+    expect((await call('get', '/api/instances/setup-again', undefined, 'wrong')).status).toBe(401);
+
+    expect((await call('post', '/api/instances/status', { provision: { revision: 4, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for gitea-0' } } })).status).toBe(200);
+    expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: false });
+    expect((await person('get', '/api/instances/mine')).data).toMatchObject({ instance: { status: 'installing', detail: 'Koala on desk is setting itself up: Gitea, your repositories and images, waiting for gitea-0' }, can: [] });
+    expect((await person('post', '/api/instances/inst-1/setup-again')).data).toEqual({ error: 'Koala on desk has not stopped setting itself up, so there is nothing to set up again' });
+
+    expect((await call('post', '/api/instances/status', { provision: { revision: 4, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', why: 'the volume is still full' } } })).status).toBe(200);
+    expect((await person('get', '/api/instances/mine')).data).toMatchObject({ instance: { status: 'failed', detail: 'Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is still full', setupAgain: 'stopped' }, can: ['set-up-again'] });
   });
 });

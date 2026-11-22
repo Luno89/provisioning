@@ -89,6 +89,7 @@ describe('the permissions table', () => {
       { kind: 'deployment', ownerId: 'someone' },
       { kind: 'project', ownerId: 'someone' },
       { kind: 'record', noun: 'conversation', ownerId: 'someone' },
+      { kind: 'koala', ownerId: 'someone' },
     ];
     for (const resource of owned) {
       for (const action of Object.keys(PERMISSIONS[resource.kind]) as never[]) {

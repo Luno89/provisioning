@@ -1,18 +1,21 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install'
 import { api } from '../../../api/client'
-import { heardChange, useSocketEvent } from '../../platform'
+import { heardChange, useSocketEvent, type Permitted } from '../../platform'
 import { identityKeys } from './identity'
 import type { WatchView } from './instance-watch'
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed'
 
-export interface MySetup {
+export type SetupAgain = 'stopped' | 'asked'
+
+export interface MySetup extends Permitted<'set-up-again'> {
   id: string
   status: InstanceStatus
   detail?: string
   url: string
   name?: string
+  setupAgain?: SetupAgain
   watch?: WatchView
 }
 
@@ -29,7 +32,10 @@ export const instanceKeys = {
 }
 
 export const getMySetup = (): Promise<MySetup | null> =>
-  api.get<{ instance: MySetup | null }>('/instances/mine').then((r) => r.data.instance)
+  api.get<{ instance: MySetup | null; can?: MySetup['can'] }>('/instances/mine').then((r) => (r.data.instance ? { ...r.data.instance, can: r.data.can } : null))
+
+export const setMyKoalaUpAgain = (instanceId: string): Promise<MySetup> =>
+  api.post<MySetup>(`/instances/${encodeURIComponent(instanceId)}/setup-again`).then((r) => r.data)
 
 export const checkName = (name: string): Promise<NameCheck> =>
   api.get<NameCheck>('/instances/name-check', { params: { name } }).then((r) => r.data)
@@ -46,6 +52,14 @@ export function useMySetup(watchingReach: boolean) {
     queryFn: getMySetup,
     refetchInterval: watchingReach ? 3000 : false,
     refetchIntervalInBackground: true,
+  })
+}
+
+export function useSetMyKoalaUpAgain() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: setMyKoalaUpAgain,
+    onSuccess: () => client.invalidateQueries({ queryKey: instanceKeys.mine() }),
   })
 }
 
