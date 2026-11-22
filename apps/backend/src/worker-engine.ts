@@ -458,6 +458,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     webhooks: projectRepos,
     artifacts: instanceFiles.artifacts,
     files: instanceFiles.fileService,
+    memoryIndex: indexingFrom(memoryIndex),
   });
   return {
     ...engine,

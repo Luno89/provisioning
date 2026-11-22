@@ -25,6 +25,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
   secrets,
   webhooks: { unhook: async () => 0 },
   files,
+  memoryIndex: { unindex: async () => undefined },
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'machine', machineId: 'koala', status: 'running' } as never : undefined),
     handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), 

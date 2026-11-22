@@ -5,6 +5,7 @@ import {
 import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs, type HandOver } from '../infrastructure/index.js';
 import { type Tree, type Branch, type Leaf, type PlanProposal, loadProjectScope } from '../projects/index.js';
 import type { Task } from '../engine-host/tools/tasks.js';
+import { currentMemory, type MemoryIndexing, type MemoryItem } from '../memory/index.js';
 import type { Conversation } from '../engine/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { workspaceName } from '../engine-host/sandboxes/workspace.js';
@@ -47,6 +48,10 @@ export interface ProjectRemovalStore {
     getPipelineRuns(): Promise<PipelineRunMetadata[]>;
     getOdooReleases(ownerId: string, projectId?: string): Promise<{ id: string }[]>;
   };
+  memory: {
+    getMemories(ownerId: string): Promise<MemoryItem[]>;
+    deleteMemory(id: string): Promise<void>;
+  };
 }
 
 export interface AppTeardown {
@@ -81,6 +86,7 @@ export interface ProjectRemovalDeps {
   webhooks: { unhook(projectId: string): Promise<number> };
   artifacts?: { removeRun(ownerId: string, runId: string): Promise<number> } | undefined;
   files: { removeProjectFiles(ownerId: string, projectId: string): Promise<number> };
+  memoryIndex: Pick<MemoryIndexing, 'unindex'>;
 }
 
 export interface ProjectRemovalActivities {
@@ -197,6 +203,13 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       count('deployments', found.scope.apps.length);
       if (deps.artifacts && ownerId) {
         for (const release of await store.releases.getOdooReleases(ownerId, projectId)) count('artifacts', await deps.artifacts.removeRun(ownerId, release.id));
+      }
+      if (ownerId) {
+        const own = (await store.memory.getMemories(ownerId)).filter((memory) => memory.projectId === projectId && memory.scope === 'project');
+        const indexed = own.filter(currentMemory).map((memory) => memory.id);
+        if (indexed.length) await deps.memoryIndex.unindex(ownerId, indexed);
+        for (const memory of own) await store.memory.deleteMemory(memory.id);
+        count('memories', own.length);
       }
       for (const [name, n] of Object.entries(await store.projects.removeProjectRecords(projectId))) count(name, n);
       return removed;

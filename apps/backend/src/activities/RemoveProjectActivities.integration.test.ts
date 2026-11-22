@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
@@ -7,8 +7,13 @@ import { ArtifactService } from '../files/services/ArtifactService.js';
 import { FileService } from '../files/services/FileService.js';
 import { storedFilesOn } from '../files/testing/stored-files-twin.js';
 import { seedTwoProjects } from '../projects/testing/project-world.js';
+import { indexingFrom, indexMemories } from '../memory/lib/memory-index.js';
+import { MEMORY_COLLECTION, MEMORY_INDEX } from '../memory/lib/memory-rank.js';
+import { startCorpusStandIn } from '../engine/testing/corpus-stand-in.js';
 
 const fresh = await emptiedEachTime();
+const standIn = await startCorpusStandIn();
+afterAll(async () => { await standIn.stop(); });
 
 let db: MongoDB;
 let kubectl: string[][];
@@ -24,6 +29,7 @@ const deps = (): ProjectRemovalDeps => ({
   secrets: { removeProject: async (projectId) => { secrets.push(projectId); return { workspace: true, readers: 1 }; } },
   webhooks: { unhook: async () => 0 },
   files: new FileService({ files: stored().files, shares: db.files }),
+  memoryIndex: indexingFrom(standIn.reach),
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'machine', machineId: 'koala', status: 'running' } as never : undefined),
     handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }),
@@ -77,6 +83,22 @@ describe('the steps that delete a project', () => {
     expect(await db.engine.getConversation('bo', 'c1')).toBeUndefined();
     expect((await db.engine.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
     expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);
+  });
+
+  it('deletes the project\'s own memories for good, their index entries with them, and keeps what the person learned in it for everywhere', async () => {
+    const memory = (id: string, projectId: string, scope: 'project' | 'global') => ({ id, ownerId: 'bo', projectId, scope, category: 'environment_facts' as const, status: 'active' as const, title: id, text: `about ${id}`, createdAt: at, updatedAt: at });
+    for (const item of [memory('its-own', 'p1', 'project'), memory('learned-there', 'p1', 'global'), memory('the-other', 'p2', 'project')]) await db.memory.saveMemory(item);
+    await indexMemories(standIn.reach, (await db.memory.getMemories('bo')).filter((item) => ['its-own', 'learned-there', 'the-other'].includes(item.id)));
+
+    const removed = await createProjectRemovalActivities(deps()).RemoveProjectRecordsActivity({ projectId: 'p1' });
+
+    expect(removed).toMatchObject({ memories: 1 });
+    const left = new Map((await db.memory.getMemories('bo')).map((item) => [item.id, item]));
+    expect(left.has('its-own')).toBe(false);
+    expect(left.get('learned-there')?.scope).toBe('global');
+    expect(left.get('the-other')?.projectId).toBe('p2');
+    expect(standIn.documents(MEMORY_INDEX).map((doc) => doc.memory_id).sort()).toEqual(['learned-there', 'the-other']);
+    expect(standIn.points(MEMORY_COLLECTION).map((point) => point.memory_id).sort()).toEqual(['learned-there', 'the-other']);
   });
 
   it('removes what its releases\' browser tests kept, and nothing of another project\'s', async () => {
