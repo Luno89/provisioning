@@ -92,11 +92,26 @@ describe('a project being deleted while a step of its release is still writing',
   it('ends the wait for a machine that is off the moment the machine is removed, shows it removed, and deletes the project with no timer', async () => {
     await whileItsMachineIsOff(async ({ project, deviceId, handle, told, client }) => {
       await world.db.machines.deleteLocalAgentDevice(deviceId);
-      const result = await Promise.race([handle.result() as Promise<ProjectDeleted>, neverEndingOnTheRemoval(client, deleteProjectWorkflowId(project), 'Desk')]);
+      const result = await Promise.race([handle.result() as Promise<ProjectDeleted>, neverEndingWhileOff(client, deleteProjectWorkflowId(project), 'Desk')]);
       const timers = ((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes);
       expect(result).toMatchObject({ stopped: [`${project}-on-desk`] });
       expect(latest(told)?.work.map((item) => [item.workflowId, item.state, item.machine]), 'the person sees the machine was removed, never stopped').toEqual([[`${project}-on-desk`, 'machine-removed', 'Desk']]);
       expect(latest(told)?.phase).toBe('deleted');
+      expect(timers, 'deletion waits on no timer').toBe(false);
+    });
+  });
+
+  it('ends a deletion cancelled while it waits for a machine that is off as cancelled, with no timer', async () => {
+    await whileItsMachineIsOff(async ({ project, handle, client }) => {
+      await handle.cancel();
+      const ended = await Promise.race([handle.result().then(() => 'completed', () => 'rejected'), neverEndingWhileOff(client, deleteProjectWorkflowId(project), 'Desk')]);
+      const timers = ((await handle.fetchHistory()).events ?? []).some((event) => event.timerStartedEventAttributes);
+      const workflows = temporalRemovalWorkflows<{ projectId: string; mode: 'archive' | 'permanent' }, ProjectRemovalStep>(() => client, 'unused', PROJECT_REMOVAL_PROGRESS_QUERY);
+      expect(ended).toBe('rejected');
+      expect((await handle.describe()).status.name, 'the deletion ended as what happened to it').toBe('CANCELLED');
+      const state = await workflows.state(deleteProjectWorkflowId(project));
+      expect(state.state).toBe('failed');
+      expect(state.state === 'failed' ? state.reason : '', 'the person reads why it ended, never the codec refusing Temporal\'s own words').not.toMatch(/unencrypted/);
       expect(timers, 'deletion waits on no timer').toBe(false);
     });
   });
@@ -120,7 +135,7 @@ interface MachineOff {
   told: ToldDeletion[];
 }
 
-async function neverEndingOnTheRemoval(client: Client, workflowId: string, machine: string): Promise<never> {
+async function neverEndingWhileOff(client: Client, workflowId: string, machine: string): Promise<never> {
   const open = new Map<string, string>();
   const scheduled = new Set<string>();
   let nextPageToken: Uint8Array | undefined;
