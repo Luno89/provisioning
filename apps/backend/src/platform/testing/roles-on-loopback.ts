@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Followed } from '@koala/engine-core/processes';
+import { startKept } from '@koala/engine-core/testing/kept';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { inject } from 'vitest';
 import { testBucket } from '../../files/testing/real-minio.js';
@@ -63,7 +64,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     await writeFile(join(home, file), content, { mode: 0o600 });
   }
   const lines: string[] = [];
-  let child: ChildProcess | undefined;
+  let child: { followed: Followed; ended?: string } | undefined;
   const settings: NodeJS.ProcessEnv = {
     PATH: `${join(home, 'bin')}:${process.env.PATH ?? ''}`,
     HOME: home,
@@ -77,20 +78,21 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     ...env,
   };
   const start = async (): Promise<void> => {
-    child = spawn(process.execPath, ['--import', TSX, join(BACKEND, entry)], { cwd: home, env: settings, stdio: ['ignore', 'pipe', 'pipe'] });
-    const keep = (chunk: Buffer) => { lines.push(...chunk.toString('utf8').split('\n').filter(Boolean)); if (lines.length > 2000) lines.splice(0, lines.length - 2000); };
-    child.stdout?.on('data', keep);
-    child.stderr?.on('data', keep);
-    const exited = new Promise<never>((_, fail) => child!.once('exit', (code) => fail(new Error(`${name} exited (${code}) before it answered:\n${lines.slice(-40).join('\n')}`))));
-    const answered = (async () => { while (!await ready()) await new Promise((done) => setTimeout(done, 250)); })();
-    await Promise.race([answered, exited]);
-    child.removeAllListeners('exit');
+    const keep = (chunk: string) => { lines.push(...chunk.split('\n').filter(Boolean)); if (lines.length > 2000) lines.splice(0, lines.length - 2000); };
+    const started: { followed: Followed; ended?: string } = { followed: startKept({ command: process.execPath, args: ['--import', TSX, join(BACKEND, entry)], cwd: home, env: settings }, { heard: { stdout: keep, stderr: keep } }) };
+    child = started;
+    void started.followed.exited.then((end) => { started.ended = `${name} exited (${end.signal ?? end.code})`; });
+    while (!await ready()) {
+      if (started.ended) throw new Error(`${started.ended} before it answered:\n${lines.slice(-40).join('\n')}`);
+      await new Promise((done) => setTimeout(done, 250));
+    }
   };
   const stop = async (): Promise<void> => {
     const running = child;
     child = undefined;
-    if (!running || running.exitCode !== null) return;
-    await new Promise<void>((done) => { running.once('exit', () => done()); running.kill('SIGTERM'); });
+    if (!running || running.ended) return;
+    running.followed.stop('SIGTERM');
+    await running.followed.exited;
   };
   await start();
   return {

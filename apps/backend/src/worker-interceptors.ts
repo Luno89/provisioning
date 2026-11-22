@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import type { Logger, Worker } from '@temporalio/worker';
 import { createWorker } from '@koala/engine-core/temporal';
-import { connectTemporalWorker, givenDeletingMarks, isOff, reopening, servesTenants, sharedPayloadBlobs, type Off, type DependencyStates, type PlatformKeys, type RoleConfig, type TemporalSettings } from './platform/index.js';
+import { connectTemporalWorker, failureOf, givenDeletingMarks, isOff, reopening, servesTenants, sharedPayloadBlobs, type Off, type DependencyStates, type PlatformKeys, type RoleConfig, type TemporalSettings } from './platform/index.js';
 
 export function workflowInterceptorModules(role: RoleConfig): string[] {
   const modules = [resolve(import.meta.dirname, 'workflows/telemetry-interceptors.ts')];
@@ -37,12 +37,24 @@ export async function backendWorker(settings: BackendWorkerSettings, { subject, 
   });
 }
 
-export async function backendWorkerOnceTemporalAnswers(settings: BackendWorkerSettings, said: { tag: string; logger: Logger; dependencies: DependencyStates }, worker: BackendWorker): Promise<Worker> {
+export interface StartSaid {
+  tag: string;
+  logger: Pick<Logger, 'warn'>;
+  dependencies: Pick<DependencyStates, 'failed'>;
+}
+
+export function backendWorkerOnceTemporalAnswers(settings: BackendWorkerSettings, said: StartSaid, worker: BackendWorker): Promise<Worker> {
+  return onceTemporalAnswers(() => backendWorker(settings, worker), said);
+}
+
+export async function onceTemporalAnswers<T>(start: () => Promise<T>, said: StartSaid): Promise<T> {
   const connecting = reopening();
   for (;;) {
     try {
-      return await backendWorker(settings, worker);
+      return await start();
     } catch (err) {
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw new Error(`${said.tag} cannot start: ${failure.reason}`, { cause: err });
       said.dependencies.failed('temporal', err);
       said.logger.warn(`${said.tag} ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in ${connecting.seconds} s`);
       await connecting.after();

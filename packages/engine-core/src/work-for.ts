@@ -35,7 +35,7 @@ interface Execute {
 }
 
 export function carryWorkFor() {
-  return (): { inbound: Execute } => ({
+  const carriesWhoseWorkItIs = (): { inbound: Execute } => ({
     inbound: {
       execute(input, next) {
         const work = workFromHeaders(input.headers);
@@ -43,6 +43,7 @@ export function carryWorkFor() {
       },
     },
   });
+  return carriesWhoseWorkItIs;
 }
 
 export interface Stopping {
@@ -83,7 +84,7 @@ export async function refuseWhileDeleting(work: WorkFor | undefined, read: ReadD
 
 export function refusingDeletingWork(marks: DeletingMarksHere): (() => { inbound: Execute })[] {
   if (typeof marks !== 'function') return [];
-  return [() => ({
+  const refusesDeletingWork = (): { inbound: Execute } => ({
     inbound: {
       async execute(input, next) {
         try {
@@ -95,5 +96,6 @@ export function refusingDeletingWork(marks: DeletingMarksHere): (() => { inbound
         return next(input);
       },
     },
-  })];
+  });
+  return [refusesDeletingWork];
 }

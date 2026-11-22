@@ -1,4 +1,4 @@
-import { temporal } from '@temporalio/proto';
+import { EVERY_ACTIVITY, interceptorsOf, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import type { BlobReach } from '@koala/engine-core/payloads';
 import { describe, expect, it } from 'vitest';
 import { createDeviceActivities, deviceQueue, startDeviceWorker } from './engine-worker.js';
@@ -26,16 +26,11 @@ describe('the device worker, started as the machine agent starts it', () => {
       gate: new IdleGate(),
       onReady: (queue) => said.push(queue),
     });
-    const running = worker.run();
-    const pollers = async () => (await world.env.client.workflowService.describeTaskQueue({
-      namespace: 'default',
-      taskQueue: { name: deviceQueue('boot-desk') },
-      taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
-    })).pollers ?? [];
-    while ((await pollers()).length === 0) await new Promise((done) => setTimeout(done, 100));
+    const { running, ended } = watchedRun(worker);
+    await untilPolling(world.env.client, { queue: deviceQueue('boot-desk'), ended });
     expect(said).toEqual(['device-boot-desk']);
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(Object.keys(createDeviceActivities({ rootDir: world.rootDir, deviceId: 'boot-desk' })).sort());
-    expect(worker.options.interceptors.activity).toHaveLength(4);
+    expect(interceptorsOf(worker), 'each activity heartbeats, is traced, carries whose work it is, has its programs killed when cancelled and its failure classified; a machine reads no deleting marks').toEqual(EVERY_ACTIVITY);
     worker.shutdown();
     await running;
     expect(worker.getState()).toBe('STOPPED');

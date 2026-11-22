@@ -24,7 +24,7 @@ export function classified(err: unknown): unknown {
 }
 
 export function classifiedFailures() {
-  return (): { inbound: Execute } => ({
+  const classifiesFailures = (): { inbound: Execute } => ({
     inbound: {
       async execute(input, next) {
         try {
@@ -35,6 +35,7 @@ export function classifiedFailures() {
       },
     },
   });
+  return classifiesFailures;
 }
 
 export const activityInterceptors = () => [heartbeatWhileRunning(), traceActivities(), carryWorkFor(), killOnCancel(), classifiedFailures()];

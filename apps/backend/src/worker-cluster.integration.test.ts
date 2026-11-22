@@ -1,4 +1,4 @@
-import { temporal } from '@temporalio/proto';
+import { interceptorsOf, pollersOf, REFUSING_DELETING_WORK, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import { describe, expect, it } from 'vitest';
 import { clusterWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey } from './platform/testing/keys.js';
@@ -19,15 +19,13 @@ const EXPECTED = ['AwaitProjectWorkActivity', 'CheckWorkloadActivity', 'DeployAp
 describe('the cluster worker, started the way its entry starts it', () => {
   it('on an instance polls the cluster queue with every cluster activity, the shared interceptors and the refusal of work being deleted', async () => {
     const { worker } = await startClusterWorker(clusterWorkerSettingsFrom(placeFor('instance')));
-    const running = worker.run();
-    const pollers = async () => (await env.client.workflowService.describeTaskQueue({
-      namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.cluster }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
-    })).pollers ?? [];
-    while (!(await pollers()).some((poller) => poller.identity === 'luno-worker-cluster-7d9f-abcde')) await new Promise((done) => setTimeout(done, 100));
+    const { running, ended } = watchedRun(worker);
+    const polling = { namespace: env.namespace, queue: QUEUES.cluster, identity: 'luno-worker-cluster-7d9f-abcde', ended };
+    await untilPolling(env.client, polling);
     expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual(EXPECTED);
-    expect(worker.options.interceptors.activity).toHaveLength(6);
+    expect(interceptorsOf(worker), 'the shared interceptors and the refusal of work being deleted').toEqual(REFUSING_DELETING_WORK);
     expect(worker.options.identity, 'Temporal knows the worker by its own pod').toBe('luno-worker-cluster-7d9f-abcde');
-    expect((await pollers()).map((poller) => poller.identity), 'the worker is up, polling as its pod').toContain('luno-worker-cluster-7d9f-abcde');
+    expect(await pollersOf(env.client, polling), 'the worker is up, polling as its pod').toContain('luno-worker-cluster-7d9f-abcde');
     worker.shutdown();
     await running;
   });
