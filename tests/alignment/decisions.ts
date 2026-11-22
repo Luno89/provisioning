@@ -400,6 +400,19 @@ export const DECISIONS: Decision[] = [
     ],
   },
   {
+    id: 'koala-develops-itself',
+    subject: 'Developing Koala through Koala',
+    terms: ['red-green-refactor', 'grove', 'koala cli', 'koala develops itself', 'procedures'],
+    words: [
+      { at: '2026-11-19T05:28', text: 'I already have been begging you to do the full red-green-refactor, can you force yourself to actually do it with hooks? maybe with various agents?' },
+      { at: '2026-11-19T05:38', asked: 'Where should the `koala` CLI live?', text: 'In the machine agent\'s program (Recommended)' },
+      { at: '2026-11-19T05:38', asked: 'Which project should the red-green-refactor procedure work on first?', text: 'This repo, through Koala (Recommended)' },
+      { at: '2026-11-19T05:38', asked: 'How should the loop be built in Koala\'s procedures?', text: 'Grove, with a red-green-refactor task (Recommended)' },
+      { at: '2026-11-22T09:24', text: 'is there anyway to trim the context to just what they need? we talked about useing koala\'s prodecures?' },
+    ],
+    reading: 'Koala develops itself: this repo is a project on the dev Koala, worked through Grove with a red-green-refactor task (a strong model plans a concept into leaves and small tasks; each task runs red, a cheaper model writing a test that must fail, then green, minimal code that must pass, then refactor that stays green; then the strong model reviews and plans the next), each step given only its leaf\'s context. A `koala` command for the person lives in the machine agent\'s program: it signs in as them through root, starts a run on a project and follows it in the terminal. Built after ship, once the live stack is proven; until then the coordinator runs its own agents the same way: one small task each, only the files it needs, a cheaper model for mechanical steps, one at a time.',
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
