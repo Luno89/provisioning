@@ -11,7 +11,7 @@ import type { BearerSignIn, ClaimSettings } from '../../platform/index.js';
 
 const currentOf = (key: PlatformKeys['session']): string => (typeof key === 'string' ? key : key.current);
 
-export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; keys: Pick<PlatformKeys, 'session'>; db: Database; proxied: boolean; reach: InstanceReach; webKeys: IdentityKeyPair }): RootProvider | undefined {
+export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; keys: Pick<PlatformKeys, 'session' | 'data'>; db: Database; proxied: boolean; reach: InstanceReach; webKeys: IdentityKeyPair }): RootProvider | undefined {
   if (deps.role.role !== 'root' || !deps.role.signing) return undefined;
   return new RootProvider({
     issuer: rootIssuerOf(deps.publicUrl),
@@ -20,6 +20,7 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
     proxied: deps.proxied,
     reach: deps.reach,
     web: { publicUrl: deps.publicUrl, key: publicJwkOf(deps.webKeys) },
+    dataKey: deps.keys.data,
   }, deps.db);
 }
 

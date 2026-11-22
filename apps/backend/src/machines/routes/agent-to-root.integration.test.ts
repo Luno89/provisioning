@@ -24,7 +24,11 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { KoalaInstalls } from '../services/KoalaInstalls.js';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { machinesRouter } from './machines.js';
-import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED, machineClientOf } from '@koala/engine-core/root-client';
+import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED, machineClientOf, METRICS_CLIENT_SECRET, METRICS_SCOPE, metricsClientIdOf, rootTokenUrlOf } from '@koala/engine-core/root-client';
+import { metricsClientFile } from '../../../../local-agent/src/machine-config.js';
+import { machineAccessCheckedByServedRoot } from '../../instances/testing/registration-code.js';
+import { NOT_A_MACHINE_TOKEN, NOT_A_METRICS_TOKEN } from '../../instances/lib/machine-access.js';
+import { runResourceOf } from '../../instances/lib/oidc.js';
 import { closedAfterEach, quietAccountSides, untilWhile } from '../testing/wiring-world.js';
 import { joiningRoot } from '../testing/joining-root.js';
 import { testInstanceClients } from '../../instances/testing/placed-koala.js';
@@ -211,6 +215,43 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       expect(again.devices).toHaveLength(1);
       expect(again.devices[0]?.id).not.toBe(first.saved.deviceId);
     });
+  });
+
+  it('registers the machine\'s Prometheus at root as a client of its own, kept beside the key for k3s and readable only by the person, which takes five-minute tokens for its owner\'s Koala alone with its secret, until the machine is removed', async () => {
+    const world = await root();
+    await world.db.instances.saveInstance({ id: 'inst-bo', ownerId: 'bo', url: 'https://laptop.koala.test', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: 'ready' });
+    const { ctx, saved } = await joinedMachine(world);
+    const file = metricsClientFile(path.join(ctx.host.env.XDG_CONFIG_HOME!, 'koala', 'machine.json'));
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const manifest = JSON.parse(await readFile(file, 'utf8')) as { kind: string; items: Array<{ kind: string; metadata: { name: string; namespace?: string }; stringData?: Record<string, string> }> };
+    expect([manifest.kind, manifest.items.map((item) => item.kind)]).toEqual(['List', ['Namespace', 'Secret']]);
+    const secret = manifest.items[1]!;
+    expect(secret.metadata).toEqual({ name: METRICS_CLIENT_SECRET.name, namespace: METRICS_CLIENT_SECRET.namespace });
+    const clientId = secret.stringData![METRICS_CLIENT_SECRET.idKey]!;
+    const clientSecret = secret.stringData![METRICS_CLIENT_SECRET.secretKey]!;
+    expect(clientId).toBe(metricsClientIdOf(saved.deviceId));
+    expect(JSON.stringify(await world.db.machines.getLocalAgentDevices())).not.toContain(clientSecret);
+
+    const asPrometheus = (resource: string, withSecret = clientSecret) => fetch(rootTokenUrlOf(world.url), {
+      method: 'POST',
+      headers: { authorization: `Basic ${Buffer.from(`${encodeURIComponent(clientId)}:${encodeURIComponent(withSecret)}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'client_credentials', scope: METRICS_SCOPE, resource }).toString(),
+    });
+    const granted = await asPrometheus(runResourceOf('inst-bo'));
+    expect(granted.status).toBe(200);
+    const { access_token: token, expires_in: lifetime } = await granted.json() as { access_token: string; expires_in: number };
+    expect(lifetime).toBe(300);
+    const koala = machineAccessCheckedByServedRoot(world.url, 'inst-bo');
+    const admitted = await koala.checkMetricsToken(token);
+    expect(admitted).toMatchObject({ deviceId: saved.deviceId });
+    expect(typeof admitted === 'string' ? admitted : admitted.until - Date.now()).toBeGreaterThan(240_000);
+    expect(await koala.checkMachineToken(token)).toBe(NOT_A_MACHINE_TOKEN);
+    expect(await koala.checkMetricsToken(await machineClientOf({ rootUrl: world.url, deviceId: saved.deviceId, key: saved.key }).token(runResourceOf('inst-bo')))).toBe(NOT_A_METRICS_TOKEN);
+    expect((await asPrometheus(runResourceOf('inst-someone-else'))).status).toBe(400);
+    expect((await asPrometheus(runResourceOf('inst-bo'), 'a-guess')).status).toBe(401);
+
+    expect(await world.accounts.remove('bo', saved.deviceId)).toBe(true);
+    expect((await asPrometheus(runResourceOf('inst-bo'))).status).toBe(401);
   });
 
   it('stops at the join when the settings this machine kept are not the ones Koala writes, tells root where and why with the code, and makes no machine', async () => {

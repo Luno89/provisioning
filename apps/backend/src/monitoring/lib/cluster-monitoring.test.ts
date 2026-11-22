@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { koalaClusterMonitoring, metricsTokenManifests, MONITORING_CHARTS, monitoringPlan, monitoringStackEnv, monitoringStackName, telemetryPresent } from './cluster-monitoring.js';
+import { koalaClusterMonitoring, MONITORING_CHARTS, monitoringPlan, monitoringStackEnv, monitoringStackName, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 const telemetry = { collector: true, tempo: true };
@@ -74,8 +74,11 @@ describe('the cluster of a pool instance', () => {
     expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false, crdsFirst: false });
     expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true, crdsFirst: false });
     expect(monitoringStackEnv({ physicalName: 'pool-bob', kubeconfigPath: '/k', pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
-    const machine = monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' } }, false);
-    expect(machine).toMatchObject({ INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics' });
+    const machine = monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', machine: { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://koala.example/oidc/token', resource: 'urn:koala:instance:inst-1' } }, false);
+    expect(machine).toMatchObject({
+      INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent',
+      REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics', METRICS_TOKEN_URL: 'https://koala.example/oidc/token', METRICS_RESOURCE: 'urn:koala:instance:inst-1',
+    });
     expect(machine).not.toHaveProperty('ENV');
     const kept = monitoringStackEnv({ physicalName: 'machine-desk', kubeconfigPath: '/k' }, false);
     expect(kept).toMatchObject({ INGRESS_SERVICE: 'NodePort' });
@@ -96,14 +99,5 @@ describe('the stacks that monitor Koala\'s own cluster, named for that cluster\'
     expect(koalaClusterMonitoring(true, koala)).toMatchObject({ pool: true, koala: true });
     expect(koalaClusterMonitoring(true, { clusterId: 'pool-bob', kind: 'koala' })).toMatchObject({ physicalName: 'pool-bob', pool: true });
     expect(koalaClusterMonitoring(false, { clusterId: 'root', kind: 'root' })).toEqual({ physicalName: 'root', koala: true, pool: false, reach: { clusterId: 'root', kind: 'root' } });
-  });
-});
-
-describe('where a machine\'s cluster sends its metrics', () => {
-  it('is sent with a token kept in a Secret beside the agent, never in the stack', () => {
-    expect(metricsTokenManifests('t0k')).toEqual([
-      { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'monitoring' } },
-      { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'koala-metrics', namespace: 'monitoring' }, type: 'Opaque', stringData: { token: 't0k' } },
-    ]);
   });
 });

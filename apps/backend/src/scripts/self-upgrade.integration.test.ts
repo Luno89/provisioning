@@ -66,7 +66,7 @@ async function rootServing(given?: string, newData?: number, chart: string | Buf
     },
   });
   settings.rootUrl = harness.url('');
-  held.provider = new RootProvider({ issuer: harness.url('/oidc'), signing: identityKeysFrom(generateIdentityKey()), cookieKey: 'self-upgrade-provider-cookies', proxied: false, reach: new InstanceReach({ open: true }), web: rootWebFor(harness.url('')) }, harness.db);
+  held.provider = new RootProvider({ issuer: harness.url('/oidc'), signing: identityKeysFrom(generateIdentityKey()), cookieKey: 'self-upgrade-provider-cookies', proxied: false, reach: new InstanceReach({ open: true }), web: rootWebFor(harness.url('')), dataKey: createHash('sha256').update('self-upgrade-provider-data').digest('hex') }, harness.db);
   held.oidc = oidcProviderRouter({ provider: held.provider, signedIn: async () => undefined, interactions: Router() });
   const joined = await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno');
   const clientKey = generateIdentityKey();

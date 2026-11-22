@@ -5,7 +5,7 @@ import type { Processes } from '@koala/engine-core/processes';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { configFile } from './machine-config.js';
+import { configFile, metricsClientFile } from './machine-config.js';
 import { K3S_UNINSTALL, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 export interface Command { file: string; args: string[] }
@@ -25,6 +25,7 @@ export function serviceFiles(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, 
 export async function forgetThisMachine(log: (line: string) => void, env: NodeJS.ProcessEnv = process.env, processes: Processes = nodeProcesses): Promise<void> {
   const home = os.homedir();
   await rm(configFile(env), { force: true });
+  await rm(metricsClientFile(configFile(env)), { force: true });
   log('this machine was removed from Koala: its token is deleted and the agent stops');
   for (const file of serviceFiles(process.platform, env, home)) await rm(file, { force: true }).catch((err: Error) => log(`${file} could not be removed, so the service may start the agent again: ${err.message}`));
   for (const command of stopServiceCommands(process.platform, process.getuid?.() ?? 0, home)) {

@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
 import { expectReadyOnlySinceStart } from '@koala/provision/testing';
-import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterOnConnect, clusterState, kubeconfigOnMesh, machineChartCluster, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, METRICS_CLIENT_MISSING, clusterOnConnect, machineClusterOp, metricsClientInto, clusterState, kubeconfigOnMesh, machineChartCluster, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type MachineHost } from './machine-cluster.js';
 
 const START = Date.parse('2026-11-05T10:00:00Z');
 const KUBECONFIG = 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n';
 const at = (ms: number) => new Date(ms).toISOString();
 
-function host(opts: { installed?: boolean; active?: string; meshIp?: string | undefined; readyAt?: number[]; failsAfter?: number; wanted?: boolean; koala?: boolean } = {}) {
-  const machine = mock<ClusterHost>();
+const METRICS_CLIENT = '/home/bo/.config/koala/metrics-client.json';
+
+function host(opts: { installed?: boolean; active?: string; meshIp?: string | undefined; readyAt?: number[]; failsAfter?: number; wanted?: boolean; koala?: boolean; metricsClient?: boolean } = {}) {
+  const machine = mock<MachineHost>();
+  machine.metricsClient.mockResolvedValue(opts.metricsClient === false ? undefined : METRICS_CLIENT);
   const calls: string[] = [];
   const readyAt = [...(opts.readyAt ?? [START + 5000])];
   let state = opts.active ?? 'inactive';
@@ -53,6 +56,32 @@ describe('a machine\'s own cluster', () => {
     const { machine, calls } = host({ active: 'active', readyAt: [START - 3_600_000] });
     expect(await runMachineCluster(machine, { kind: 'start' })).toMatchObject({ state: 'running' });
     expect(calls.some((call) => call.includes('systemctl start'))).toBe(false);
+  });
+
+  it('puts its Prometheus\'s client at root into k3s as the Secret monitoring reads, each time it starts k3s or finds it running, and starts nothing without one', async () => {
+    const apply = `${K3S_BINARY} kubectl --kubeconfig ${K3S_KUBECONFIG} apply -f ${METRICS_CLIENT}`;
+    const started = host();
+    expect(await machineClusterOp(started.machine, { kind: 'start' })).toMatchObject({ state: 'running' });
+    expect(started.calls.indexOf(apply)).toBeGreaterThan(started.calls.indexOf('sudo -n systemctl start k3s'));
+    const running = host({ active: 'active', readyAt: [START - 3_600_000] });
+    await machineClusterOp(running.machine, { kind: 'start' });
+    expect(running.calls).toContain(apply);
+    const without = host({ metricsClient: false });
+    await expect(machineClusterOp(without.machine, { kind: 'start' })).rejects.toThrow(METRICS_CLIENT_MISSING);
+    expect(without.calls.some((call) => call.includes('systemctl start') || call.includes('wanted true'))).toBe(false);
+    const stopping = host({ active: 'active', metricsClient: false });
+    expect(await machineClusterOp(stopping.machine, { kind: 'stop' })).toEqual({ state: 'stopped' });
+    await expect(machineClusterOp(host({ installed: false }).machine, { kind: 'start' })).rejects.toThrow(MACHINE_CLUSTER_ABSENT);
+  });
+
+  it('puts a client root just replaced into a running k3s at once, and leaves a stopped one for its next start', async () => {
+    const apply = `${K3S_BINARY} kubectl --kubeconfig ${K3S_KUBECONFIG} apply -f ${METRICS_CLIENT}`;
+    const running = host({ active: 'active' });
+    await metricsClientInto(running.machine);
+    expect(running.calls).toContain(apply);
+    const stopped = host();
+    await metricsClientInto(stopped.machine);
+    expect(stopped.calls).not.toContain(apply);
   });
 
   it('stops k3s and every container it left, and says a machine without k3s has none', async () => {

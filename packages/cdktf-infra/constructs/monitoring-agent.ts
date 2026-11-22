@@ -4,9 +4,17 @@ import { BlackboxExporterStack } from "./blackbox-exporter.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 import { chartRepository } from "../lib/chart-source.js";
 
-export const METRICS_TOKEN_SECRET = "koala-metrics";
+// ── DUPLICATED, KNOWINGLY ── packages/engine-core/src/root-client.ts wins (METRICS_CLIENT_SECRET, METRICS_SCOPE); cdktf imports no other package, and the machine agent writes the Secret by that one.
+export const METRICS_CLIENT_SECRET = { name: "koala-metrics", idKey: "client_id", secretKey: "client_secret" } as const;
+export const METRICS_SCOPE = "koala:metrics";
 
-export function agentValues(remoteWriteUrl: string): Record<string, unknown> {
+export interface MetricsSending {
+  url: string;
+  tokenUrl: string;
+  resource: string;
+}
+
+export function agentValues(sending: MetricsSending): Record<string, unknown> {
   return {
     grafana: { enabled: false },
     alertmanager: { enabled: false },
@@ -18,7 +26,16 @@ export function agentValues(remoteWriteUrl: string): Record<string, unknown> {
     prometheus: {
       agentMode: true,
       prometheusSpec: {
-        remoteWrite: [{ url: remoteWriteUrl, authorization: { type: "Bearer", credentials: { name: METRICS_TOKEN_SECRET, key: "token" } } }],
+        remoteWrite: [{
+          url: sending.url,
+          oauth2: {
+            clientId: { secret: { name: METRICS_CLIENT_SECRET.name, key: METRICS_CLIENT_SECRET.idKey } },
+            clientSecret: { name: METRICS_CLIENT_SECRET.name, key: METRICS_CLIENT_SECRET.secretKey },
+            tokenUrl: sending.tokenUrl,
+            scopes: [METRICS_SCOPE],
+            endpointParams: { resource: sending.resource },
+          },
+        }],
       },
     },
   };
@@ -27,7 +44,7 @@ export function agentValues(remoteWriteUrl: string): Record<string, unknown> {
 export class AgentMonitoringStack extends Construct {
   public readonly prometheusRelease: Release;
 
-  constructor(scope: Construct, id: string, remoteWriteUrl: string) {
+  constructor(scope: Construct, id: string, sending: MetricsSending) {
     super(scope, id);
     this.prometheusRelease = new Release(this, "prometheus-agent", {
       name: "kube-prometheus-stack",
@@ -38,7 +55,7 @@ export class AgentMonitoringStack extends Construct {
       reuseValues: true,
       wait: false,
       timeout: HELM_CEILING_SECONDS,
-      values: [JSON.stringify(agentValues(remoteWriteUrl))],
+      values: [JSON.stringify(agentValues(sending))],
     });
     new BlackboxExporterStack(this, "blackbox").node.addDependency(this.prometheusRelease);
   }

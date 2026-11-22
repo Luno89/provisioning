@@ -13,6 +13,7 @@ vi.mock('./platform-provision.js', () => ({ provisionPlatformService: vi.fn() })
 vi.mock('./cluster-monitoring.js', async (actual) => ({ ...(await actual<typeof import('./cluster-monitoring.js')>()), installClusterMonitoring: vi.fn() }));
 
 const OWN: Reach = { clusterId: 'machine-desk', kind: 'koala' };
+const SENDING = { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://koala.example/oidc/token', resource: 'urn:koala:instance:inst-1' };
 const PLACE: ProvisionPlace = { koalaNamespace: 'nowrinkles', pool: false, dataDir: '/data', crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' };
 
 const input = (piece: ProvisionPieceInput['piece'], target: ProvisionPieceInput['target'] = { kind: 'koala', clusterId: 'machine-desk' }): ProvisionPieceInput => ({
@@ -22,7 +23,7 @@ const input = (piece: ProvisionPieceInput['piece'], target: ProvisionPieceInput[
 function world() {
   const access = mock<ClusterAccess>();
   access.own.mockReturnValue(OWN);
-  const steps = mock<ClusterSteps>({ access, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
+  const steps = mock<ClusterSteps>({ access, machineMetricsUrl: SENDING });
   const heard: string[] = [];
   const lines: ProvisionLines = { heard: async (given, change) => { heard.push(`${given.piece} ${change.state}${'line' in change && change.line ? ` ${change.line}` : ''}`); } };
   return { steps, heard, lines };
@@ -59,7 +60,7 @@ describe('setting up one piece of a Koala', () => {
   it('installs another machine\'s collector on that machine\'s cluster, sending to this Koala', async () => {
     const { steps, lines } = world();
     await ProvisionPieceActivity({ ...input('monitoring', { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2', deviceId: 'device-desk-2' }), kubeconfig: 'apiVersion: v1' }, { steps, place: PLACE, lines });
-    expect(vi.mocked(installClusterMonitoring).mock.calls[0]![1]).toMatchObject({ physicalName: 'machine-desk-2', reach: { clusterId: 'machine-desk-2', kind: 'machine', kubeconfig: 'apiVersion: v1' }, pool: false, machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' } });
+    expect(vi.mocked(installClusterMonitoring).mock.calls[0]![1]).toMatchObject({ physicalName: 'machine-desk-2', reach: { clusterId: 'machine-desk-2', kind: 'machine', kubeconfig: 'apiVersion: v1' }, pool: false, machine: SENDING });
   });
 
   it('refuses another machine\'s collector when it was handed no way to reach that machine', async () => {

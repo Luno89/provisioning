@@ -3,7 +3,7 @@ import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { LSPCI_QUERY } from '@koala/engine-core';
-import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
+import { clusterOnConnect, K3S_MARKER, type MachineHost } from '../../../../local-agent/src/machine-cluster.js';
 import { machineCapacity } from '../../../../local-agent/src/machine-capacity.js';
 import { machineGpus, NVIDIA_CDI_HOOK, NVIDIA_RUNTIME } from '../../../../local-agent/src/machine-gpus.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
@@ -22,15 +22,15 @@ let koala: Awaited<ReturnType<typeof servedAgentSockets>>;
 let url = '';
 const clients: ClientSocket[] = [];
 
-const machineWith = (installed: boolean): MockProxy<ClusterHost> => {
-  const host = mock<ClusterHost>({ platform: 'linux' });
+const machineWith = (installed: boolean): MockProxy<MachineHost> => {
+  const host = mock<MachineHost>({ platform: 'linux' });
   host.exists.mockImplementation(async (path) => installed && path === K3S_MARKER);
   host.isWanted.mockResolvedValue(false);
   host.run.mockResolvedValue('inactive\n');
   return host;
 };
 
-async function reports(host: ClusterHost, withGpus = false): Promise<void> {
+async function reports(host: MachineHost, withGpus = false): Promise<void> {
   const socket = connect(`${url}/agent`, { auth: { token: await access.token('desk') }, transports: ['websocket'], reconnection: false, forceNew: true });
   clients.push(socket);
   await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
@@ -45,7 +45,7 @@ async function reports(host: ClusterHost, withGpus = false): Promise<void> {
 
 const NOUVEAU_3090 = 'Slot:\t01:00.0\nClass:\tVGA compatible controller [0300]\nVendor:\tNVIDIA Corporation [10de]\nDevice:\tGA102 [GeForce RTX 3090] [2204]\nDriver:\tnouveau\n';
 
-const withADriverlessNvidiaCard = (host: MockProxy<ClusterHost>): ClusterHost => {
+const withADriverlessNvidiaCard = (host: MockProxy<MachineHost>): MachineHost => {
   host.run.mockImplementation(async (file, args) => {
     if (file === 'nvidia-smi') throw Object.assign(new Error('spawn nvidia-smi ENOENT'), { code: 'ENOENT' });
     if (file === 'lspci' && args.join(' ') === LSPCI_QUERY.join(' ')) return NOUVEAU_3090;
@@ -54,7 +54,7 @@ const withADriverlessNvidiaCard = (host: MockProxy<ClusterHost>): ClusterHost =>
   return host;
 };
 
-const withTwoNvidiaCards = (host: MockProxy<ClusterHost>): ClusterHost => {
+const withTwoNvidiaCards = (host: MockProxy<MachineHost>): MachineHost => {
   host.run.mockImplementation(async (file) => (file === 'nvidia-smi' ? 'NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n' : 'inactive\n'));
   host.exists.mockImplementation(async (path) => path === K3S_MARKER || path === NVIDIA_CDI_HOOK || path === NVIDIA_RUNTIME);
   return host;

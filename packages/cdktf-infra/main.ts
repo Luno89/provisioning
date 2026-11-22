@@ -3,7 +3,7 @@ import { SpecApp } from "./constructs/spec-app.js";
 import { jsonFrom, renderedAppFrom, settingsFrom } from "./lib/env-json.js";
 import { Construct } from "constructs";
 import { OperatorCrdsStack } from "./constructs/operator-crds.js";
-import { AgentMonitoringStack } from "./constructs/monitoring-agent.js";
+import { AgentMonitoringStack, type MetricsSending } from "./constructs/monitoring-agent.js";
 import { OdooApp } from "./constructs/odoo.js";
 import { OdooNativeApp } from "./constructs/odoo-native.js";
 import { WordPressApp } from "./constructs/wordpress.js";
@@ -74,10 +74,11 @@ function initK8sProvider(scope: Construct): void {
  * downstream construct can depend on: the Prometheus Operator CRDs (via MonitoringStack's
  * kube-prometheus-stack release) and the "monitoring" namespace itself.
  */
-function remoteWriteUrl(): string {
-  const url = process.env.REMOTE_WRITE_URL;
-  if (!url) throw new Error("a machine's cluster sends its metrics to REMOTE_WRITE_URL, which is not set");
-  return url;
+function metricsSending(): MetricsSending {
+  const named = { url: "REMOTE_WRITE_URL", tokenUrl: "METRICS_TOKEN_URL", resource: "METRICS_RESOURCE" } as const;
+  const missing = Object.values(named).filter((name) => !process.env[name]);
+  if (missing.length > 0) throw new Error(`a machine's cluster sends its metrics with a token from root, and ${missing.join(", ")} is not set`);
+  return { url: process.env[named.url]!, tokenUrl: process.env[named.tokenUrl]!, resource: process.env[named.resource]! };
 }
 
 class ClusterStack extends TerraformStack {
@@ -92,7 +93,7 @@ class ClusterStack extends TerraformStack {
     const monitoring = process.env.CLUSTER_MONITORING === "crds"
       ? new OperatorCrdsStack(this, "monitoring")
       : process.env.CLUSTER_MONITORING === "agent"
-        ? new AgentMonitoringStack(this, "monitoring", remoteWriteUrl())
+        ? new AgentMonitoringStack(this, "monitoring", metricsSending())
         : new MonitoringStack(this, "monitoring");
     if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
   }

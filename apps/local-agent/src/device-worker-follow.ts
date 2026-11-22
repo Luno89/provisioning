@@ -2,7 +2,7 @@ import type { Socket } from 'socket.io-client';
 import { createMachineGit } from './machine-git.js';
 import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
-import { runMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { machineClusterOp, type MachineHost } from './machine-cluster.js';
 import type { MachineConfig } from './machine-config.js';
 import type { ExternalAgentSessions } from './external-agents.js';
 import type { IdleGate } from './idle-gate.js';
@@ -17,7 +17,7 @@ export interface KoalaReach {
   token(): Promise<string>;
 }
 
-export function followEngineWorker(socket: Socket, config: MachineConfig, koala: KoalaReach, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate, machineCluster: ClusterHost, startDeviceWorker: (options: DeviceWorkerOptions) => Promise<DeviceWorker>): DeviceWorkerHost | undefined {
+export function followEngineWorker(socket: Socket, config: MachineConfig, koala: KoalaReach, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate, machineCluster: MachineHost, startDeviceWorker: (options: DeviceWorkerOptions) => Promise<DeviceWorker>): DeviceWorkerHost | undefined {
   if (!config.deviceId) return undefined;
   const { deviceId } = config;
   const host = new DeviceWorkerHost(async (settings) => {
@@ -28,7 +28,7 @@ export function followEngineWorker(socket: Socket, config: MachineConfig, koala:
       deviceId,
       externalAgents: sessions,
       git: createMachineGit({ rootDir: config.rootDir, backendUrl: koala.url, token: () => koala.token() }),
-      cluster: (op) => runMachineCluster(machineCluster, op),
+      cluster: (op) => machineClusterOp(machineCluster, op),
       address,
       tls: { ca, serverName },
       token: work.value,

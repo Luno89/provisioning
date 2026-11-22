@@ -5,7 +5,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { KOALA_INSTALL_LAST_STAGE, koalaInstallProgressPath, koalaStopOf, type PlacedKoala } from '@koala/engine-core/koala-install';
 import { allReporters, chartInputs, chartStep, runSteps, StepFailed, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
-import { clusterState, machineChartCluster, runMachineCluster, stoppableHost, stoppedPause, type ClusterHost } from './machine-cluster.js';
+import { clusterState, machineChartCluster, machineClusterOp, stoppableHost, stoppedPause, type ClusterHost, type MachineHost } from './machine-cluster.js';
 import { rootProgress, rootReporter, rootUrlOf } from './root-progress.js';
 
 export type { PlacedKoala };
@@ -60,7 +60,7 @@ export function ownPublicUrl(ownValuesYaml: string): string | undefined {
 
 export interface InstallContext {
   placed: PlacedKoala;
-  host: ClusterHost;
+  host: MachineHost;
   helm: string;
   fetch: typeof fetch;
   work: string;
@@ -77,7 +77,7 @@ const startCluster: Step<InstallContext> = {
   title: 'Starting this machine\'s cluster',
   check: async (ctx) => (await clusterState(ctx.host) === 'running' ? { done: true } : { done: false, why: 'k3s is not running on this machine' }),
   apply: async (ctx, progress) => {
-    await runMachineCluster(ctx.host, { kind: 'start' });
+    await machineClusterOp(ctx.host, { kind: 'start' });
     progress.line('k3s answers on this machine');
   },
 };
@@ -127,7 +127,7 @@ const putKoala: Step<InstallContext> = {
 export const KOALA_INSTALL_STEPS: readonly Step<InstallContext>[] = [startCluster, fetchChart, putKoala];
 
 export interface KoalaInstallDeps {
-  cluster: ClusterHost;
+  cluster: MachineHost;
   helm: string;
   fetch: typeof fetch;
   token: () => Promise<string>;

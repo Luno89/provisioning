@@ -6,7 +6,7 @@ import { installView } from '../../instances/index.js';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
 import { checkWorkToken, type WorkTokenTrust } from '../lib/work-tokens.js';
 import { gatewayServerName } from '../lib/gateway-name.js';
-import { deviceByMachineToken, type MachineTokens } from './machine-admission.js';
+import { deviceByMachineToken, metricsAdmission, type MachineTokens } from './machine-admission.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { accountMachinesRouter, type MachineCaller } from '../routes/account-machines.js';
@@ -108,7 +108,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       (err: Error) => console.error(`[machine-gateway] could not listen on ${host}:${port}: ${err.message}`),
     );
   }
-  const metrics = deps.servesTenants && deps.metricsWrite ? new MachineMetricsRelay({ clusters: () => db.infrastructure.getClusters(), write: deps.metricsWrite }) : undefined;
+  const metrics = deps.servesTenants && deps.metricsWrite && deps.machineTokens ? new MachineMetricsRelay({ admit: metricsAdmission(db, deps.machineTokens, deps.ownerId), write: deps.metricsWrite }) : undefined;
   deps.app.use('/api/machines', machinesRouter({ accounts: deps.accounts, installs: deps.installs, bundle, git: deps.servesTenants ? git : undefined, metrics }));
   if (deps.accounts) {
     const { accounts, instanceCaller } = deps;

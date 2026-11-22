@@ -13,7 +13,7 @@ describe("upgrading a cluster's monitoring to a newer chart", () => {
   it("keeps the values a cluster's releases hold, so how long history is kept and where it is stored survive the upgrade", () => {
     const releases = [
       ...Object.values(releasesOf((scope) => new MonitoringStack(scope, "monitoring"))),
-      ...Object.values(releasesOf((scope) => new AgentMonitoringStack(scope, "monitoring", "http://koala/api/machines/metrics"))),
+      ...Object.values(releasesOf((scope) => new AgentMonitoringStack(scope, "monitoring", { url: "http://koala/api/machines/metrics", tokenUrl: "https://koala.example/oidc/token", resource: "urn:koala:instance:inst-1" }))),
       ...Object.values(releasesOf((scope) => new BlackboxExporterStack(scope, "blackbox"))),
     ];
     expect(releases.map((release) => [release.name, release.reuse_values]).sort()).toEqual([

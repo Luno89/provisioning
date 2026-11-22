@@ -450,7 +450,7 @@ describe('the instance chart', () => {
     for (const worker of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       expect(podOf(find(docs, 'Deployment', `luno-${worker}`)).containers[0]!.env, `${worker} is told its own pod's name`).toContainEqual({ name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } });
     }
-    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, qdrantApiKey: fromSecrets.QDRANT_API_KEY, koala: { ownerId: 'u1', revision: 1 }, pod: given.POD_NAME });
+    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://app.example.com/oidc/token', resource: 'urn:koala:instance:inst-u1' }, podNamespace: 'nowrinkles', dataDir: '/app/apps/backend/data', crawl4aiToken: fromSecrets.CRAWL4AI_API_TOKEN, qdrantApiKey: fromSecrets.QDRANT_API_KEY, koala: { ownerId: 'u1', revision: 1 }, pod: given.POD_NAME });
     expect(fromSecrets.CRAWL4AI_API_TOKEN).toMatch(/^[A-Za-z0-9]{40}$/);
     expect(fromSecrets.QDRANT_API_KEY).toMatch(/^[A-Za-z0-9]{40}$/);
     const memoryIndex = { index: { base: 'http://quickwit.quickwit.svc.cluster.local:7280' }, vectors: { base: 'http://qdrant.qdrant.svc.cluster.local:6333', apiKey: fromSecrets.QDRANT_API_KEY }, embeddings: { base: 'http://tei.tei.svc.cluster.local:80' } };

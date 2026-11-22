@@ -1,10 +1,8 @@
 import fs from 'fs/promises';
 import type { Reach } from '../infrastructure/index.js';
-import { metricsTokenManifests, MONITORING_CHARTS, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { MONITORING_CHARTS, monitoringNamespaces, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES, type MetricsSending } from '../monitoring/index.js';
 import { applyChartCrds } from './chart-crds.js';
-import { newMetricsToken } from '../machines/index.js';
 import { ignore } from '@koala/engine-core/failures';
-import { createDatabase } from '../platform/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { applyWatched, untilRolledOut, type Pause } from './watched-apply.js';
 
@@ -12,34 +10,15 @@ export interface MonitoredCluster {
   physicalName: string;
   reach: Reach;
   pool?: boolean | undefined;
-  machine?: MachineMonitoring | undefined;
+  machine?: MetricsSending | undefined;
   koala?: boolean | undefined;
 }
 
-export interface MachineMonitoring {
-  metricsUrl: string;
-  remember(tokenHash: string): Promise<void>;
-}
-
-const metricsUrlOf = (url: string | { off: string }): string => {
-  if (typeof url !== 'string') throw new Error(url.off);
-  return url;
+export const machineMonitoringOf = (steps: Pick<ClusterSteps, 'machineMetricsUrl'>): MetricsSending => {
+  const sending = steps.machineMetricsUrl;
+  if ('off' in sending) throw new Error(sending.off);
+  return sending;
 };
-
-async function rememberMetricsToken(database: ClusterSteps['database'], clusterId: string, tokenHash: string): Promise<void> {
-  const db = createDatabase(database);
-  await db.init();
-  try {
-    await db.infrastructure.patchCluster(clusterId, { metricsTokenHash: tokenHash });
-  } finally {
-    await db.close().catch(ignore('the token\'s hash is already kept, and a connection that does not close cleanly holds nothing this install needs'));
-  }
-}
-
-export const machineMonitoringOf = (steps: Pick<ClusterSteps, 'database' | 'machineMetricsUrl'>, clusterId: string): MachineMonitoring => ({
-  metricsUrl: metricsUrlOf(steps.machineMetricsUrl),
-  remember: (tokenHash) => rememberMetricsToken(steps.database, clusterId, tokenHash),
-});
 
 export interface MonitoringSaid {
   logFile?: string | undefined;
@@ -70,11 +49,6 @@ export async function installClusterMonitoring(steps: Pick<ClusterSteps, 'access
   const plan = await monitoringPlanOn(steps, cluster);
   if (plan.stacks.length === 0) return;
   if (plan.crdsFirst) await applyChartCrds(steps.access, cluster.reach, MONITORING_CHARTS.stack, MONITORING_CHARTS.repo);
-  if (cluster.machine) {
-    const { token, hash } = newMetricsToken();
-    for (const manifest of metricsTokenManifests(token)) await steps.access.apply(cluster.reach, JSON.stringify(manifest));
-    await cluster.machine.remember(hash);
-  }
   const env = monitoringStackEnv({ ...cluster, kubeconfigPath: await steps.access.kubeconfigOf(cluster.reach) }, plan.keepIngress);
   const log = (line: string) => {
     report?.(line);

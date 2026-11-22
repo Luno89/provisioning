@@ -2,6 +2,8 @@ import { roleRuns } from './work-places.js';
 import type { TelemetryPlace } from './telemetry.js';
 import { pemOf, roleFromEnv, type RoleConfig } from './platform-role.js';
 import { identityKeysFrom, type IdentityKeyPair } from '../../instances/lib/identity-token.js';
+import { runResourceOf } from '../../instances/lib/oidc.js';
+import { rootTokenUrlOf } from '@koala/engine-core/root-client';
 import { loadKey, loadKeys, type PlatformKeys } from './keys.js';
 import { mongoTarget, type MongoTarget } from './mongo-target.js';
 import { labFrom } from './lab.js';
@@ -208,7 +210,7 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   registryPullHost: string;
   infisical: InfisicalSettings;
   terraform: TerraformStateKind;
-  machineMetricsUrl: string | Off;
+  machineMetricsUrl: { url: string; tokenUrl: string; resource: string } | Off;
   podNamespace: string;
   crawl4aiToken: string;
   qdrantApiKey: string;
@@ -633,9 +635,10 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const crawl4aiToken = crawl4aiTokenFrom(read);
   const qdrantApiKey = qdrantApiKeyFrom(read);
   const revision = revisionSetting(read, 'KOALA_RELEASE_REVISION', 'it is the chart revision this instance runs, which a setup the cluster worker asks for is recorded against; the instance chart sets it');
-  const ownerId = role?.instance?.ownerId;
+  const instance = role?.instance;
+  const ownerId = instance?.ownerId;
   if (role && !ownerId) read.problems.push('the cluster worker asks Koala to set up a cluster for its owner, and this process knows no instance owner (INSTANCE_OWNER_ID)');
-  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || !qdrantApiKey || revision === undefined || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
+  if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost || !podNamespace || !crawl4aiToken || !qdrantApiKey || revision === undefined || !instance || !ownerId) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
     ...health,
@@ -649,7 +652,7 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     qdrantApiKey,
     koala: { ownerId, revision },
     machineMetricsUrl: metricsUrl
-      ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
+      ? { url: read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl, tokenUrl: rootTokenUrlOf(instance.rootUrl), resource: runResourceOf(instance.id) }
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },
   });
 }

@@ -7,6 +7,30 @@ export const OIDC_PATH = '/oidc';
 export const rootIssuerOf = (rootUrl: string): string => `${rootUrl.replace(/\/+$/, '')}${OIDC_PATH}`;
 export const CLIENT_SIGNING_ALG = 'Ed25519';
 export const MACHINE_SCOPE = 'koala:machine';
+export const METRICS_SCOPE = 'koala:metrics';
+export const rootTokenUrlOf = (rootUrl: string): string => `${rootIssuerOf(rootUrl)}/token`;
+
+const METRICS_CLIENT_PREFIX = 'metrics.';
+export const metricsClientIdOf = (deviceId: string): string => `${METRICS_CLIENT_PREFIX}${deviceId}`;
+export const machineOfMetricsClient = (clientId: string): string | undefined =>
+  (clientId.startsWith(METRICS_CLIENT_PREFIX) && clientId.length > METRICS_CLIENT_PREFIX.length ? clientId.slice(METRICS_CLIENT_PREFIX.length) : undefined);
+export const METRICS_CLIENT_SECRET = { namespace: 'monitoring', name: 'koala-metrics', idKey: 'client_id', secretKey: 'client_secret' } as const;
+export const METRICS_CLIENT_FIELDS = { id: 'koala_metrics_client_id', secret: 'koala_metrics_client_secret' } as const;
+
+export interface MetricsClient {
+  clientId: string;
+  clientSecret: string;
+}
+
+export const METRICS_CLIENT_NOT_GIVEN = 'root registered this machine but named no client for its Prometheus, so the machine could not send its metrics: run the command from My Machines again';
+
+export function metricsClientFrom(reply: Record<string, unknown> | undefined): MetricsClient {
+  const clientId = reply?.[METRICS_CLIENT_FIELDS.id];
+  const clientSecret = reply?.[METRICS_CLIENT_FIELDS.secret];
+  if (typeof clientId !== 'string' || !clientId || typeof clientSecret !== 'string' || !clientSecret) throw new Error(METRICS_CLIENT_NOT_GIVEN);
+  return { clientId, clientSecret };
+}
+
 export const MACHINE_REGISTRATION_REFUSED = 'root refused this machine\'s registration code (it was used, or a newer join replaced it): run the command from My Machines again';
 export const MACHINE_KEY_DAYS = 90;
 export const REPLACE_KEY_WITHIN_DAYS = 30;
@@ -157,21 +181,23 @@ export class OidcClient {
     return granted.access_token;
   }
 
-  async register(): Promise<void> {
+  async register(): Promise<Record<string, unknown> | undefined> {
     try {
       await this.freshToken();
       this.markRegistered();
-      return;
+      return undefined;
     } catch (err) {
       if (!clientRefused(err)) throw err;
     }
+    let registered: client.Configuration;
     try {
-      await client.dynamicClientRegistration(new URL(this.issuer), this.parts.registration as Partial<client.ClientMetadata>, await this.authentication(), { ...this.options(), initialAccessToken: this.parts.registrationCode });
+      registered = await client.dynamicClientRegistration(new URL(this.issuer), this.parts.registration as Partial<client.ClientMetadata>, await this.authentication(), { ...this.options(), initialAccessToken: this.parts.registrationCode });
     } catch (err) {
       if (errorOf(err) === 'invalid_token') throw new Error(this.parts.refused);
       throw err;
     }
     this.markRegistered();
+    return registered.clientMetadata() as Record<string, unknown>;
   }
 
   async token(resource?: string): Promise<string> {
@@ -199,7 +225,11 @@ export interface MachineClientSettings {
 }
 
 export class MachineClient extends OidcClient {
-  async replaceKey(offer: KeyReplacement, nextKey: string): Promise<void> {
+  async registerMachine(): Promise<MetricsClient> {
+    return metricsClientFrom(await this.register());
+  }
+
+  async replaceKey(offer: KeyReplacement, nextKey: string): Promise<MetricsClient> {
     const keys = clientKeysFrom(nextKey);
     const registration = machineRegistration(clientPublicJwkOf(keys));
     const answer = await this.reach(offer.registrationClientUri, {
@@ -211,6 +241,7 @@ export class MachineClient extends OidcClient {
     if (answer.status === 401) throw refused(KEY_REPLACEMENT_REFUSED);
     if (!answer.ok) throw refused(`root did not take this machine's new key (${answer.status}): ${(await answer.text()).trim().slice(0, 300)}`);
     this.useKeys(keys, registration);
+    return metricsClientFrom(await answer.json() as Record<string, unknown>);
   }
 }
 

@@ -1,5 +1,7 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
-import { clientRefused, newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
+import { clientRefused, newClientKey, type KeyReplacement, type MetricsClient } from '@koala/engine-core/root-client';
+import { metricsClientFile } from './machine-config.js';
+import { metricsClientManifest } from './machine-metrics.js';
 
 type Saved = Record<string, unknown> & { key?: unknown; nextKey?: unknown };
 
@@ -13,15 +15,24 @@ async function writeSaved(file: string, saved: Saved): Promise<void> {
 
 const withoutPending = ({ nextKey: _pending, ...rest }: Saved): Saved => rest;
 
-export async function replaceMachineKey(client: { replaceKey(offer: KeyReplacement, key: string): Promise<void> }, offer: KeyReplacement, file: string): Promise<string> {
+async function writeMetricsClient(file: string, client: MetricsClient): Promise<void> {
+  const target = metricsClientFile(file);
+  const next = `${target}.next`;
+  await writeFile(next, metricsClientManifest(client), { mode: 0o600 });
+  await rename(next, target);
+}
+
+export async function replaceMachineKey(client: { replaceKey(offer: KeyReplacement, key: string): Promise<MetricsClient> }, offer: KeyReplacement, file: string): Promise<string> {
   const key = newClientKey();
   await writeSaved(file, { ...await readSaved(file), nextKey: key });
+  let metrics: MetricsClient;
   try {
-    await client.replaceKey(offer, key);
+    metrics = await client.replaceKey(offer, key);
   } catch (err) {
     if ((err as { answered?: unknown }).answered === true) await writeSaved(file, withoutPending(await readSaved(file)));
     throw err;
   }
+  await writeMetricsClient(file, metrics);
   await writeSaved(file, { ...withoutPending(await readSaved(file)), key });
   return key;
 }
@@ -30,7 +41,7 @@ export interface MachineKeyClient {
   token(resource?: string): Promise<string>;
   freshToken(resource?: string): Promise<string>;
   tokenIfKnown(): Promise<string | undefined>;
-  replaceKey(offer: KeyReplacement, key: string): Promise<void>;
+  replaceKey(offer: KeyReplacement, key: string): Promise<MetricsClient>;
 }
 
 export interface HeldMachineKey {

@@ -4,7 +4,7 @@ import type { Claim, RevokedBecause } from '../../platform/index.js';
 import { kidOf, type IdentityKeyPair } from './identity-token.js';
 import type { InstanceRecord } from './instances.js';
 import { installUnfinished } from './koala-installs.js';
-import { clientPrivateJwkOf, clientPublicJwkOf, machineRegistration, OIDC_PATH, type ClientPublicJwk } from '@koala/engine-core/root-client';
+import { clientPrivateJwkOf, clientPublicJwkOf, machineRegistration, METRICS_SCOPE, metricsClientIdOf, OIDC_PATH, type ClientPublicJwk } from '@koala/engine-core/root-client';
 
 export { OIDC_PATH };
 export const INTERACTION_PATH = `${OIDC_PATH}/interaction`;
@@ -32,7 +32,7 @@ export const ACCESS_JWT_TYP = 'at+jwt';
 export const REGISTRATION_POLICY = 'koala-instance';
 export const runResourceOf = (clientId: string): string => `urn:koala:instance:${clientId}`;
 
-export type ClientKind = 'instance' | 'machine' | 'root-web';
+export type ClientKind = 'instance' | 'machine' | 'machine-metrics' | 'root-web';
 
 export interface RegisteringClient {
   kind: 'instance' | 'machine';
@@ -145,8 +145,20 @@ export const machineClientMetadata = (machine: { id: string; ownerId: string; ke
   koala_owner: machine.ownerId,
 });
 
+export const metricsClientMetadata = (machine: { id: string; ownerId: string; secret: string }): Record<string, unknown> => ({
+  client_id: metricsClientIdOf(machine.id),
+  client_secret: machine.secret,
+  token_endpoint_auth_method: 'client_secret_basic',
+  grant_types: ['client_credentials'],
+  response_types: [],
+  redirect_uris: [],
+  scope: METRICS_SCOPE,
+  koala_kind: 'machine-metrics',
+  koala_owner: machine.ownerId,
+});
+
 export function signInRefusal(client: { kind: ClientKind; owner?: string | undefined }, accountId: string): string | undefined {
-  if (client.kind === 'machine') return 'a machine signs no one in';
+  if (client.kind === 'machine' || client.kind === 'machine-metrics') return 'a machine signs no one in';
   if (client.kind === 'instance' && client.owner !== accountId) return 'this instance belongs to someone else';
   return undefined;
 }

@@ -43,7 +43,7 @@ function workFor(run: ProvisionPieceRun, { steps, place }: ProvisionPieceDeps, w
   if (target.kind === 'machine') {
     if (piece !== 'monitoring') throw ApplicationFailure.nonRetryable(`${target.machine} gets only its collector set up, not ${titleOf(piece)}`, 'NotAMachinePiece');
     if (!run.kubeconfig) throw ApplicationFailure.nonRetryable(`the collector of ${target.machine} was handed no way to reach ${target.clusterId}, so start its setup again`, 'NoReachHanded');
-    const cluster = { physicalName: target.clusterId, reach: startedMachine(target.clusterId, run.kubeconfig), pool: false, machine: machineMonitoringOf(steps, target.clusterId) };
+    const cluster = { physicalName: target.clusterId, reach: startedMachine(target.clusterId, run.kubeconfig), pool: false, machine: machineMonitoringOf(steps) };
     return (report) => installClusterMonitoring(steps, cluster, { report }, wait);
   }
   const reach = steps.access.own();

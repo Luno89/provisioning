@@ -41,7 +41,7 @@ export function rootAuthOver(db: Database, deps: Pick<AuthDeps, 'open'> & Partia
   const webKeys = identityKeysFrom(generateIdentityKey());
   const provider = rootProviderFor({
     role: { role: 'root', signing: deps.signing ?? ROOT_SIGNING } as never,
-    publicUrl, keys: { session: ROOT_SESSIONS }, db, proxied: false, reach: deps.instanceReach ?? new InstanceReach({ open: true }), webKeys,
+    publicUrl, keys: { session: ROOT_SESSIONS, data: ROOT_DATA }, db, proxied: false, reach: deps.instanceReach ?? new InstanceReach({ open: true }), webKeys,
   })!;
   revocations.listen((revoked) => provider.revoke(revoked));
   let mounted = false;

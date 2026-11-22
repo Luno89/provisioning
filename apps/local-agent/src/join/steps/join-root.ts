@@ -1,6 +1,7 @@
 import type { Progress, Step } from '@koala/provision';
 import { machineClientOf, newClientKey } from '@koala/engine-core/root-client';
-import { configFile } from '../../machine-config.js';
+import { configFile, metricsClientFile } from '../../machine-config.js';
+import { metricsClientManifest } from '../../machine-metrics.js';
 import { configHome, joinedOf, type Joined, type JoinContext } from '../context.js';
 
 const machineFile = (ctx: JoinContext): string => configFile({ ...ctx.host.env, XDG_CONFIG_HOME: configHome(ctx) });
@@ -81,10 +82,11 @@ async function join(ctx: JoinContext, progress: Progress): Promise<void> {
   const joined = joinedFrom(await response.json(), newClientKey());
   const file = machineFile(ctx);
   await ctx.host.writeOwn(file, settingsOf(joined), 0o600);
-  await machineClientOf({ rootUrl: joined.rootUrl, deviceId: joined.deviceId, key: joined.key, registrationCode: joined.registrationCode, reach: ctx.host.fetch }).register();
+  const metrics = await machineClientOf({ rootUrl: joined.rootUrl, deviceId: joined.deviceId, key: joined.key, registrationCode: joined.registrationCode, reach: ctx.host.fetch }).registerMachine();
+  await ctx.host.writeOwn(metricsClientFile(file), metricsClientManifest(metrics), 0o600);
   ctx.joined = joined;
   progress.line(`this machine is ${ctx.host.hostname} on your account`);
-  progress.line(`its settings are in ${file}, readable only by you`);
+  progress.line(`its settings are in ${file}, and its Prometheus's sign-in at root in ${metricsClientFile(file)}, both readable only by you`);
 }
 
 export const joinRootStep = (url: string): Step<JoinContext> => ({
