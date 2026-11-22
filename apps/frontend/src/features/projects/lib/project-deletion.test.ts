@@ -17,7 +17,7 @@ describe('what deleting a project says it does', () => {
       now: ['The app “shop-web” running on its cluster, with its databases and files', 'Its secrets', 'Its workspaces, and anything still running for it'],
       kept: {
         until: '19 February 2027',
-        lines: ['Its code: the repository koala-bo/shop, with its history', 'The tree “Shop features”, with 2 leaves, their tasks and plans and 1 conversation', '3 builds and their logs', 'The files you uploaded: the folder projects/shop on MinIO'],
+        lines: ['Its code: the repository koala-bo/shop, with its history', 'The tree “Shop features”, with 2 leaves, their tasks and plans and 1 conversation', '3 builds and their logs', 'The files you uploaded: the folder projects/shop on MinIO', 'What Koala remembers for this project only'],
       },
     })
   })
@@ -27,7 +27,7 @@ describe('what deleting a project says it does', () => {
     expect(text.kept).toBeUndefined()
     expect(text.now).toEqual([
       'The app “shop-web” running on its cluster, with its databases and files', 'Its secrets', 'Its workspaces, and anything still running for it',
-      'Its code: the repository koala-bo/shop, with its history', 'The tree “Shop features”, with 2 leaves, their tasks and plans and 1 conversation', '3 builds and their logs', 'The files you uploaded: the folder projects/shop on MinIO',
+      'Its code: the repository koala-bo/shop, with its history', 'The tree “Shop features”, with 2 leaves, their tasks and plans and 1 conversation', '3 builds and their logs', 'The files you uploaded: the folder projects/shop on MinIO', 'What Koala remembers for this project only',
     ])
   })
 

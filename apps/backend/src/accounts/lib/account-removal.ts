@@ -11,15 +11,28 @@ export const REMOVAL_PROGRESS_QUERY = 'removalProgress';
 export const OWNER_REMOVING = 'owner:removing';
 export const KOALA_REMOVAL_SIGNAL = 'koala-removal';
 export const KOALA_REMOVAL_QUERY = 'koalaRemoval';
+export const MACHINE_UNINSTALLED_SIGNAL = 'machine-uninstalled';
+export const MACHINE_REMOVALS_QUERY = 'machineRemovals';
+
+export interface MachineUninstalled {
+  id: string;
+  problem?: string | undefined;
+}
+
+export interface MachineRemoval {
+  id: string;
+  name: string;
+  state: 'uninstalling' | 'uninstalled';
+}
 
 export interface AccountDeletionChange {
   ownerId: string;
   progress: DeletionProgress;
 }
 
-export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance' | 'koala';
+export type RemovalStep = 'workflows' | 'projects' | 'apps' | 'workspaces' | 'secrets' | 'mesh' | 'repositories' | 'records' | 'instance' | 'koala' | 'machines';
 export const ROOT_REMOVAL_WORKFLOW = 'RootAccountRemovalWorkflow';
-export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'koala', 'mesh', 'records'];
+export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'koala', 'machines', 'mesh', 'records'];
 
 const bare = (id: string): string => id.replace(/["\\]/g, '');
 

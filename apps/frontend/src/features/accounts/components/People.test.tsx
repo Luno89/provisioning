@@ -35,6 +35,16 @@ describe('the people an admin can remove', () => {
     await waitFor(() => expect(accountApi.removePerson).toHaveBeenCalledWith('cy', 'cy@example.com'))
   })
 
+  it('shows a removal uninstalling from the person\'s machines, waiting for each one that is off', async () => {
+    vi.mocked(accountApi.listPeople).mockResolvedValue([
+      { id: 'bo', email: 'bo@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'running', done: ['instance', 'koala'] }, steps: ['instance', 'koala', 'machines', 'mesh', 'records'], machinesAway: [{ machine: 'Tower', since: '2026-11-21T09:00:00.000Z' }] } },
+    ])
+    renderSection()
+
+    expect(await screen.findByText('uninstalling Koala from their machines (3 of 5)')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for Tower to be back, off since 21 November 2026, 09:00 UTC. The removal goes on when it is.')).toBeInTheDocument()
+  })
+
   it('shows a removal waiting on the person\'s own Koala, each thing it is stopping and deleting as it really stands, and the machine it waits for while that is off', async () => {
     const koala = {
       seq: 7,

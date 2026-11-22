@@ -27,6 +27,7 @@ export function confirmationText(preview: ProjectRemovalPreview, mode: ProjectDe
     ...preview.trees.map((tree) => `The tree “${tree.name}”, with ${plural(tree.leaves, 'leaf', 'leaves')}, their tasks and plans and ${plural(tree.conversations, 'conversation', 'conversations')}`),
     ...(preview.builds ? [`${plural(preview.builds, 'build', 'builds')} and their logs`] : []),
     ...(preview.files ? [`The files you uploaded: the folder ${preview.files.folder} on ${preview.files.server}`] : []),
+    'What Koala remembers for this project only',
   ]
   return mode === 'permanent' ? { now: [...now, ...kept] } : { now, kept: { until: longDate(keptUntil), lines: kept } }
 }

@@ -11,6 +11,7 @@ import { generateIdentityKey, identityKeysFrom } from '../../../../backend/src/i
 import type { GiteaService } from '../../../../backend/src/projects/services/GiteaService'
 import type { LocalAgentDeviceMetadata } from '../../../../backend/src/platform/lib/types'
 import { machineSides, type MachineSides } from '../../../../backend/src/machines/wiring/sides'
+import { DependencyStates } from '../../../../backend/src/platform/services/DependencyStates'
 import { koalaOfOwner } from '../../../../backend/src/machines/wiring/machines'
 import { myMachinesRouter } from '../../../../backend/src/machines/routes/my-machines'
 import type { InstallWorkflows } from '../../../../backend/src/machines/services/KoalaInstalls'
@@ -54,10 +55,11 @@ export async function rootSidesOf(site: Site): Promise<RootSides> {
     projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
     instances: () => ({ places }),
     installWorkflows: workflows,
+    dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
   })
-  if (!sides.accounts || !sides.installsWatched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
-  afterAll(() => sides.installsWatched?.close())
-  await sides.installsWatched.ready
+  if (!sides.accounts || !sides.watched) throw new Error('root\'s machine sides came up without accounts, which root always holds')
+  afterAll(() => sides.watched?.close())
+  await sides.watched.ready
   api.use('/my-machines', myMachinesRouter({ accounts: sides.accounts, koalaOf: koalaOfOwner(db) }))
   return { role, sides, started, places }
 }

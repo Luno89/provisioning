@@ -1,6 +1,7 @@
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { MachineJoinCode } from '../lib/machines.js';
+import type { Watching } from '../../platform/index.js';
 import type { DeviceChange, JoinChange, MachinesStore } from '../store.js';
 
 const defined = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -8,6 +9,7 @@ const defined = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 export class MemoryMachinesStore implements MachinesStore {
   private readonly devices: MemoryRecords<LocalAgentDeviceMetadata>;
   private readonly joinCodes: Map<string, MachineJoinCode>;
+  private readonly removalWatchers = new Set<(device: LocalAgentDeviceMetadata) => void>();
 
   constructor(collections: Collections = new Map()) {
     this.devices = new MemoryRecords(collectionIn<LocalAgentDeviceMetadata>(collections, 'localAgentDevices'));
@@ -40,6 +42,21 @@ export class MemoryMachinesStore implements MachinesStore {
 
   async deleteLocalAgentDevice(id: string): Promise<void> {
     this.devices.delete(id);
+  }
+
+  async markDevicesRemoving(ownerId: string, startedAt: string): Promise<{ id: string; name: string }[]> {
+    const owned = this.devices.all().filter((device) => device.ownerId === ownerId);
+    for (const device of owned.filter((entry) => !entry.removal)) {
+      this.devices.change(device.id, (current) => ({ ...current, removal: { startedAt } }));
+      const marked = this.devices.all().find((entry) => entry.id === device.id);
+      if (marked) for (const watcher of this.removalWatchers) queueMicrotask(() => watcher(marked));
+    }
+    return owned.map(({ id, name }) => ({ id, name }));
+  }
+
+  watchDeviceRemovals(on: (device: LocalAgentDeviceMetadata) => void): Watching {
+    this.removalWatchers.add(on);
+    return { ready: Promise.resolve(), close: async () => { this.removalWatchers.delete(on); } };
   }
 
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {

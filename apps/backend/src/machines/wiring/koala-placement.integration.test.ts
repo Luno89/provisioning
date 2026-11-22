@@ -187,7 +187,7 @@ describe('a machine following its install while root\'s database stops answering
         interrupted: watching.signal, wait: { pause: (ms) => new Promise((done) => setTimeout(done, Math.min(ms, 20))) },
       });
       await until(async () => (said.includes('# Putting Koala on this machine') ? true : undefined));
-      await alone.sides.installsWatched!.close();
+      await alone.sides.watched!.close();
       await own.close();
       alone.installs.wake('bo');
       await until(async () => (said.some((line) => /^The connection to root dropped \(.+\); following again$/.test(line)) ? true : undefined));

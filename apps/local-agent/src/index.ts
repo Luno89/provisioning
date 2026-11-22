@@ -31,10 +31,12 @@ const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 const helmBinary = (env: NodeJS.ProcessEnv = process.env) => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'bin', 'helm');
 
 
-const forgetAndStop = (closing: () => Promise<unknown>) => {
-  void closing()
-    .finally(() => removeHere().catch((err: Error) => say(err.message)))
-    .finally(() => process.exit(0));
+const removedHere = async (closing: () => Promise<unknown>): Promise<void> => {
+  await closing().catch((err: Error) => say(`its sessions could not all be closed before the uninstall: ${err.message}`));
+  await removeHere().catch((err: Error) => {
+    say(err.message);
+    throw err;
+  });
 };
 
 const removeHere = () => removeThisMachine(machineCluster, () => forgetThisMachine(say), say);
@@ -66,7 +68,8 @@ async function main() {
     configFile: configFile(),
     meshIp,
     say,
-    onRemoved: () => forgetAndStop(() => sessionsOf?.closeAll() ?? Promise.resolve()),
+    onRemoved: () => removedHere(() => sessionsOf?.closeAll() ?? Promise.resolve()),
+    onRemovedEnd: () => process.exit(0),
     onPlaceKoala: (raw) => placements.place(raw),
     onStopKoala: (raw) => { void placements.stop(raw); },
     onKoala: (koala) => {

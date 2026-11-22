@@ -20,6 +20,7 @@ import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { InstallWorkflows, KoalaInstalls } from '../services/KoalaInstalls.js';
 import { machinesRouter } from '../routes/machines.js';
 import { machineSides, temporalInstallWorkflows, type MachineSides } from '../wiring/sides.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { until } from './wiring-world.js';
 import { testWorker } from '../../workflows/testing/test-worker.js';
 
@@ -92,13 +93,14 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
     projects: new ProjectRepoService(db, {} as GiteaService, 'koala-placement-key'),
     instances: () => ({ places: instances }),
     installWorkflows: options.workflows,
+    dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
   });
   const accounts = sides.accounts!;
   const installs = sides.installs!;
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   const chart = options.chart ?? '/nowhere';
   app.use('/api/instances', instancesRouter({ instances, chart: async () => chart, operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() }));
-  await sides.installsWatched!.ready;
+  await sides.watched!.ready;
   const told: unknown[] = [];
   const browser: ClientSocket = connect(url, { transports: ['websocket'], reconnection: false, forceNew: true });
   browser.on(KOALA_INSTALL_CHANGED, (said: unknown) => told.push(said));
@@ -107,7 +109,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
     url, accounts, installs, instances, sides, told,
     close: async () => {
       browser.close();
-      await sides!.installsWatched!.close();
+      await sides!.watched!.close();
       await io.close();
       await new Promise<void>((done) => { server.close(() => done()); });
     },

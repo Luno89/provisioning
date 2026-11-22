@@ -652,7 +652,7 @@ export interface EngineStreamDeps {
   ownerRemovalToRoot?: { ownerRemoval(progress: DeletionProgress): Promise<{ ok: true } | { ok: false; status: number; error: string }> } | undefined;
 }
 
-function ownerRemovalTold(deps: EngineStreamDeps): ((change: AccountDeletionChange) => Promise<void>) | undefined {
+export function ownerRemovalTold(deps: Pick<EngineStreamDeps, 'ownerRemovalToRoot'> & { core: Pick<EngineCore, 'runningRecords'> }): ((change: AccountDeletionChange) => Promise<void>) | undefined {
   const root = deps.ownerRemovalToRoot;
   if (!root) return undefined;
   return async ({ ownerId, progress }) => {

@@ -1,4 +1,5 @@
 import { withWorkFor } from '@koala/engine-core/work-for';
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { deletionBegun, deletionEnded, type DeletionProgress } from '../../projects/index.js';
 import { DELETE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../lib/account-removal.js';
 import type { AccountRemovalWorkflows } from './AccountRemovalService.js';
@@ -31,7 +32,12 @@ export class OwnerRemoval {
       if (!told.ok) throw new Error(`root would not hear that this Koala's owner is deleted: ${told.error}`);
       return 'deleted';
     }
-    await withWorkFor({ owner: ownerId, removing: 'owner' }, () => workflows.start(DELETE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId, toRoot: true }], ownerId));
+    try {
+      await withWorkFor({ owner: ownerId, removing: 'owner' }, () => workflows.start(DELETE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId, toRoot: true }], ownerId));
+    } catch (err) {
+      if (err instanceof WorkflowExecutionAlreadyStartedError) return 'running';
+      throw err;
+    }
     return 'started';
   }
 }

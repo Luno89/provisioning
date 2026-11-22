@@ -321,6 +321,7 @@ describe('removing an account at root whose owner has their own Koala', () => {
         tell: (instanceId) => { tellings.push(instanceId); },
         told: async (workflowId, said) => { signalled.push({ workflowId, progress: said }); return running; },
         progress: async (workflowId) => (workflowId === removeAccountWorkflowId('bob') ? progress : undefined),
+        machines: async () => [],
       },
     });
     return { ...world, service, tellings, signalled, stop: () => { running = false; } };
@@ -350,6 +351,27 @@ describe('removing an account at root whose owner has their own Koala', () => {
     expect(signalled).toEqual([{ workflowId: removeAccountWorkflowId('bob'), progress }]);
     stop();
     expect(await service.koalaTold('bob', progress)).toEqual({ ok: false, status: 409, error: 'root is not removing this account now' });
+  });
+
+  it('shows each machine still to uninstall that is off as waited for, since it went off, and none that is on or done', async () => {
+    const world = await set({ steps: true });
+    const service = new AccountRemovalService({
+      store: world.db,
+      workflows: world.workflows,
+      workflowType: ROOT_REMOVAL_WORKFLOW,
+      steps: ROOT_REMOVAL_STEPS,
+      principalFor,
+      machines: async () => [{ id: 'desk', name: 'Desk', offSince: '2026-11-21T09:00:00.000Z' }, { id: 'tower', name: 'Tower' }, { id: 'old', name: 'Old', offSince: '2026-11-20T09:00:00.000Z' }],
+      koalas: {
+        tell: () => undefined,
+        told: async () => true,
+        progress: async () => undefined,
+        machines: async () => [{ id: 'desk', name: 'Desk', state: 'uninstalling' }, { id: 'tower', name: 'Tower', state: 'uninstalling' }, { id: 'old', name: 'Old', state: 'uninstalled' }],
+      },
+    });
+    await world.db.accounts.saveUser(user('bob', { removal: { startedAt: 'then', requestedBy: 'ana' } }));
+    world.workflows.state.mockResolvedValue({ state: 'running', done: ['instance', 'koala'] });
+    expect((await service.people()).find((person) => person.id === 'bob')?.removal?.machinesAway).toEqual([{ machine: 'Desk', since: '2026-11-21T09:00:00.000Z' }]);
   });
 
   it('shows how the person\'s Koala is removing them, each thing in its real state', async () => {

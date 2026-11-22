@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
+import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
@@ -22,6 +23,7 @@ import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { wireMachineAccounts } from './accounts.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { deviceByWorkToken } from './machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 import { until } from '../testing/wiring-world.js';
@@ -44,6 +46,7 @@ let accounts: MachineAccounts;
 let machines: MachineService;
 let server: http.Server;
 let io: SocketServer;
+let watching: () => Watching;
 let url = '';
 let gateway: MachineTemporalGateway;
 let gatewayAddress = '';
@@ -125,7 +128,8 @@ beforeEach(async () => {
   machines.onForgotten((deviceId) => forgotten.listener(deviceId));
   server = http.createServer();
   io = new SocketServer(server);
-  let sockets: ReturnType<typeof wireMachineAccounts> = { removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
+  let sockets: ReturnType<typeof wireMachineAccounts> = { watched: { ready: Promise.resolve(), close: async () => undefined }, removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
+  watching = () => sockets.watched;
   accounts = new MachineAccounts({
     store: db.machines,
     signing: root,
@@ -136,7 +140,7 @@ beforeEach(async () => {
     toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
     now: () => clock,
   });
-  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), now: () => clock });
+  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
@@ -168,6 +172,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
+  await watching().close();
   await io.close();
   await new Promise<void>((done) => server.close(() => done()));
   await gateway.close();

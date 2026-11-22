@@ -2,7 +2,7 @@
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
+import { RootRemovalInstanceActivity, RootRemovalMachinesActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
@@ -25,7 +25,7 @@ export const HOST_WORKER_ACTIVITIES = {
   DependencyWatchActivity,
   ServerOrderFollowActivity, ServerOrderRebuildActivity, ServerOrderSshActivity, ServerOrderDnsActivity, ServerOrderReleaseActivity,
   ServerOrderBootstrapActivity, ServerOrderReverseDnsActivity, ServerOrderMailCheckActivity, ServerOrderStoppedActivity, ServerOrderFailedActivity,
-  RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity,
+  RootRemovalInstanceActivity, RootRemovalMachinesActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity,
   KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity,
   CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity,
 };
