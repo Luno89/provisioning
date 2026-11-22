@@ -13,7 +13,7 @@ const providerAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair })
 export const registrationCodeAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair }, instance: { id: string; ownerId: string }): Promise<string> =>
   providerAt(root).registrationCode(instance);
 
-export const machineSignInKey = (): { jwk: ClientPublicJwk; since: string } => ({ jwk: clientPublicJwkOf(clientKeysFrom(newClientKey())), since: new Date(0).toISOString() });
+export const machineSignInKey = (): { jwk: ClientPublicJwk; since: string } => ({ jwk: clientPublicJwkOf(clientKeysFrom(newClientKey())), since: new Date().toISOString() });
 
 export async function machineTokenAt(db: RootDb, deviceId: string, lifetime?: { seconds: number }): Promise<string> {
   const { provider } = providerAt({ db, url: 'http://127.0.0.1:1', signing: identityKeysFrom(generateIdentityKey()) });
@@ -22,7 +22,12 @@ export async function machineTokenAt(db: RootDb, deviceId: string, lifetime?: { 
   return new provider.ClientCredentials({ client, scope: MACHINE_SCOPE, ...(lifetime ? { expiresIn: lifetime.seconds } : {}) }).save();
 }
 
-export const machineClientsAt =(db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller'> => {
+export const machineClientsAt =(db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller' | 'machineOfKey' | 'keyReplacement'> => {
   const provider = providerAt({ db, url, signing: identityKeysFrom(generateIdentityKey()) });
-  return { machineRegistrationCode: (machine) => provider.machineRegistrationCode(machine), machineCaller: (token) => provider.machineCaller(token) };
+  return {
+    machineRegistrationCode: (machine) => provider.machineRegistrationCode(machine),
+    machineCaller: (token) => provider.machineCaller(token),
+    machineOfKey: (token) => provider.machineOfKey(token),
+    keyReplacement: (deviceId) => provider.keyReplacement(deviceId),
+  };
 };

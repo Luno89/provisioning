@@ -1,7 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
 import { workTokenExpiry } from './machine-token.js';
 import { PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
-import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
+import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE } from '@koala/engine-core/machine-join';
+import { keyReplacementFrom, type KeyReplacement } from '@koala/engine-core/root-client';
 
 export interface Koala {
   url: string;
@@ -17,6 +18,7 @@ export interface RootLinkOptions {
   onRemovedEnd?: (() => void) | undefined;
   onPlaceKoala?: ((raw: unknown) => boolean) | undefined;
   onStopKoala?: ((raw: unknown) => void) | undefined;
+  onReplaceKey?: ((offer: KeyReplacement) => Promise<void>) | undefined;
   say: (line: string) => void;
   renewBeforeSeconds?: number | undefined;
   connect?: ((url: string, options: Parameters<typeof io>[1]) => Socket) | undefined;
@@ -101,6 +103,22 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
     if (typeof ack === 'function') ack({ taken });
   });
   socket.on(STOP_KOALA, (raw: unknown) => { options.onStopKoala?.(raw); });
+  socket.on(MACHINE_KEY_REPLACE, (raw: unknown, ack?: (answer: { replaced: boolean; problem?: string }) => void) => {
+    const offer = keyReplacementFrom(raw);
+    const replacing = !offer
+      ? Promise.reject(new Error('root\'s offer named no one-use token or no address to send the new key to'))
+      : options.onReplaceKey ? options.onReplaceKey(offer) : Promise.reject(new Error('this agent cannot replace its key'));
+    void replacing.then(
+      () => {
+        say('this machine replaced its key at root');
+        if (typeof ack === 'function') ack({ replaced: true });
+      },
+      (err: Error) => {
+        say(`this machine could not replace its key at root: ${err.message}`);
+        if (typeof ack === 'function') ack({ replaced: false, problem: err.message });
+      },
+    );
+  });
   socket.on('machine:koala', (raw: unknown) => {
     const koala = koalaFrom(raw);
     if (!koala) {

@@ -14,7 +14,8 @@ import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { deviceTokenHash } from '../lib/device-tokens.js';
 import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
-import { MACHINE_CLIENT_TOKEN, WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE, WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { keyReplacementFrom } from '@koala/engine-core/root-client';
 import { dropDevice, localAgentStatus } from '../lib/local-agent-registry.js';
 import { MachineAccounts, type MachineMessages } from '../services/MachineAccounts.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -229,6 +230,40 @@ describe('a machine\'s connection to root, on tokens of its own key', () => {
     expect((await work(told[0]!.workToken)).error).toBeUndefined();
     socket.emit('machine:koala?');
     await until(async () => (told.length === 2 ? true : undefined));
+  });
+
+  const firstWord = async (answer: { replaced: boolean; problem?: string }) => {
+    const socket = connect(`${url}/machine-account`, { auth: { token: await keyToken() }, transports: ['websocket'], reconnection: false, forceNew: true });
+    clients.push(socket);
+    let told = 0;
+    const toldTwice = new Promise<void>((done) => socket.on('machine:koala', () => { told += 1; if (told === 2) done(); }));
+    const heard = await new Promise<{ offer?: unknown; koala?: true }>((done) => {
+      socket.once(MACHINE_KEY_REPLACE, (offer: unknown, ack: (answer: unknown) => void) => {
+        ack(answer);
+        socket.emit('machine:koala?');
+        done({ offer });
+      });
+      socket.once('machine:koala', () => done({ koala: true }));
+    });
+    return { socket, heard, answeredAfter: () => toldTwice };
+  };
+  const keyOf = async () => (await db.machines.getLocalAgentDevices())[0];
+
+  it('offers a machine whose key nears the end of its 90 days a one-use replacement as it connects, before anything else, and records why when the machine could not take it', async () => {
+    await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }), signIn: { ...machineSignInKey(), since: ISSUED.toISOString() } });
+    const refused = await firstWord({ replaced: false, problem: 'the disk was full' });
+    expect(keyReplacementFrom(refused.heard.offer)).toMatchObject({ registrationClientUri: 'http://127.0.0.1:1/oidc/reg/desk' });
+    await refused.answeredAfter();
+    expect((await keyOf())?.keyReplacement).toEqual({ reason: 'the disk was full', failedAt: clock.toISOString() });
+    const taken = await firstWord({ replaced: true });
+    expect(keyReplacementFrom(taken.heard.offer)).toBeDefined();
+    await taken.answeredAfter();
+    expect((await keyOf())?.keyReplacement).toBeUndefined();
+  });
+
+  it('offers no replacement to a machine whose key has more than 30 days left', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    expect((await firstWord({ replaced: true })).heard).toEqual({ koala: true });
   });
 
   it('is cut off at root the moment the person removes the machine, after it is told why', async () => {

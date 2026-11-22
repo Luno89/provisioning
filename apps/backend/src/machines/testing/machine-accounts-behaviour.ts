@@ -8,7 +8,7 @@ import { MACHINE_CODE_TTL_SECONDS } from '../lib/machines.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import { anyOf, containing } from '../../platform/lib/test-matchers.js';
 import { MachineAccounts, type MachineAccountsDeps, type MachineFollowers } from '../services/MachineAccounts.js';
-import { machineClientsAt } from '../../instances/testing/registration-code.js';
+import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 
 export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   const DAY = 24 * 60 * 60 * 1000;
@@ -140,6 +140,28 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const stranger = await joined(machines, 'cy', { hostname: 'desk', rootDir: '/x', replacesKeyless: first.env.KOALA_DEVICE_TOKEN });
       expect(stranger.deviceId).not.toBe(first.deviceId);
       expect(await db.machines.getLocalAgentDevices()).toHaveLength(2);
+    });
+
+    it('shows the person why a machine could not replace its key and when that key stops working, until it replaces it', async () => {
+      const machines = accounts();
+      const { deviceId } = await joined(machines);
+      const since = '2026-09-01T00:00:00.000Z';
+      await db.machines.updateLocalAgentDevice(deviceId, { set: { signIn: { ...machineSignInKey(), since } } });
+      await machines.keyReplaced(deviceId, { replaced: false, problem: 'the disk was full' });
+      expect((await machines.listOnline('bo'))[0]?.keyReplacement).toEqual({ reason: 'the disk was full', failedAt: clock.toISOString(), stopsAt: '2026-11-30T00:00:00.000Z' });
+      expect(browsersTold).toContain('bo');
+      await machines.keyReplaced(deviceId, { replaced: true });
+      expect((await machines.listOnline('bo'))[0]?.keyReplacement).toBeUndefined();
+    });
+
+    it('replaces the machine whose key the command proves, even once that key has lived its 90 days', async () => {
+      const machines = accounts();
+      const first = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/home/me/koala' });
+      await db.machines.updateLocalAgentDevice(first.deviceId, { set: { signIn: { ...machineSignInKey(), since: new Date(Date.now() - 91 * DAY).toISOString() } } });
+      const { code } = await machines.createJoinCode('bo');
+      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/work', replaces: await machineTokenAt(db, first.deviceId) });
+      expect(again.ok && again.value.deviceId).toBe(first.deviceId);
+      expect(await db.machines.getLocalAgentDevices()).toHaveLength(1);
     });
 
     it('hands a machine a key to the private network when root has one, and refuses when it cannot make one', async () => {

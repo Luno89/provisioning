@@ -182,6 +182,15 @@ export function machineChoiceProblem(machine: ChosenMachine | undefined, agent: 
   return undefined;
 }
 
+export type KeyReplaced = { replaced: true } | { replaced: false; problem: string };
+
+export function keyReplacedOf(raw: unknown): KeyReplaced {
+  const { replaced, problem } = (raw ?? {}) as { replaced?: unknown; problem?: unknown };
+  if (replaced === true) return { replaced: true };
+  if (replaced === false && typeof problem === 'string' && problem.trim()) return { replaced: false, problem: problem.trim().slice(0, 500) };
+  return { replaced: false, problem: 'the machine did not say whether it replaced its key' };
+}
+
 export function meshAddress(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
   const parts = raw.trim().split('.').map(Number);

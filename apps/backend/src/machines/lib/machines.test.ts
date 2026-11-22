@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { meshAddress, machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem } from './machines.js';
+import { keyReplacedOf, meshAddress, machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem } from './machines.js';
 
 describe('what a machine reports about its agents', () => {
   it('keeps well-formed agents, trims what is long, and drops the rest', () => {
@@ -65,5 +65,15 @@ describe('a machine\'s mesh address', () => {
     expect(meshAddress('100.64.0')).toBeUndefined();
     expect(meshAddress('100.64.0.256')).toBeUndefined();
     expect(meshAddress(42)).toBeUndefined();
+  });
+});
+
+describe('what a machine answers when root offers it a new key', () => {
+  it('takes replaced only when the machine says so, and otherwise keeps why, shortened, or says the machine did not say', () => {
+    expect(keyReplacedOf({ replaced: true })).toEqual({ replaced: true });
+    expect(keyReplacedOf({ replaced: false, problem: 'the disk was full' })).toEqual({ replaced: false, problem: 'the disk was full' });
+    expect(keyReplacedOf({ replaced: false, problem: 'x'.repeat(900) })).toEqual({ replaced: false, problem: 'x'.repeat(500) });
+    expect(keyReplacedOf(undefined)).toEqual({ replaced: false, problem: 'the machine did not say whether it replaced its key' });
+    expect(keyReplacedOf({ replaced: 'yes' })).toEqual({ replaced: false, problem: 'the machine did not say whether it replaced its key' });
   });
 });

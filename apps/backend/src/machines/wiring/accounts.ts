@@ -1,8 +1,10 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { Database, DependencyStates, Watching } from '../../platform/index.js';
 import { PLACE_KOALA, STOP_KOALA, type KoalaStop, type PlacedKoala } from '@koala/engine-core/koala-install';
-import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
+import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE } from '@koala/engine-core/machine-join';
+import { machineKeyDue } from '@koala/engine-core/root-client';
 import type { MachineAccounts, MachineClients } from '../services/MachineAccounts.js';
+import { keyReplacedOf, type KeyReplaced } from '../lib/machines.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 
 export const ACCOUNT_NAMESPACE = '/machine-account';
@@ -19,15 +21,15 @@ export interface AccountSockets {
 export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
-  clients: Pick<MachineClients, 'machineCaller'>;
-  accounts: () => Pick<MachineAccounts, 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'uninstalled' | 'wentOff'>;
+  clients: Pick<MachineClients, 'machineCaller' | 'keyReplacement'>;
+  accounts: () => Pick<MachineAccounts, 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'uninstalled' | 'wentOff' | 'keyReplaced'>;
   installs: () => Pick<KoalaInstalls, 'connected'>;
   dependencies: Pick<DependencyStates, 'whenAnswering'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
   const connected = new Map<string, Set<Socket>>();
-  const admitted = new WeakMap<object, { deviceId: string; until: number }>();
+  const admitted = new WeakMap<object, { deviceId: string; until: number; keyEnds: number }>();
   const now = deps.now ?? (() => new Date());
   const tokenIn = (held: unknown): string => {
     const token = held && typeof held === 'object' ? (held as { token?: unknown }).token : undefined;
@@ -39,7 +41,7 @@ export function wireMachineAccounts(deps: {
     if (!token) return next(new Error('Unauthorized: send a token of this machine\'s key'));
     deps.clients.machineCaller(token).then((caller) => {
       if (!caller) return next(new Error('Unauthorized'));
-      admitted.set(socket, { deviceId: caller.deviceId, until: caller.until });
+      admitted.set(socket, { deviceId: caller.deviceId, until: caller.until, keyEnds: caller.keyEnds });
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
@@ -51,24 +53,41 @@ export function wireMachineAccounts(deps: {
       return;
     }
     const { deviceId } = machine;
-    let { until } = machine;
-    let checked = Promise.resolve();
+    let { until, keyEnds } = machine;
+    const accounts = deps.accounts();
+    let offeredFor: number | undefined;
+    const keyReplaced = (outcome: KeyReplaced): Promise<void> => accounts.keyReplaced(deviceId, outcome)
+      .catch((err: Error) => console.warn(`[machines] ${deviceId}: how replacing its key went could not be recorded: ${err.message}`));
+    const offerKey = async (): Promise<void> => {
+      if (offeredFor === keyEnds || !machineKeyDue(keyEnds, now().getTime()) || !socket.connected) return;
+      offeredFor = keyEnds;
+      const offer = await deps.clients.keyReplacement(deviceId).catch((err: Error) => {
+        void keyReplaced({ replaced: false, problem: `root could not offer it a new key: ${err.message}` });
+        return undefined;
+      });
+      if (!offer) return;
+      socket.emit(MACHINE_KEY_REPLACE, offer, (answer: unknown) => {
+        checked = checked.then(() => keyReplaced(keyReplacedOf(answer)));
+      });
+    };
+    let checked = offerKey();
     socket.use((packet, next) => {
       checked = checked.then(async () => {
         if (packet[0] === MACHINE_CLIENT_TOKEN) {
           const caller = await deps.clients.machineCaller(tokenIn(packet[1]));
           if (caller?.deviceId !== deviceId) return void socket.disconnect(true);
-          until = caller.until;
+          ({ until, keyEnds } = caller);
+          await offerKey();
           return next();
         }
-        if (now().getTime() < until) return next();
-        socket.disconnect(true);
+        if (now().getTime() >= until) return void socket.disconnect(true);
+        await offerKey();
+        next();
       }).catch((err: Error) => {
         console.warn(`[machines] ${deviceId}: what it sent could not be checked (${err.message}); it is cut off and connects again by itself`);
         socket.disconnect(true);
       });
     });
-    const accounts = deps.accounts();
     const sockets = connected.get(deviceId) ?? new Set<Socket>();
     sockets.add(socket);
     connected.set(deviceId, sockets);
@@ -79,7 +98,7 @@ export function wireMachineAccounts(deps: {
       (koala) => { if (socket.connected) socket.emit('machine:koala', koala ?? null); },
       (err: Error) => console.warn(`[machines] ${deviceId}: where its Koala is could not be told: ${err.message}`),
     );
-    void tellKoala();
+    void checked.then(tellKoala);
     socket.on('machine:koala?', () => { void tellKoala(); });
     socket.on('machine:mesh', (report: { ip?: unknown } | undefined) => {
       accounts.recordMeshIp(deviceId, report?.ip)

@@ -2,7 +2,8 @@ import { mkdir } from 'fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { agentsNotSetUp, loadMachineConfig } from './machine-config.js';
+import { agentsNotSetUp, configFile, loadMachineConfig } from './machine-config.js';
+import { replaceMachineKey, settleMachineKey } from './machine-key.js';
 import { linkToRoot } from './root-link.js';
 import { systemDeps } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
@@ -62,7 +63,8 @@ async function main() {
   void startIfWanted(machineCluster, say).catch((err: Error) => say(`this machine's cluster could not start again: ${err.message}`));
   let sessionsOf: ExternalAgentSessions | undefined;
   let working: { url: string; setToken(token: string): Promise<void> } | undefined;
-  const client = machineClientOf({ rootUrl, deviceId: config.deviceId, key: config.key });
+  const key = await settleMachineKey(configFile(), async (held) => (await machineClientOf({ rootUrl, deviceId: config.deviceId, key: held }).tokenIfKnown()) !== undefined);
+  const client = machineClientOf({ rootUrl, deviceId: config.deviceId, key });
   const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => client.token(), say, ownValues: ownValuesFile() });
   const root = linkToRoot({
     rootUrl,
@@ -73,6 +75,7 @@ async function main() {
     onRemovedEnd: () => process.exit(0),
     onPlaceKoala: (raw) => placements.place(raw),
     onStopKoala: (raw) => { void placements.stop(raw); },
+    onReplaceKey: (offer) => replaceMachineKey(client, offer, configFile()),
     onKoala: (koala) => {
       if (!working) {
         working = startWork(thisComputer(service), config, koala.url, koala.workToken, () => root.askKoala(), (sessions) => { sessionsOf = sessions; });

@@ -9,7 +9,7 @@ import { AccessRevocations } from '../../platform/services/AccessRevocations.js'
 import { claimsFor, clientMetadata, publicJwkOf, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
-import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED, machineClientOf, newClientKey, type OidcClient } from '@koala/engine-core/root-client';
+import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, MACHINE_KEY_DAYS, MACHINE_REGISTRATION_REFUSED, machineClientOf, newClientKey, type MachineClient } from '@koala/engine-core/root-client';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
@@ -557,7 +557,7 @@ export function runBearersThroughRoot<S extends Served>(world: SignInWorld<S>): 
 }
 
 export function machinesThroughRoot<S extends Served>(world: SignInWorld<S>): void {
-  const machineAt = (code: string, key: string): OidcClient => machineClientOf({ rootUrl: world.root.url, deviceId: 'desk-1', key, registrationCode: code });
+  const machineAt = (code: string, key: string): MachineClient => machineClientOf({ rootUrl: world.root.url, deviceId: 'desk-1', key, registrationCode: code });
   const desk = () => world.rootDb.machines.saveLocalAgentDevice({ id: 'desk-1', ownerId: 'u1', name: 'desk', rootDir: '/home/u1/koala', createdAt: '2026-11-21T00:00:00.000Z' });
 
   it('registers a machine at root with the one-use code its join gave it, as a client of its owner that takes only its own tokens, and refuses the code a second time and the machine once it is removed', async () => {
@@ -588,5 +588,35 @@ export function machinesThroughRoot<S extends Served>(world: SignInWorld<S>): vo
     await after.register();
     expect(await world.provider.machineCaller(replacedToken)).toBeUndefined();
     expect(await world.provider.machineCaller(await after.token())).toMatchObject({ deviceId: 'desk-1', ownerId: 'u1' });
+  });
+
+  it('replaces a machine\'s key through registration management with a one-use access token root gives it, after which root keeps only the new public key and refuses a token of the old one', async () => {
+    await desk();
+    const machine = machineAt(await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' }), newClientKey());
+    await machine.register();
+    const oldToken = await machine.token();
+    const offer = await world.provider.keyReplacement('desk-1');
+    const next = newClientKey();
+    await machine.replaceKey(offer, next);
+    const [device] = await world.rootDb.machines.getLocalAgentDevices();
+    expect(device?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(next)));
+    expect(JSON.stringify(device)).not.toContain(offer.registrationAccessToken);
+    expect(await world.provider.machineCaller(oldToken)).toBeUndefined();
+    expect(await world.provider.machineCaller(await machine.token())).toMatchObject({ deviceId: 'desk-1', ownerId: 'u1' });
+    await expect(machine.replaceKey(offer, newClientKey())).rejects.toThrow(KEY_REPLACEMENT_REFUSED);
+    expect((await world.rootDb.machines.getLocalAgentDevices())[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(next)));
+  });
+
+  it('refuses a machine whose key has lived its 90 days, and names when a live key ends', async () => {
+    await desk();
+    const machine = machineAt(await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' }), newClientKey());
+    await machine.register();
+    const signIn = (await world.rootDb.machines.getLocalAgentDevices())[0]!.signIn!;
+    const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const since = daysAgo(70);
+    await world.rootDb.machines.updateLocalAgentDevice('desk-1', { set: { signIn: { ...signIn, since } } });
+    expect(await world.provider.machineCaller(await machine.token())).toMatchObject({ deviceId: 'desk-1', keyEnds: Date.parse(since) + MACHINE_KEY_DAYS * 24 * 3600 * 1000 });
+    await world.rootDb.machines.updateLocalAgentDevice('desk-1', { set: { signIn: { ...signIn, since: daysAgo(MACHINE_KEY_DAYS + 1) } } });
+    expect(await world.provider.machineCaller(await machine.token())).toBeUndefined();
   });
 }
