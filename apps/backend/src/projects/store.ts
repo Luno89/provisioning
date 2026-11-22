@@ -27,6 +27,7 @@ export interface ProjectsStore extends AreaStore {
   holdOpenIn(tx: Tx, projectId: string): Promise<boolean>;
   restore(projectId: string, name: string): Promise<boolean>;
   deletedProjects(ownerId: string): Promise<ProjectMetadata[]>;
+  markedProjectIds(ownerId: string): Promise<string[]>;
   forgetClientFiles(): Promise<number>;
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
@@ -167,6 +168,10 @@ export class MongoProjectsStore implements ProjectsStore {
 
   async deletedProjects(ownerId: string): Promise<ProjectMetadata[]> {
     return (await this.projects.find({ ownerId, 'removal.phase': 'archived' }).toArray()).map((doc) => fromDoc<ProjectMetadata>(doc));
+  }
+
+  async markedProjectIds(ownerId: string): Promise<string[]> {
+    return (await this.projects.find({ ownerId, removal: { $exists: true } }, { projection: { _id: 1 } }).toArray()).map((doc) => String(doc._id));
   }
 
   async deletion(projectId: string): Promise<ProjectRemoval | undefined> {

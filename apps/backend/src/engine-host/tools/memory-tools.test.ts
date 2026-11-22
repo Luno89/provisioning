@@ -19,6 +19,8 @@ let indexFinds: string[] | Error | undefined;
 let searched: string[];
 let indexed: string[];
 let indexDown: Error | undefined;
+let marked: string[];
+let markedFor: string[];
 
 const memory = dnsMemory;
 
@@ -28,6 +30,7 @@ const tools = () => createMemoryTools({
   tools: async () => ({ tools: ['start_task', 'mark_done'], servers: [{ name: 'playwright', tools: ['browser_click', 'browser_snapshot'] }] }),
   store: {
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
+    markedProjects: async (ownerId) => { markedFor.push(ownerId); return marked; },
     save: async (item) => { bank.set(item.id, item); },
     index: async (items) => {
       if (indexDown) throw indexDown;
@@ -60,6 +63,8 @@ beforeEach(() => {
   searched = [];
   indexed = [];
   indexDown = undefined;
+  marked = [];
+  markedFor = [];
 });
 
 describe('search_memories', () => {
@@ -75,6 +80,19 @@ describe('search_memories', () => {
       '- id m3 [environment_facts, global] Domains are at Porkbun: The .app domains are registered at Porkbun.',
       '- id m1 [environment_facts, global] DNS lives at Cloudflare: The person manages DNS for their domain at Cloudflare.',
     ].join('\n'));
+  });
+
+  it('does not find what is remembered for a project being deleted or kept deleted, though what it learned for everywhere stays', async () => {
+    bank.set('m3', memory({ id: 'm3', scope: 'project', projectId: 'gone', title: 'Gone deploys on Fridays', text: 'The gone project deploys on Fridays.' }));
+    bank.set('m4', memory({ id: 'm4', scope: 'project', projectId: 'open', title: 'Open deploys on Mondays', text: 'The open project deploys on Mondays.' }));
+    bank.set('m1', memory({ projectId: 'gone' }));
+    marked = ['gone'];
+    indexFinds = ['m3', 'm4', 'm1'];
+    expect((await call('search_memories', { query: 'deploys' })).content).toBe([
+      '- id m4 [environment_facts, project] Open deploys on Mondays: The open project deploys on Mondays.',
+      '- id m1 [environment_facts, global] DNS lives at Cloudflare: The person manages DNS for their domain at Cloudflare.',
+    ].join('\n'));
+    expect(markedFor).toEqual(['u1']);
   });
 
   it('does not find a retired memory', async () => {
@@ -302,6 +320,7 @@ describe('retiring a memory from the person\'s own Quickwit and Qdrant', () => {
   const withIndex = () => createMemoryTools({
     store: {
       list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
+      markedProjects: async () => [],
       save: async (item) => { bank.set(item.id, item); },
       unindex: unindexerFrom(unreportedReach({ index: { base: QUICKWIT }, vectors: { base: QDRANT, apiKey: 'k' }, embeddings: { base: 'http://tei.memory-tools.test' } })),
       index: async (items) => { indexed.push(...items.map((item) => item.id)); },

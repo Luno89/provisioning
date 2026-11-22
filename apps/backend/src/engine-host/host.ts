@@ -533,6 +533,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       index: stores.memories.index,
       unindex: stores.memories.unindex,
       search: stores.memories.search,
+      markedProjects: stores.memories.markedProjects,
     },
     ...(options.hidden ? { hidden: options.hidden } : {}),
     operations: operationHandlers(runtimes),
@@ -621,7 +622,7 @@ export function storesFromDatabase(db: Database, index: Pick<HostNodeServices['m
         return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId, leafId: conversation.leafId, branchId: conversation.branchId } : undefined;
       },
     },
-    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item), index: index.index, unindex: index.unindex, search: index.search },
+    memories: { list: (ownerId: string) => db.memory.getMemories(ownerId), save: (item: MemoryItem) => db.memory.saveMemory(item), index: index.index, unindex: index.unindex, search: index.search, markedProjects: (ownerId: string) => db.projects.markedProjectIds(ownerId) },
     egress: {
       grants: (ownerId: string) => db.infrastructure.getEgressGrants(ownerId),
       requests: { list: (ownerId: string) => db.infrastructure.getEgressRequests(ownerId), save: (request) => db.infrastructure.saveEgressRequest(request) },
