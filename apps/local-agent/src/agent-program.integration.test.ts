@@ -107,10 +107,10 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     root.io.of('/machine-account').on('connection', (socket) => {
       toRoot.push(socket);
       heard.rootToken = (socket.handshake.auth as { token?: string }).token;
-      socket.emit('machine:koala', { url: koala.url, workToken: 'program-work-token' });
+      socket.emit('machine:koala', { url: koala.url, resource: 'urn:koala:instance:program-koala', workToken: 'program-work-token' });
     });
     koala.io.of('/agent').on('connection', (socket) => {
-      heard.workToken = (socket.handshake.auth as { token?: string }).token;
+      heard.koalaToken = (socket.handshake.auth as { token?: string }).token;
       socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => ack({ agents: [] }));
       socket.on('agents:found', (found: unknown) => { heard.agents = found; });
       socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
@@ -148,14 +148,16 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     while (child.exitCode === null && !said.join('').includes('could not start') && ((await pollers()).length === 0 || heard.agents === undefined)) await new Promise((done) => setTimeout(done, 100));
     expect(child.exitCode, said.join('')).toBeNull();
     expect(said.join('')).not.toContain('could not start');
-    expect(heard).toMatchObject({ rootToken: 'token-for-program-desk', workToken: 'program-work-token', agents: { agents: [] } });
+    expect(heard).toMatchObject({ rootToken: 'token-for-program-desk', koalaToken: 'token-for-program-desk-at-urn:koala:instance:program-koala', agents: { agents: [] } });
 
-    toRoot[0]!.emit('machine:koala', { url: koala.url, workToken: 'program-work-token-2' });
+    toRoot[0]!.emit('machine:koala', { url: koala.url, resource: 'urn:koala:instance:program-koala', workToken: 'program-work-token-2' });
     while (child.exitCode === null && !said.join('').includes('took a new work token')) await new Promise((done) => setTimeout(done, 100));
     expect(child.exitCode, said.join('')).toBeNull();
+    heard.koalaToken = undefined;
     for (const socket of koala.io.of('/agent').sockets.values()) socket.conn.close();
-    while (child.exitCode === null && heard.workToken !== 'program-work-token-2') await new Promise((done) => setTimeout(done, 100));
+    while (child.exitCode === null && heard.koalaToken === undefined) await new Promise((done) => setTimeout(done, 100));
     expect(child.exitCode, said.join('')).toBeNull();
+    expect(heard.koalaToken).toBe('token-for-program-desk-at-urn:koala:instance:program-koala');
 
     child.kill('SIGTERM');
     expect(await ended).toBe(0);

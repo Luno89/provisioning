@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { JOIN_PROGRESS, type MachineJoinView } from '@koala/engine-core/machine-join';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { allowed, asPerson, type LocalAgentDeviceMetadata } from '../../platform/index.js';
-import type { IdentityKeyPair, MachineCaller } from '../../instances/index.js';
+import { runResourceOf, type IdentityKeyPair, type MachineCaller } from '../../instances/index.js';
 import { machineKeyEnds, type KeyReplacement } from '@koala/engine-core/root-client';
 import type { KeyReplaced } from '../lib/machines.js';
 import type { KoalaInstalls } from './KoalaInstalls.js';
@@ -36,9 +36,15 @@ export interface KoalaPlace {
   audience: string;
 }
 
+export interface MachineKoala {
+  url: string;
+  resource: string;
+  workToken: string;
+}
+
 export interface MachineMessages {
   removed(deviceId: string): boolean;
-  koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
+  koala(deviceId: string, koala: MachineKoala | null): boolean;
   online?(deviceId: string): boolean;
 }
 
@@ -278,13 +284,13 @@ export class MachineAccounts {
     return { adopted };
   }
 
-  async koalaFor(deviceId: string): Promise<{ url: string; workToken: string } | undefined> {
+  async koalaFor(deviceId: string): Promise<MachineKoala | undefined> {
     const device = await this.byId(deviceId);
     if (!device) return undefined;
     const place = await this.deps.koala.of(device.ownerId);
     if (!place) return undefined;
     const workToken = issueWorkToken(this.deps.signing, { machineId: device.id, ownerId: device.ownerId, audience: place.audience }, Math.floor(this.now().getTime() / 1000));
-    return { url: place.url, workToken };
+    return { url: place.url, resource: runResourceOf(place.audience), workToken };
   }
 
   async putKoalaOn(ownerId: string, deviceId: string, name?: string): Promise<Outcome<{ placing: boolean }>> {

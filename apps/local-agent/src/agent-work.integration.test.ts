@@ -3,7 +3,7 @@ import path from 'node:path';
 import { temporal } from '@temporalio/proto';
 import type { Socket } from 'socket.io';
 import { describe, expect, it } from 'vitest';
-import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { deviceQueue, startDeviceWorker } from './engine-worker.js';
 import type { ClusterHost } from './machine-cluster.js';
@@ -44,8 +44,32 @@ const placeHere = (stops: Array<() => void>): AgentPlace => ({
   exit: () => undefined,
 });
 
+const RESOURCE = 'urn:koala:instance:inst-1';
+
+function accessFromRoot() {
+  let made = 0;
+  let current = '';
+  const asked: string[] = [];
+  return {
+    asked,
+    rotate: () => { current = ''; },
+    token: async (resource: string) => {
+      asked.push(resource);
+      if (!current) current = `access-${made += 1}`;
+      return current;
+    },
+    freshToken: async (resource: string) => {
+      asked.push(resource);
+      current = `access-${made += 1}`;
+      return current;
+    },
+  };
+}
+
+const koalaAt = (port: number, workToken: string) => ({ url: `http://127.0.0.1:${port}`, resource: RESOURCE, workToken });
+
 describe('the machine agent starting its work for its Koala', () => {
-  it('connects to its Koala with its work token, reports its agents, its cluster and its GPUs, and starts its device worker, which polls the machine\'s queue', async () => {
+  it('connects to its Koala with a token root gave it for its Koala, reports its agents, its cluster and its GPUs, and starts its device worker, which polls the machine\'s queue', async () => {
     const heard: Record<string, unknown> = {};
     const { koala, port } = await koalaAnsweringPayloads(world, {
       at: '/agent',
@@ -60,41 +84,53 @@ describe('the machine agent starting its work for its Koala', () => {
     const stops: Array<() => void> = [];
     const place = placeHere(stops);
 
-    const work = startWork(place, { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'work-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'work-token', () => undefined, () => undefined);
+    const access = accessFromRoot();
+    const work = startWork(place, { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'work-desk', key: 'unused-here' }, koalaAt(port, 'work-token'), access, () => undefined);
     expect(work.url).toBe(`http://127.0.0.1:${port}`);
 
     const pollers = async () => (await world.env.client.workflowService.describeTaskQueue({
       namespace: 'default', taskQueue: { name: deviceQueue('work-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];
     while ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined) await new Promise((done) => setTimeout(done, 100));
-    expect(heard).toMatchObject({ token: 'work-token', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [], withoutDriver: [] } });
+    expect(access.asked.every((resource) => resource === RESOURCE)).toBe(true);
+    expect(heard).toMatchObject({ token: 'access-1', agents: { agents: [] }, cluster: { state: 'absent', gpus: [{ vendor: 'nvidia', model: 'NVIDIA GeForce RTX 3090', memoryMiB: 24576, count: 1, runtime: false }], problems: [], withoutDriver: [] } });
     expect(stops).toHaveLength(1);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   });
 
-  it('asks root for a new work token when its Koala cuts it off because the token ran out, and connects again with the one it is given', async () => {
-    const tokens: string[] = [];
-    let cut: (asked: number) => void = () => undefined;
-    const firstCut = new Promise<number>((done) => { cut = done; });
-    let asked = 0;
+  it('sends its Koala the fresh token root gives it before the first thing it sends once the one it holds changed, and connects again with a fresh one', async () => {
+    const handshakes: string[] = [];
+    const heard: string[] = [];
+    const sockets: Socket[] = [];
+    let manualAsked: () => void = () => undefined;
     const { koala, port } = await koalaAnsweringPayloads(world, {
       at: '/agent',
-      key: 'agent-work-ended-key-0123456789abcdef',
+      key: 'agent-work-renewed-key-0123456789abcdef',
       connected: (socket) => {
-        tokens.push((socket.handshake.auth as { token?: string }).token ?? '');
-        if (tokens.length > 1) return;
-        socket.emit(WORK_TOKEN_ENDED, { said: 'this machine\'s work token expired' });
-        void socket.emitWithAck('sandbox:exec', { leafId: 'probe', command: 'true' }).then(() => {
-          cut(asked);
-          socket.disconnect(true);
+        sockets.push(socket);
+        handshakes.push((socket.handshake.auth as { token?: string }).token ?? '');
+        socket.onAny((event: string, payload: { token?: string } | undefined) => { heard.push(event === MACHINE_CLIENT_TOKEN ? `token ${payload?.token ?? ''}` : event); });
+        socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => {
+          ack({ agents: [] });
+          manualAsked();
         });
       },
     });
-    const work = startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'ended-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'old-token', () => { asked += 1; }, () => undefined);
-    expect(await firstCut).toBe(1);
-    await work.setToken('new-token');
-    while (tokens.length < 2) await new Promise((done) => setTimeout(done, 50));
-    expect(tokens).toEqual(['old-token', 'new-token']);
+    const asked = () => new Promise<void>((done) => { manualAsked = done; });
+    const access = accessFromRoot();
+    const firstAsk = asked();
+    startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'renewed-desk', key: 'unused-here' }, koalaAt(port, 'work-token'), access, () => undefined);
+    await firstAsk;
+    expect(heard).not.toContain('token access-1');
+    access.rotate();
+    const secondAsk = asked();
+    sockets[0]!.emit('agents:changed');
+    await secondAsk;
+    expect(heard.slice(heard.indexOf('token access-2'))[1]).toBe('agents:manual');
+    const reconnected = asked();
+    sockets[0]!.conn.close();
+    await reconnected;
+    expect(handshakes).toEqual(['access-1', 'access-3']);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   });
 
@@ -102,7 +138,7 @@ describe('the machine agent starting its work for its Koala', () => {
     const sockets: Socket[] = [];
     const { koala, port } = await koalaAnsweringPayloads(world, { at: '/agent', key: 'agent-work-exec-key-0123456789abcdef', connected: (socket) => { sockets.push(socket); } });
     await mkdir(path.join(world.rootDir, 'project'), { recursive: true });
-    startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'exec-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'exec-token', () => undefined, () => undefined);
+    startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'exec-desk', key: 'unused-here' }, koalaAt(port, 'exec-token'), accessFromRoot(), () => undefined);
     while (sockets.length === 0) await new Promise((done) => setTimeout(done, 50));
     const ran = await sockets[0]!.emitWithAck('sandbox:exec', { leafId: 'leaf-1', command: 'pwd; echo a warning >&2; exit 3', cwd: 'project' }) as Record<string, unknown>;
     expect(ran).toMatchObject({ stdout: `${await realpath(path.join(world.rootDir, 'project'))}\n`, stderr: 'a warning\n', exitCode: 3, timedOut: false });

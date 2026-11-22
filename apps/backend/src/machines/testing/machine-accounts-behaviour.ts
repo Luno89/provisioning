@@ -418,11 +418,12 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   });
 
   describe('where a machine\'s Koala is', () => {
-    it('names its Koala with a work token root signed for that machine, owner and Koala', async () => {
+    it('names its Koala, the resource the machine asks root tokens for there, and a work token root signed for that machine, owner and Koala', async () => {
       const machines = accounts();
       const { deviceId } = await joined(machines, 'bo');
       const koala = (await machines.koalaFor(deviceId))!;
       expect(koala.url).toBe('https://bo.people.example');
+      expect(koala.resource).toBe('urn:koala:instance:inst-bo');
       const check = checkWorkToken(koala.workToken, trustedKeys([publicKeyPem(signing.publicKey)]), 'inst-bo', Math.floor(clock.getTime() / 1000));
       expect(check).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: 'inst-bo' } });
     });

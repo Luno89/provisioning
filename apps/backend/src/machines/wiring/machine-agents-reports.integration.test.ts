@@ -18,14 +18,16 @@ import { agentsNotSetUp } from '../../../../local-agent/src/machine-config.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
+import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { runResourceOf } from '../../instances/lib/oidc.js';
+import { machineAccessCheckedByServedRoot, machineSignInKey } from '../../instances/testing/registration-code.js';
+import { machineClientOf } from '@koala/engine-core/root-client';
 import { joiningRoot } from '../testing/joining-root.js';
-import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from '../routes/machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 import type { MachineService } from '../services/MachineService.js';
-import { closedAfterEach, connectedSocket, until, quietAccountSides, onlineMachines, agentSockets } from '../testing/wiring-world.js';
+import { agentAccess, closedAfterEach, connectedSocket, until, quietAccountSides, onlineMachines, agentSockets } from '../testing/wiring-world.js';
 
 const closers = closedAfterEach();
 
@@ -44,22 +46,20 @@ async function listening(server: http.Server): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-async function wired(db: MongoDB, machines: SocketsWiringDeps['machines']): Promise<{ io: SocketServer; url: string }> {
+async function wired(db: MongoDB, machines: SocketsWiringDeps['machines'], machineTokens: SocketsWiringDeps['machineTokens']): Promise<{ io: SocketServer; url: string }> {
   const server = http.createServer();
   const io = new SocketServer(server);
   closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
-  wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens: { keys: trustedKeys([publicKeyPem(signing.publicKey)]), audience: 'inst-1' } }, 'bo'));
+  wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, machineTokens }, 'bo'));
   return { io, url: await listening(server) };
 }
 
-async function connected(koalaUrl: string, deviceId: string) {
-  const token = issueWorkToken(signing, { machineId: deviceId, ownerId: 'bo', audience: 'inst-1' });
-  return connectedSocket(`${koalaUrl}/agent`, closers, { token });
-}
+const connected = (koalaUrl: string, token: string) => connectedSocket(`${koalaUrl}/agent`, closers, { token });
 
 async function koala() {
   const db: MongoDB = await testDatabase();
   const { app, url: rootUrl, root } = await joiningRoot(db, closers);
+  await db.instances.saveInstance({ id: 'inst-1', ownerId: 'bo', url: 'http://inst-1.test', createdAt: 'then', updatedAt: 'then', status: 'ready' });
   const accounts = new MachineAccounts({
     ...quietAccountSides(rootUrl),
     store: db.machines, signing, clients: root.provider,
@@ -67,7 +67,7 @@ async function koala() {
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
   const machines = onlineMachines(db.machines);
-  const koalaUrl = (await wired(db, machines)).url;
+  const koalaUrl = (await wired(db, machines, machineAccessCheckedByServedRoot(rootUrl, 'inst-1'))).url;
   return { accounts, machines, rootUrl, koalaUrl };
 }
 
@@ -88,7 +88,8 @@ async function joined(rootUrl: string, code: string, home: string): Promise<Join
 }
 
 async function reports(koalaUrl: string, ctx: JoinContext, home: string, deps: DiscoveryDeps): Promise<void> {
-  const socket = await connected(koalaUrl, ctx.joined!.deviceId);
+  const { rootUrl, deviceId, key } = ctx.joined!;
+  const socket = await connected(koalaUrl, await machineClientOf({ rootUrl, deviceId, key }).token(runResourceOf('inst-1')));
   await reportAgents(deps, [], () => agentsNotSetUp(settingsEnv(home)), (report) => { socket.emit('agents:found', report); });
 }
 
@@ -111,7 +112,8 @@ describe('a machine whose coding agents its join could not set up', () => {
 
   it('records a machine\'s reports in the order it sent them, so an older one never lands over a newer', async () => {
     const db: MongoDB = await testDatabase();
-    await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: new Date().toISOString() });
+    await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: new Date().toISOString(), signIn: machineSignInKey() });
+    const access = await agentAccess(db, { id: 'inst-1', ownerId: 'bo' });
     let releaseFirst: () => void = () => undefined;
     const recorded: unknown[] = [];
     const machines = {
@@ -121,10 +123,10 @@ describe('a machine whose coding agents its join could not set up', () => {
         if (recorded.length === 1) await new Promise<void>((done) => { releaseFirst = done; });
       },
     } as unknown as Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
-    const { io, url } = await wired(db, machines);
+    const { io, url } = await wired(db, machines, access.machineTokens);
     let arrived = 0;
     io.of('/agent').on('connection', (socket) => { socket.on('agents:found', () => { arrived += 1; }); });
-    const socket = await connected(url, 'desk');
+    const socket = await connected(url, await access.token('desk'));
     socket.emit('agents:found', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'checking', source: 'found' }] });
     socket.emit('agents:found', { agents: [{ id: 'gemini', title: 'Gemini CLI', state: 'ready', source: 'found' }] });
     await until(() => (arrived === 2 ? true : undefined));

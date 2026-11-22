@@ -58,7 +58,7 @@ describe('a machine replacing its key when root offers', () => {
     const rootHolds = new Set([OLD]);
     const refusedKey = Object.assign(new Error('client authentication failed'), { name: 'ResponseBodyError', error: 'invalid_client' });
     const clientOf = (key: string): MachineKeyClient => {
-      const token = async (): Promise<string> => { if (!rootHolds.has(key)) throw refusedKey; return `token of ${key === OLD ? 'the old key' : 'the new key'}`; };
+      const token = async (resource?: string): Promise<string> => { if (!rootHolds.has(key)) throw refusedKey; return `token of ${key === OLD ? 'the old key' : 'the new key'}${resource ? ` for ${resource}` : ''}`; };
       return {
         token,
         freshToken: token,
@@ -75,8 +75,9 @@ describe('a machine replacing its key when root offers', () => {
     await expect(held.replaceKey(OFFER)).rejects.toThrow('the connection dropped before root answered');
     const pending = (await read(file)).nextKey as string;
     expect(rootHolds).toEqual(new Set([pending]));
-    expect(await held.freshToken()).toBe('token of the new key');
+    expect(await held.freshToken('urn:koala:instance:inst-1')).toBe('token of the new key for urn:koala:instance:inst-1');
     expect(await held.token()).toBe('token of the new key');
+    expect(await held.token('urn:koala:instance:inst-1')).toBe('token of the new key for urn:koala:instance:inst-1');
     expect(await read(file)).toEqual({ rootUrl: 'https://root.test', deviceId: 'desk', rootDir: dir, key: pending });
   });
 

@@ -27,6 +27,8 @@ export const OWNER_TOKEN_TYPE = 'urn:koala:params:oauth:token-type:owner';
 export const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
 export const RUN_SCOPE = 'koala:run';
 export const RUN_TOKEN_SECONDS = 5 * 60;
+export const MACHINE_TOKEN_SECONDS = 5 * 60;
+export const ACCESS_JWT_TYP = 'at+jwt';
 export const REGISTRATION_POLICY = 'koala-instance';
 export const runResourceOf = (clientId: string): string => `urn:koala:instance:${clientId}`;
 

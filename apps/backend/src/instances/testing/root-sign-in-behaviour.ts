@@ -9,7 +9,7 @@ import { AccessRevocations } from '../../platform/services/AccessRevocations.js'
 import { claimsFor, clientMetadata, publicJwkOf, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
-import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, MACHINE_KEY_DAYS, MACHINE_REGISTRATION_REFUSED, machineClientOf, newClientKey, type MachineClient } from '@koala/engine-core/root-client';
+import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, MACHINE_KEY_DAYS, MACHINE_REGISTRATION_REFUSED, MACHINE_SCOPE, machineClientOf, newClientKey, type MachineClient } from '@koala/engine-core/root-client';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
@@ -618,5 +618,36 @@ export function machinesThroughRoot<S extends Served>(world: SignInWorld<S>): vo
     expect(await world.provider.machineCaller(await machine.token())).toMatchObject({ deviceId: 'desk-1', keyEnds: Date.parse(since) + MACHINE_KEY_DAYS * 24 * 3600 * 1000 });
     await world.rootDb.machines.updateLocalAgentDevice('desk-1', { set: { signIn: { ...signIn, since: daysAgo(MACHINE_KEY_DAYS + 1) } } });
     expect(await world.provider.machineCaller(await machine.token())).toBeUndefined();
+  });
+
+  const payloadOf = (token: string): Record<string, unknown> => JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString()) as Record<string, unknown>;
+
+  it('gives a machine a five-minute token for its owner\'s Koala, which that Koala takes as the machine, and gives none for another Koala nor to another person\'s machine for this one', async () => {
+    await desk();
+    const machine = machineAt(await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' }), newClientKey());
+    await machine.register();
+    const access = await machine.token(runResourceOf('inst-u1'));
+    const claims = payloadOf(access);
+    expect(claims).toMatchObject({ sub: 'desk-1', client_id: 'desk-1', aud: runResourceOf('inst-u1'), scope: MACHINE_SCOPE, koala_key: matching(/^\w{16}$/) });
+    expect(Number(claims.exp) - Number(claims.iat)).toBe(5 * 60);
+    expect(await world.signIn.checkMachineToken(access)).toEqual({ deviceId: 'desk-1', until: Number(claims.exp) * 1000 });
+    await expect(machine.token(runResourceOf('inst-u2'))).rejects.toMatchObject({ error: 'invalid_target' });
+
+    await world.rootDb.machines.saveLocalAgentDevice({ id: 'lap-2', ownerId: 'u2', name: 'lap', rootDir: '/home/u2/koala', createdAt: '2026-11-21T00:00:00.000Z' });
+    const theirs = machineClientOf({ rootUrl: world.root.url, deviceId: 'lap-2', key: newClientKey(), registrationCode: await world.provider.machineRegistrationCode({ id: 'lap-2', ownerId: 'u2' }) });
+    await theirs.register();
+    await expect(theirs.token(runResourceOf('inst-u1'))).rejects.toMatchObject({ error: 'invalid_target' });
+  });
+
+  it('refuses at the Koala a machine token for another Koala, one that ran out, one root\'s key did not sign, and a run\'s token', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const claims = { sub: 'desk-1', client_id: 'desk-1', scope: MACHINE_SCOPE, koala_key: 'abcdef0123456789', iss: `${world.root.url}/oidc`, aud: runResourceOf('inst-u1'), iat: now, exp: now + 300 };
+    const signed = (over: Record<string, unknown>, key = rootSigning) => new SignJWT({ ...claims, ...over }).setProtectedHeader({ alg: 'Ed25519', typ: 'at+jwt', kid: key.kid }).sign(key.privateKey);
+    expect(await world.signIn.checkMachineToken(await signed({}))).toEqual({ deviceId: 'desk-1', until: (now + 300) * 1000 });
+    expect(await world.signIn.checkMachineToken(await signed({ aud: runResourceOf('inst-u2') }))).toEqual(matching(/^the machine's token could not be checked: .*aud/));
+    expect(await world.signIn.checkMachineToken(await signed({ iat: now - 600, exp: now - 300 }))).toEqual(matching(/^the machine's token could not be checked: .*exp/));
+    const oldKey = { ...identityKeysFrom(generateIdentityKey()), kid: rootSigning.kid };
+    expect(await world.signIn.checkMachineToken(await signed({}, oldKey))).toEqual(matching(/^the machine's token could not be checked: .*signature/));
+    expect(await world.signIn.checkMachineToken(await signed({ scope: 'koala:run', sub: 'u1', client_id: 'inst-u1' }))).toBe('the token is not a machine\'s');
   });
 }

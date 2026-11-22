@@ -11,7 +11,7 @@ import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
 import { MachineClusters } from '../services/MachineClusters.js';
 import { wireMachineAccounts, type AccountSockets } from './accounts.js';
-import type { WorkTokenTrust } from './sockets.js';
+import type { WorkTokenTrust } from '../lib/work-tokens.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import { MACHINE_UNINSTALLED_SIGNAL, removeAccountWorkflowId } from '../../accounts/index.js';
 

@@ -65,7 +65,7 @@ async function main() {
   let working: { url: string; setToken(token: string): Promise<void> } | undefined;
   const client = await heldMachineKey(configFile(), (key) => machineClientOf({ rootUrl, deviceId: config.deviceId, key }));
   const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => client.token(), say, ownValues: ownValuesFile() });
-  const root = linkToRoot({
+  linkToRoot({
     rootUrl,
     client,
     meshIp,
@@ -77,7 +77,7 @@ async function main() {
     onReplaceKey: (offer) => client.replaceKey(offer),
     onKoala: (koala) => {
       if (!working) {
-        working = startWork(thisComputer(service), config, koala.url, koala.workToken, () => root.askKoala(), (sessions) => { sessionsOf = sessions; });
+        working = startWork(thisComputer(service), config, koala, client, (sessions) => { sessionsOf = sessions; });
         return;
       }
       if (working.url !== koala.url) {

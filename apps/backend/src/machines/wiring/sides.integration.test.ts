@@ -68,7 +68,7 @@ async function listening(app: express.Express): Promise<{ url: string; io: Socke
 
 const mesh = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
 
-type Told = Hearing<{ url: string; workToken: string } | null>;
+type Told = Hearing<{ url: string; resource: string; workToken: string } | null>;
 
 async function machineConnected(root: { url: string }, rootDb: Database, deviceId: string): Promise<Told> {
   await rootDb.machines.updateLocalAgentDevice(deviceId, { set: { signIn: machineSignInKey() } });
@@ -251,6 +251,7 @@ describe('a root and an instance wired as they run, against each other', () => {
     const { deviceId, told } = await joinedAndConnected(world);
     watch();
     const [, named] = await told.saidTimes(2);
+    expect(named?.resource).toBe(`urn:koala:instance:${instanceId}`);
     const trust = instanceSide.workTokens!;
     expect(checkWorkToken(named!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: instanceId } });
   });

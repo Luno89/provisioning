@@ -187,6 +187,8 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 - The machine's own report is the only source of its GPUs, cores and memory. A machine that has not reported is shown so, never
   guessed.
 - A device token lives 90 days and rotates over the authenticated socket; Koala keeps only its hash.
+- A machine reaches its Koala with a five-minute token root gives it for its owner's Koala alone; the Koala checks root's signature
+  and its own audience, and cuts the connection at the first packet after the token ends unless a fresh one came first.
 - **A machine's agent updates itself** (owner, 2026-10-30), only while the machine is idle, only to the bundle Koala names, checked
   by its sha256. A session never outlives its run.
 - An agent on a machine is told everything a model is, gets its persona's tools through Koala, and works a checkout of the

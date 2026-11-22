@@ -6,6 +6,7 @@ import { keyReplacementFrom, type KeyReplacement } from '@koala/engine-core/root
 
 export interface Koala {
   url: string;
+  resource: string;
   workToken: string;
 }
 
@@ -32,8 +33,8 @@ export interface RootLink {
 
 export const koalaFrom = (raw: unknown): Koala | undefined => {
   if (!raw || typeof raw !== 'object') return undefined;
-  const { url, workToken } = raw as { url?: unknown; workToken?: unknown };
-  return typeof url === 'string' && url && typeof workToken === 'string' && workToken ? { url, workToken } : undefined;
+  const { url, resource, workToken } = raw as { url?: unknown; resource?: unknown; workToken?: unknown };
+  return typeof url === 'string' && url && typeof resource === 'string' && resource && typeof workToken === 'string' && workToken ? { url, resource, workToken } : undefined;
 };
 
 export function linkToRoot(options: RootLinkOptions): RootLink {

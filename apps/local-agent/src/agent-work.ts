@@ -1,6 +1,7 @@
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
-import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { koalaSocket, type KoalaAccess } from './koala-access.js';
+import type { Koala } from './root-link.js';
 import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
 } from './sandbox-handlers.js';
@@ -68,15 +69,15 @@ function watchAgents(place: AgentPlace, socket: Socket, config: MachineConfig, s
 export function startWork(
   place: AgentPlace,
   config: MachineConfig,
-  koalaUrl: string,
-  firstToken: string,
-  askKoala: () => void,
+  koala: Koala,
+  access: KoalaAccess,
   sessionsMade: (sessions: ExternalAgentSessions) => void,
 ): { url: string; setToken(token: string): Promise<void> } {
   const { rootDir } = config;
-  const work: WorkToken = { value: firstToken };
+  const koalaUrl = koala.url;
+  const work: WorkToken = { value: koala.workToken };
   const gate = new IdleGate();
-  const socket = io(`${koalaUrl}/agent`, { auth: { token: work.value, bundle: place.ownBundle ?? '' }, reconnection: true });
+  const socket = koalaSocket({ url: koalaUrl, resource: koala.resource, access, auth: { bundle: place.ownBundle ?? '' }, say });
   const bundlePlace = placeOf(place.agentDir);
   let worker: DeviceWorkerHost | undefined;
   const updates = new SelfUpdate({
@@ -120,13 +121,6 @@ export function startWork(
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));
   socket.on('connect_error', (err: Error) => {
     console.error(`[koala-local-agent] its Koala refused or could not be reached: ${err.message}`);
-    if (/work token/.test(err.message)) askKoala();
-  });
-  let tokenEnded = false;
-  socket.on(WORK_TOKEN_ENDED, ({ said }: { said?: unknown } = {}) => {
-    say(`its Koala closed the connection: ${typeof said === 'string' ? said : 'its work token ran out'}`);
-    tokenEnded = true;
-    askKoala();
   });
 
   socket.on('sandbox:exec', (
@@ -176,12 +170,7 @@ export function startWork(
     url: koalaUrl,
     async setToken(token: string) {
       work.value = token;
-      socket.auth = { ...(socket.auth as Record<string, unknown>), token };
-      if (tokenEnded) {
-        tokenEnded = false;
-        socket.disconnect();
-        socket.connect();
-      }
+      if (!socket.connected) socket.connect();
       await worker?.setToken(token);
       say('this machine took a new work token from root');
     },

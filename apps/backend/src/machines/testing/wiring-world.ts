@@ -7,6 +7,9 @@ import type { AddressInfo } from 'node:net';
 import { Server as SocketServer } from 'socket.io';
 import { wireSockets, type SocketsWiringDeps } from '../wiring/sockets.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
+import type { Database } from '../../platform/index.js';
+import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { machineAccessAt, machineAccessCheckedAt } from '../../instances/testing/registration-code.js';
 
 type SocketAuth = SocketsWiringDeps['auth'];
 
@@ -43,6 +46,20 @@ export async function servedAgentSockets(given: Omit<Parameters<typeof agentSock
       await io.close();
       await new Promise<void>((done) => server.close(() => done()));
     },
+  };
+}
+
+export interface AgentAccess {
+  machineTokens: NonNullable<SocketsWiringDeps['machineTokens']>;
+  token(deviceId: string, lifetime?: { seconds: number }): Promise<string>;
+}
+
+export async function agentAccess(db: Pick<Database, 'instances' | 'accounts' | 'machines'>, koala: { id: string; ownerId: string } = { id: 'inst-1', ownerId: 'owner-1' }): Promise<AgentAccess> {
+  const root = { url: 'http://127.0.0.1:1', signing: identityKeysFrom(generateIdentityKey()) };
+  await db.instances.saveInstance({ id: koala.id, ownerId: koala.ownerId, url: `http://${koala.id}.test`, createdAt: 'then', updatedAt: 'then', status: 'ready' });
+  return {
+    machineTokens: machineAccessCheckedAt(root, koala.id, () => Date.now()),
+    token: (deviceId, lifetime) => machineAccessAt(db, root, { deviceId, koala: koala.id }, lifetime),
   };
 }
 

@@ -8,19 +8,16 @@ import { machineCapacity } from '../../../../local-agent/src/machine-capacity.js
 import { machineGpus, NVIDIA_CDI_HOOK, NVIDIA_RUNTIME } from '../../../../local-agent/src/machine-gpus.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { issueWorkToken } from '../lib/work-tokens.js';
+import { machineSignInKey } from '../../instances/testing/registration-code.js';
 import { MachineClusters } from '../services/MachineClusters.js';
 import type { MachineService } from '../services/MachineService.js';
-import { servedAgentSockets, until, onlineMachines } from '../testing/wiring-world.js';
+import { agentAccess, servedAgentSockets, until, onlineMachines, type AgentAccess } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
-const root = identityKeysFrom(generateIdentityKey());
-const workTokens = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
-const TOKEN = issueWorkToken(root, { machineId: 'desk', ownerId: 'owner-1', audience: 'inst-1' });
 const keys = testKeys('machine-cluster-reports-secret');
 
 let db: MongoDB;
+let access: AgentAccess;
 let koala: Awaited<ReturnType<typeof servedAgentSockets>>;
 let url = '';
 const clients: ClientSocket[] = [];
@@ -34,7 +31,7 @@ const machineWith = (installed: boolean): MockProxy<ClusterHost> => {
 };
 
 async function reports(host: ClusterHost, withGpus = false): Promise<void> {
-  const socket = connect(`${url}/agent`, { auth: { token: TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
+  const socket = connect(`${url}/agent`, { auth: { token: await access.token('desk') }, transports: ['websocket'], reconnection: false, forceNew: true });
   clients.push(socket);
   await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject); });
   const state = await clusterOnConnect(host, () => undefined);
@@ -71,8 +68,9 @@ beforeEach(async () => {
   db = await fresh();
   const machineClusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: keys.data, io: { to: () => ({ emit: () => true }) } });
   machines = onlineMachines(db.machines, { clusters: machineClusters });
-  await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', meshIp: '100.64.0.7', createdAt: new Date().toISOString() });
-  koala = await servedAgentSockets({ db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens, machineClusters });
+  await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', meshIp: '100.64.0.7', createdAt: new Date().toISOString(), signIn: machineSignInKey() });
+  access = await agentAccess(db);
+  koala = await servedAgentSockets({ db, payloadKey: keys.payload, dataKey: keys.data, machines, machineTokens: access.machineTokens, machineClusters });
   url = koala.url;
 });
 

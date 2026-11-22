@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Database } from '../../platform/index.js';
-import { INSTANCE_STATUSES, inService, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
+import { INSTANCE_STATUSES, servingOf, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
@@ -196,7 +196,7 @@ export class InstanceService {
   }
 
   async koalaOf(ownerId: string): Promise<{ url: string; audience: string } | undefined> {
-    const instance = (await this.store.instances.getInstances(ownerId)).find((candidate) => inService(candidate));
+    const instance = servingOf(await this.store.instances.getInstances(ownerId));
     return instance ? { url: instance.url, audience: instance.id } : undefined;
   }
 

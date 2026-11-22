@@ -11,9 +11,10 @@ import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
-import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
-import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE, WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { machineAccessAt, machineAccessCheckedAt, machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
+import { runResourceOf } from '../../instances/lib/oidc.js';
+import { issueWorkToken, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
+import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE } from '@koala/engine-core/machine-join';
 import { keyReplacementFrom } from '@koala/engine-core/root-client';
 import { dropDevice, localAgentStatus } from '../lib/local-agent-registry.js';
 import { MachineAccounts, type MachineMessages } from '../services/MachineAccounts.js';
@@ -37,6 +38,7 @@ const keys = testKeys('machine-tokens-test-secret');
 const root = identityKeysFrom(generateIdentityKey());
 const otherRoot = identityKeysFrom(generateIdentityKey());
 const trust = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
+const ROOT_URL = 'http://127.0.0.1:1';
 
 let db: MongoDB;
 let clock: Date;
@@ -73,6 +75,9 @@ const device = (lifetime: { issuedAt: Date; expiresAt: Date }) => ({
   signIn: machineSignInKey(),
 });
 const keyToken = (lifetime?: { seconds: number }) => machineTokenAt(db, 'desk', lifetime);
+const access = (over: { deviceId?: string; koala?: string; by?: typeof root; seconds?: number } = {}) =>
+  machineAccessAt(db, { url: ROOT_URL, signing: over.by ?? root }, { deviceId: over.deviceId ?? 'desk', koala: over.koala ?? 'inst-1' }, over.seconds ? { seconds: over.seconds } : undefined);
+const koalaOf = (id: string, ownerId: string) => db.instances.saveInstance({ id, ownerId, url: `http://${id}.test`, createdAt: 'then', updatedAt: 'then', status: 'ready' });
 
 const seconds = () => Math.floor(clock.getTime() / 1000);
 const workToken = (over: { by?: typeof root; audience?: string; machineId?: string; at?: number } = {}) =>
@@ -136,7 +141,8 @@ beforeEach(async () => {
   watching = () => sockets.watched;
   accounts = accountsOn(db.machines, { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) });
   sockets = wireMachineAccounts({ io, db, clients: machineClientsAt(db), accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
-  wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens: trust, now: () => clock }));
+  await koalaOf('inst-1', 'owner-1');
+  wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, machineTokens: machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime()), now: () => clock }));
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   temporal = http2.createServer();
@@ -215,14 +221,14 @@ describe('a machine\'s connection to root, on tokens of its own key', () => {
     expect(await cut()).toBe('io server disconnect');
   });
 
-  it('hands the machine its Koala and a work token on connecting, and again when it asks', async () => {
+  it('hands the machine its Koala, the resource root gives it tokens for there, and a work token on connecting, and again when it asks', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const socket = connect(`${url}/machine-account`, { auth: { token: await keyToken() }, transports: ['websocket'], reconnection: false, forceNew: true });
     clients.push(socket);
-    const told = hearing<{ url: string; workToken: string } | null>(socket, 'machine:koala');
+    const told = hearing<{ url: string; resource: string; workToken: string } | null>(socket, 'machine:koala');
     const [first] = await told.saidTimes(1);
-    expect(first?.url).toBe('http://inst.test');
-    expect((await work(first!.workToken)).error).toBeUndefined();
+    expect(first).toMatchObject({ url: 'http://inst.test', resource: runResourceOf('inst-1') });
+    expect(await gitAnswer(first!.workToken)).not.toBe(401);
     socket.emit('machine:koala?');
     const again = await told.saidTimes(2);
     expect(again).toHaveLength(2);
@@ -276,25 +282,78 @@ describe('a machine\'s connection to root, on tokens of its own key', () => {
   });
 });
 
+describe('a machine\'s token from root for its Koala, at the Koala\'s socket', () => {
+  const saveDesk = () => db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+  const answeredOrCut = (socket: ClientSocket) => new Promise<string>((done) => {
+    socket.once('disconnect', (reason) => done(`cut: ${reason}`));
+    socket.emitWithAck('agents:manual', {}).then(() => done('answered'), (err: Error) => done(`cut: ${err.message}`));
+  });
+
+  it('lets the machine in with a token root gave it for this Koala, and refuses none, one for another Koala, one another key signed, one that ran out, and one of a machine this Koala does not have', async () => {
+    await saveDesk();
+    expect((await work(await access())).error).toBeUndefined();
+    expect((await work('')).error).toBe('Unauthorized: send a token root gave this machine for this Koala');
+    await koalaOf('inst-2', 'owner-2');
+    await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: ISSUED }), id: 'lap', ownerId: 'owner-2' });
+    expect((await work(await access({ deviceId: 'lap', koala: 'inst-2' }))).error).toMatch(/^Unauthorized: the machine's token could not be checked: .*aud/);
+    expect((await work(await access({ by: otherRoot }))).error).toMatch(/^Unauthorized: the machine's token could not be checked/);
+    const short = await access({ seconds: 60 });
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect((await work(short)).error).toMatch(/^Unauthorized: the machine's token could not be checked: .*exp/);
+    const gone = await access();
+    await db.machines.deleteLocalAgentDevice('desk');
+    expect((await work(gone)).error).toBe('this machine is not one of this Koala\'s: run the command from My Machines again');
+  });
+
+  it('closes the machine\'s connection at the first thing it sends once its token has run out', async () => {
+    await saveDesk();
+    const { socket, error } = await work(await access({ seconds: 60 }));
+    expect(error).toBeUndefined();
+    expect(await answeredOrCut(socket)).toBe('answered');
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect(await answeredOrCut(socket)).toBe('cut: io server disconnect');
+  });
+
+  it('keeps the machine\'s connection past that once the machine sent a fresh token of its own first, until that one runs out too', async () => {
+    await saveDesk();
+    const { socket, error } = await work(await access({ seconds: 60 }));
+    expect(error).toBeUndefined();
+    socket.emit(MACHINE_CLIENT_TOKEN, { token: await access({ seconds: 600 }) });
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect(await answeredOrCut(socket)).toBe('answered');
+    clock = new Date(clock.getTime() + 10 * 60 * 1000);
+    expect(await answeredOrCut(socket)).toBe('cut: io server disconnect');
+  });
+
+  it('cuts the machine\'s connection when the fresh token it sends is another machine\'s or not root\'s', async () => {
+    await saveDesk();
+    await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: ISSUED }), id: 'other' });
+    for (const fresh of [await access({ deviceId: 'other' }), await access({ by: otherRoot })]) {
+      const { socket, error } = await work(await access());
+      expect(error).toBeUndefined();
+      socket.emit(MACHINE_CLIENT_TOKEN, { token: fresh });
+      expect(await answeredOrCut(socket)).toBe('cut: io server disconnect');
+    }
+  });
+});
+
 describe('a machine\'s work token at its Koala', () => {
-  it('lets the machine in at the socket, the git proxy and the gateway', async () => {
+  it('lets the machine in at the git proxy and the gateway', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const token = workToken();
-    expect((await work(token)).error).toBeUndefined();
     expect(await gitAnswer(token)).not.toBe(401);
     expect(await gatewayAnswer(token)).not.toMatch(/not known here/);
   });
 
   it('is refused for another Koala, from another root, past its expiry, and for a machine this Koala does not have', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    for (const [token, said] of [
-      [workToken({ audience: 'inst-2' }), WORK_TOKEN_REFUSED['wrong-audience']],
-      [workToken({ by: otherRoot }), WORK_TOKEN_REFUSED['unknown-key']],
-      [workToken({ at: seconds() - WORK_TOKEN_TTL_SECONDS - 1 }), WORK_TOKEN_REFUSED.expired],
-      [OLD_TOKEN, WORK_TOKEN_REFUSED.malformed],
-      [workToken({ machineId: 'other' }), 'this machine is not one of this Koala\'s: run the command from My Machines again'],
-    ] as const) {
-      expect((await work(token)).error).toBe(said);
+    for (const token of [
+      workToken({ audience: 'inst-2' }),
+      workToken({ by: otherRoot }),
+      workToken({ at: seconds() - WORK_TOKEN_TTL_SECONDS - 1 }),
+      OLD_TOKEN,
+      workToken({ machineId: 'other' }),
+    ]) {
       expect(await gitAnswer(token)).toBe(401);
       expect(await gatewayAnswer(token)).toMatch(/not known here/);
     }
@@ -312,24 +371,12 @@ describe('a machine\'s work token at its Koala', () => {
 
   it('closes the machine\'s connection the moment its Koala forgets the machine root removed', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const { socket, error } = await work(workToken());
+    const { socket, error } = await work(await access());
     expect(error).toBeUndefined();
     const cut = cutOrStill(socket, () => socket.emitWithAck('agents:manual', {}).then(() => undefined));
     await until(async () => (localAgentStatus('desk').online ? true : undefined));
     await db.machines.deleteLocalAgentDevice('desk');
     await machines.forget({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/x', createdAt: 'then' });
     expect(await cut()).toBe('io server disconnect');
-  });
-
-  it('closes the machine\'s connection at the first thing it sends once its work token has run out, saying why', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const { socket, error } = await work(workToken());
-    expect(error).toBeUndefined();
-    const told: string[] = [];
-    socket.on(WORK_TOKEN_ENDED, ({ said }: { said: string }) => told.push(said));
-    const cut = cutOrStill(socket, () => socket.emitWithAck('agents:manual', {}).then(() => undefined));
-    clock = new Date(clock.getTime() + (WORK_TOKEN_TTL_SECONDS + 1) * 1000);
-    expect(await cut()).toBe('io server disconnect');
-    expect(told).toEqual([WORK_TOKEN_REFUSED.expired]);
   });
 });
