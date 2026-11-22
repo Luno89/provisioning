@@ -21,7 +21,7 @@ import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { InstancePresence } from '../../instances/services/InstancePresence.js';
 import { InstanceSide, wireInstancePresence } from '../../instances/wiring/instances.js';
 import { instancesRouter } from '../../instances/routes/instances.js';
-import { closedAfterEach, until } from '../testing/wiring-world.js';
+import { closedAfterEach, hearing, until, type Hearing } from '../testing/wiring-world.js';
 import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
@@ -68,32 +68,30 @@ async function listening(app: express.Express): Promise<{ url: string; io: Socke
 
 const mesh = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
 
-type Told = Array<{ url: string; workToken: string } | null>;
+type Told = Hearing<{ url: string; workToken: string } | null>;
 
-async function machineConnected(root: { url: string }, rootDb: Database, deviceId: string, told: Told = []): Promise<ClientSocket> {
+async function machineConnected(root: { url: string }, rootDb: Database, deviceId: string): Promise<Told> {
   await rootDb.machines.updateLocalAgentDevice(deviceId, { set: { signIn: machineSignInKey() } });
   const socket: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: await machineTokenAt(rootDb, deviceId) }, transports: ['websocket'], reconnection: false, forceNew: true });
   closers.push(async () => { socket.close(); });
-  socket.on('machine:koala', (koala: Told[number]) => told.push(koala));
-  return socket;
+  return hearing(socket, 'machine:koala');
 }
 
 async function joinedAndConnected(world: { root: { url: string }; rootDb: Database; rootSide: MachineSides }): Promise<{ deviceId: string; told: Told }> {
   const accounts = world.rootSide.accounts!;
   const joined = await accounts.join((await accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
   if (!joined.ok) throw new Error(joined.error);
-  const told: Told = [];
-  await machineConnected(world.root, world.rootDb, joined.value.deviceId, told);
+  const told = await machineConnected(world.root, world.rootDb, joined.value.deviceId);
+  await told.saidTimes(1);
   return { deviceId: joined.value.deviceId, told };
 }
 
-async function ownerBrowserHearing(root: { url: string; io: SocketServer }): Promise<unknown[]> {
+async function ownerBrowserHearing(root: { url: string; io: SocketServer }): Promise<Hearing<unknown>> {
   root.io.on('connection', (browser) => { void browser.join('user:bo'); });
-  const heard: unknown[] = [];
   const browser: ClientSocket = connect(root.url, { transports: ['websocket'], reconnection: false, forceNew: true });
   closers.push(async () => { browser.close(); });
-  browser.on(MACHINE_JOINS_CHANGED, (said: unknown) => heard.push(said));
-  await until(async () => (browser.connected ? true : undefined));
+  const heard = hearing<unknown>(browser, MACHINE_JOINS_CHANGED);
+  await new Promise<void>((connected, refused) => { browser.once('connect', () => connected()); browser.once('connect_error', refused); });
   return heard;
 }
 
@@ -250,11 +248,10 @@ describe('a root and an instance wired as they run, against each other', () => {
     const world = await rootAndInstance();
     const { instanceSide, instanceId, watch } = world;
     const { deviceId, told } = await joinedAndConnected(world);
-    await until(async () => (told.length ? true : undefined));
     watch();
-    await until(async () => (told.length === 2 ? true : undefined));
+    const [, named] = await told.saidTimes(2);
     const trust = instanceSide.workTokens!;
-    expect(checkWorkToken(told[1]!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: instanceId } });
+    expect(checkWorkToken(named!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: instanceId } });
   });
 
   it('root tells the owner\'s connected machines again each time the instance reports to root that its status changed', async () => {
@@ -262,16 +259,17 @@ describe('a root and an instance wired as they run, against each other', () => {
     const { root, token, instanceId, watch } = world;
     const { told } = await joinedAndConnected(world);
     watch();
-    await until(async () => (told.length === 2 ? true : undefined));
+    await told.saidTimes(2);
     const report = async (status: string) => {
       const answer = await fetch(`${root.url}/api/instances/status`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-instance-id': instanceId, authorization: `Bearer ${token}` }, body: JSON.stringify({ status }) });
       expect(answer.status, await answer.clone().text()).toBe(200);
     };
     await report('installing');
-    await until(async () => (told.length === 3 ? true : undefined));
+    await told.saidTimes(3);
     await report('ready');
-    await until(async () => (told.length === 4 ? true : undefined));
-    expect(told[3]).toMatchObject({ url: expect.any(String) as unknown, workToken: expect.any(String) as unknown });
+    const said = await told.saidTimes(4);
+    expect(said).toHaveLength(4);
+    expect(said[3]).toMatchObject({ url: expect.any(String) as unknown, workToken: expect.any(String) as unknown });
   });
 
   it('root tells the owner\'s browsers as a join reports, and ends the join when the machine it made first connects', async () => {
@@ -280,14 +278,13 @@ describe('a root and an instance wired as they run, against each other', () => {
     const accounts = rootSide.accounts!;
     const { code } = await accounts.createJoinCode('bo');
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
-    await until(async () => (heard.length === 1 ? true : undefined));
+    expect(await heard.saidTimes(1)).toEqual([{}]);
     const joined = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
     expect(await accounts.joins('bo')).toHaveLength(1);
-    await machineConnected(root, rootDb, joined.value.deviceId);
-    await until(async () => ((await accounts.joins('bo')).length === 0 ? true : undefined));
-    await until(async () => (heard.length === 2 ? true : undefined));
-    expect(heard).toEqual([{}, {}]);
+    await (await machineConnected(root, rootDb, joined.value.deviceId)).saidTimes(1);
+    expect(await heard.saidTimes(2)).toEqual([{}, {}]);
+    expect(await accounts.joins('bo')).toEqual([]);
   });
 
   it('root tells the owner\'s browsers when a machine joins again in its own place and when a join is dismissed, and says the machine is connected once its agent is', async () => {
@@ -298,14 +295,14 @@ describe('a root and an instance wired as they run, against each other', () => {
     if (!first.ok) throw new Error(first.error);
     const { code } = await accounts.createJoinCode('bo');
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
-    await until(async () => (heard.length === 1 ? true : undefined));
+    expect(await heard.saidTimes(1)).toEqual([{}]);
     const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replacesKeyless: first.value.env.KOALA_DEVICE_TOKEN });
     if (!again.ok) throw new Error(again.error);
     expect(again.value.deviceId).toBe(first.value.deviceId);
-    await until(async () => (heard.length === 2 ? true : undefined));
+    expect(await heard.saidTimes(2)).toEqual([{}, {}]);
     const [shown] = await accounts.joins('bo');
     expect(await accounts.dismissJoin('bo', shown!.id)).toEqual({ ok: true, value: { dismissed: true } });
-    await until(async () => (heard.length === 3 ? true : undefined));
+    expect(await heard.saidTimes(3)).toEqual([{}, {}, {}]);
     expect(await accounts.joins('bo')).toEqual([]);
     expect((await accounts.listOnline('bo')).map((machine) => machine.online)).toEqual([false]);
     await machineConnected(root, rootDb, again.value.deviceId);

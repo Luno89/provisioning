@@ -25,7 +25,7 @@ import { wireMachineAccounts } from './accounts.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { deviceByWorkToken } from './machines.js';
 import { wireSockets } from './sockets.js';
-import { agentSockets, until } from '../testing/wiring-world.js';
+import { agentSockets, hearing, until } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 
@@ -221,15 +221,16 @@ describe('a machine\'s connection to root, on tokens of its own key', () => {
 
   it('hands the machine its Koala and a work token on connecting, and again when it asks', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const told: Array<{ url: string; workToken: string } | null> = [];
     const socket = connect(`${url}/machine-account`, { auth: { token: await keyToken() }, transports: ['websocket'], reconnection: false, forceNew: true });
     clients.push(socket);
-    socket.on('machine:koala', (koala: { url: string; workToken: string } | null) => told.push(koala));
-    await until(async () => (told.length ? true : undefined));
-    expect(told[0]?.url).toBe('http://inst.test');
-    expect((await work(told[0]!.workToken)).error).toBeUndefined();
+    const told = hearing<{ url: string; workToken: string } | null>(socket, 'machine:koala');
+    const [first] = await told.saidTimes(1);
+    expect(first?.url).toBe('http://inst.test');
+    expect((await work(first!.workToken)).error).toBeUndefined();
     socket.emit('machine:koala?');
-    await until(async () => (told.length === 2 ? true : undefined));
+    const again = await told.saidTimes(2);
+    expect(again).toHaveLength(2);
+    expect(again[1]?.url).toBe('http://inst.test');
   });
 
   const firstWord = async (answer: { replaced: boolean; problem?: string }) => {
