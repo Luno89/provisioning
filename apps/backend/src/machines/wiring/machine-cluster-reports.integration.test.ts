@@ -1,7 +1,4 @@
 import { testKeys } from '../../platform/testing/keys.js';
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
@@ -9,14 +6,13 @@ import { LSPCI_QUERY } from '@koala/engine-core';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
 import { machineCapacity } from '../../../../local-agent/src/machine-capacity.js';
 import { machineGpus, NVIDIA_CDI_HOOK, NVIDIA_RUNTIME } from '../../../../local-agent/src/machine-gpus.js';
-import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineClusters } from '../services/MachineClusters.js';
 import type { MachineService } from '../services/MachineService.js';
-import { wireSockets, type SocketsWiringDeps } from './sockets.js';
-import { until, onlineMachines } from '../testing/wiring-world.js';
+import { servedAgentSockets, until, onlineMachines } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 const root = identityKeysFrom(generateIdentityKey());
@@ -25,8 +21,7 @@ const TOKEN = issueWorkToken(root, { machineId: 'desk', ownerId: 'owner-1', audi
 const keys = testKeys('machine-cluster-reports-secret');
 
 let db: MongoDB;
-let server: http.Server;
-let io: SocketServer;
+let koala: Awaited<ReturnType<typeof servedAgentSockets>>;
 let url = '';
 const clients: ClientSocket[] = [];
 
@@ -77,24 +72,13 @@ beforeEach(async () => {
   const machineClusters = new MachineClusters({ store: db.infrastructure, accounts: db.accounts, dataKey: keys.data, io: { to: () => ({ emit: () => true }) } });
   machines = onlineMachines(db.machines, { clusters: machineClusters });
   await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', meshIp: '100.64.0.7', createdAt: new Date().toISOString() });
-  server = http.createServer();
-  io = new SocketServer(server);
-  wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
-    sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, workTokens, clusters: {} as never, apps: {} as never,
-    telemetry: { relay: async () => ({ ok: true }) } as never,
-    machineClusters,
-  });
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  koala = await servedAgentSockets({ db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens, machineClusters });
+  url = koala.url;
 });
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
-  await io.close();
-  await new Promise<void>((done) => server.close(() => done()));
+  await koala.close();
 });
 
 describe('a machine telling Koala about its own cluster', () => {

@@ -150,5 +150,11 @@
  "apps/local-agent/src/device-worker.integration.test.ts": [
   "2026-11-22T01:15:27.000Z",
   "2026-11-22T01:38:40.000Z"
+ ],
+ "apps/backend/src/machines/wiring/log-follow.integration.test.ts": [
+  "2026-11-22T03:24:15.000Z"
+ ],
+ "apps/backend/src/machines/wiring/run-logs.integration.test.ts": [
+  "2026-11-22T03:24:15.000Z"
  ]
 }

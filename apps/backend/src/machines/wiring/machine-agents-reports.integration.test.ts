@@ -16,7 +16,7 @@ import type { JoinContext } from '../../../../local-agent/src/join/context.js';
 import { reportAgents, type DiscoveryDeps } from '../../../../local-agent/src/agent-discovery.js';
 import { agentsNotSetUp } from '../../../../local-agent/src/machine-config.js';
 import { testKeys } from '../../platform/testing/keys.js';
-import { testDatabase, testPayloadBlobs } from '../../platform/lib/test-database.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { joiningRoot } from '../testing/joining-root.js';
@@ -25,7 +25,7 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from '../routes/machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 import type { MachineService } from '../services/MachineService.js';
-import { closedAfterEach, connectedSocket, until, quietAccountSides, onlineMachines } from '../testing/wiring-world.js';
+import { closedAfterEach, connectedSocket, until, quietAccountSides, onlineMachines, agentSockets } from '../testing/wiring-world.js';
 
 const closers = closedAfterEach();
 
@@ -48,13 +48,7 @@ async function wired(db: MongoDB, machines: SocketsWiringDeps['machines']): Prom
   const server = http.createServer();
   const io = new SocketServer(server);
   closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
-  wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
-    sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, workTokens: { keys: trustedKeys([publicKeyPem(signing.publicKey)]), audience: 'inst-1' }, clusters: {} as never, apps: {} as never,
-    telemetry: { relay: async () => ({ ok: true }) } as never,
-  });
+  wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens: { keys: trustedKeys([publicKeyPem(signing.publicKey)]), audience: 'inst-1' } }, 'bo'));
   return { io, url: await listening(server) };
 }
 

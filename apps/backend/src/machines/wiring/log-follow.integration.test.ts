@@ -10,8 +10,8 @@ import type { Followed, Streams } from '@koala/engine-core/processes';
 import { recordingProcesses, type RecordingProcesses } from '@koala/engine-core/testing/processes';
 import { testKeys } from '../../platform/testing/keys.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
-import { closedAfterEach, connectedSocket } from '../testing/wiring-world.js';
-import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+import { closedAfterEach, connectedSocket, socketAuth } from '../testing/wiring-world.js';
+import { wireSockets } from './sockets.js';
 
 const closers = closedAfterEach();
 
@@ -26,10 +26,10 @@ async function koala(logPath: string, streams: Streams): Promise<string> {
   const server = http.createServer();
   const io = new SocketServer(server);
   closers.push(() => new Promise<void>((done) => { void io.close(() => done()); }));
-  const person = { id: 'bo', email: 'bo@example.com' };
+  const person = { id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() };
   wireSockets({
     io, db: {} as never, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async () => ({ user: person, sessionId: 's1', sessionAt: 0 }), securedFor: () => false, principalFor: () => ({ id: 'bo', claims: [] }) } as unknown as SocketsWiringDeps['auth'],
+    auth: socketAuth({ signedIn: () => ({ user: person, sessionId: 's1', sessionAt: 0 }), principalFor: () => ({ kind: 'person', id: 'bo', claims: [] }) }),
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines: {} as never,
     clusters: { getById: async (id: string) => (id === 'desk' ? { id, lastLogPath: logPath } : undefined) } as never,
