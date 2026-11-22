@@ -228,8 +228,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
   if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
 
-  const authService = new AuthService(db, { mail, production, push, ...(isOff(settings.twilio) ? {} : { twilio: settings.twilio }) });
-  const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
+  const authService = new AuthService(db, { codeKey: keys.data, mail, production, push, ...(isOff(settings.twilio) ? {} : { twilio: settings.twilio }) });
+  const passwords = new PasswordService({ db, codeKey: keys.data, auth: authService, breached: loadBreachedPasswords(), revocations });
   const sessionSockets = new SessionSockets();
   browserSessions.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
@@ -319,7 +319,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const signInReturn = settings.root ? settings.root.signInReturn : {};
   for (const problem of [...signInWith.problems, ...(signInReturn.problem ? [signInReturn.problem] : [])]) console.warn(`[sign-in] ${problem}`);
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, appUrl: APP_URL, accounts: holdsAccounts(role), revocations,
+    db, authService, auth, sessionKey: keys.session, codeKey: keys.data, appUrl: APP_URL, accounts: holdsAccounts(role), revocations,
     providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, sessionKey: keys.session, accounts: authService }), passwords,
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));

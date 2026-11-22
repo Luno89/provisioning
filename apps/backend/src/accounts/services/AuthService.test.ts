@@ -4,7 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashPassword } from '../../platform/lib/auth.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { AuthService, type CodeMail } from './AuthService.js';
+import { AuthService as KeyedAuthService, type CodeMail } from './AuthService.js';
+
+const CODE_KEY = 'the-data-key-codes-are-kept-with';
+
+class AuthService extends KeyedAuthService {
+  constructor(db: ReturnType<typeof memoryDatabase>, options: Omit<ConstructorParameters<typeof KeyedAuthService>[1], 'codeKey'> = {}) {
+    super(db, { codeKey: CODE_KEY, ...options });
+  }
+}
 
 vi.mock('https', async (importOriginal) => {
   const actual = await importOriginal<typeof import('https')>();

@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AuthService } from './AuthService.js';
+import { AuthService as KeyedAuthService } from './AuthService.js';
 import { hashPassword } from '../../platform/lib/auth.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 
 const fresh = await emptiedEachTime();
+const CODE_KEY = 'the-data-key-codes-are-kept-with';
+
+class AuthService extends KeyedAuthService {
+  constructor(db: MongoDB, options: Omit<ConstructorParameters<typeof KeyedAuthService>[1], 'codeKey'> = {}) {
+    super(db, { codeKey: CODE_KEY, ...options });
+  }
+}
 
 describe('AuthService', () => {
   let dbMock: MongoDB;

@@ -6,7 +6,8 @@ import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { accountHeldFor, rootAuthOver } from '../../platform/testing/root-auth.js';
-import { signUpCodeHash, SIGN_UP_WRONG_CODES } from '../lib/sign-up.js';
+import { SIGN_UP_WRONG_CODES } from '../lib/sign-up.js';
+import { codeHash } from '../lib/codes.js';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
 import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
@@ -16,6 +17,7 @@ import { authRouter } from './auth.js';
 import { openRoutesOf } from '../../open-routes.js';
 
 const KEY = 'test-secret';
+const CODE_KEY = 'the-data-key-codes-are-kept-with';
 const SETUP = 'the-setup-code';
 const APP = 'http://localhost:5173';
 const PREFIX = '/api/auth';
@@ -30,7 +32,7 @@ function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
   const revoked: AccessRevoked[] = [];
   revocations.listen(async (event) => { revoked.push(event); });
   const router = authRouter({
-    db, authService, auth, sessionKey: KEY, appUrl: APP, passwords,
+    db, authService, auth, sessionKey: KEY, codeKey: CODE_KEY, appUrl: APP, passwords,
     accounts: options.accounts,
     revocations,
     providers: options.withProviders === false ? undefined : providers,
@@ -111,7 +113,7 @@ describe('signing up', () => {
     expect(await s.db.accounts.getUserByEmail('pending@example.com')).toBeUndefined();
     expect((await s.db.accounts.getInviteByCode('CODE'))?.usedBy).toBeUndefined();
     const pending = await s.db.accounts.getPendingSignUp(id);
-    expect(pending).toMatchObject({ email: 'pending@example.com', wrong: 0, sent: 1, codeHash: signUpCodeHash(id, code), inviteHash: inviteCodeHash('CODE') });
+    expect(pending).toMatchObject({ email: 'pending@example.com', wrong: 0, sent: 1, codeHash: codeHash(CODE_KEY, id, code), inviteHash: inviteCodeHash('CODE') });
     expect(JSON.stringify(pending)).not.toContain(code);
     expect(JSON.stringify(pending)).not.toContain('hunter2hunter2');
   });
@@ -275,7 +277,7 @@ describe('asking for a new sign-up code', () => {
     expect(resent.status).toBe(200);
     const fresh = (resent.data as { verify: string; devCode: string });
     expect(fresh.verify).toBe(id);
-    expect((await s.db.accounts.getPendingSignUp(id))?.codeHash).toBe(signUpCodeHash(id, fresh.devCode));
+    expect((await s.db.accounts.getPendingSignUp(id))?.codeHash).toBe(codeHash(CODE_KEY, id, fresh.devCode));
     if (fresh.devCode !== code) expect((await s.post('/register/verify', { id, code })).status).toBe(401);
     for (let n = 0; n < 3; n += 1) expect((await s.post('/register/resend', { id })).status).toBe(200);
     const enough = await s.post('/register/resend', { id });

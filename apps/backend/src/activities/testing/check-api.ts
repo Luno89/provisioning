@@ -73,6 +73,7 @@ import { openRoutesOf } from '../../open-routes.js';
 import { runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
 
 export const SESSION_KEY = 'check-api-session-key';
+const CODE_KEY = 'check-api-code-key';
 
 export interface CheckApiPorts {
   workflows: { started: { type: string; runId: string; conversationId: string | undefined; owner: string }[]; signals: { workflowId: string; name: string; payload: unknown }[]; onStart: (started: { runId: string; conversationId: string | undefined; owner: string }) => Promise<void> };
@@ -176,7 +177,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   };
 
   const { auth } = rootAuthOver(db, { open: openRoutesOf('root') });
-  const authService = new AuthService(db, {});
+  const authService = new AuthService(db, { codeKey: CODE_KEY });
   const getOwnedProject = async (id: string, principal: Principal) => {
     const project = (await db.projects.getProjects()).find((candidate) => candidate.id === id);
     return project && authorize(principal, 'see', { kind: 'project', ownerId: project.ownerId }).allowed ? project : undefined;
@@ -205,7 +206,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   app.use(express.json({ limit: '20mb' }));
   app.use('/api', auth.requireAuth);
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY as never, appUrl: 'http://localhost:5173',
+    db, authService, auth, sessionKey: SESSION_KEY as never, codeKey: CODE_KEY, appUrl: 'http://localhost:5173',
     passwords: { newPasswordProblem: () => undefined },
   }));
   app.use('/api/engine', engineRouter({

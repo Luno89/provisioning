@@ -23,12 +23,14 @@ const sessionFrom = (answer: globalThis.Response): string => answer.headers.getS
 const JWT_SECRET = 'test-secret';
 const SETUP_CODE = 'the-setup-code';
 
+const CODE_KEY = 'the-data-key-codes-are-kept-with';
+
 async function serve(db: Database, options: { mail?: CodeMail; production?: boolean } = {}) {
   const revoked: AccessRevoked[] = [];
   const { auth, revocations } = rootAuthOver(db, { open: openRoutesOf('root'), setupCode: SETUP_CODE });
   revocations.listen(async (event: AccessRevoked) => { revoked.push(event); });
-  const authService = new AuthService(db, options);
-  const passwords = new PasswordService({ db, auth: authService, breached: breachedFrom('password1234\n'), revocations });
+  const authService = new AuthService(db, { ...options, codeKey: CODE_KEY });
+  const passwords = new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: breachedFrom('password1234\n'), revocations });
   const devices = devicesFor({ auth, sessionKey: JWT_SECRET, authService });
   const app = express();
   app.use(express.json());
@@ -38,6 +40,7 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
     authService,
     auth,
     sessionKey: JWT_SECRET,
+    codeKey: CODE_KEY,
     appUrl: 'http://localhost:5173',
     revocations,
     passwords,

@@ -7,7 +7,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
 import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
-import { emailProblem, normalEmail, sameSignUpCode, SIGN_UP_WRONG_CODES, signUpCodeHash, signUpExpiry, signUpLive } from '../lib/sign-up.js';
+import { emailProblem, normalEmail, SIGN_UP_WRONG_CODES, signUpExpiry, signUpLive } from '../lib/sign-up.js';
+import { codeHash, sameCode } from '../lib/codes.js';
 import { takenAddressMail } from '../lib/password-reset.js';
 import type { OfferedProvider } from '../lib/sign-in-providers.js';
 import { confirmWith, twoFactorChangeFrom } from '../lib/second-factor.js';
@@ -25,6 +26,7 @@ export interface AuthRouterDeps {
   authService: AuthService;
   auth: Auth;
   sessionKey: SecretKey;
+  codeKey: SecretKey;
   appUrl: string;
   accounts?: boolean | undefined;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
@@ -102,7 +104,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         email,
         passwordHash: await hashPassword(password),
         inviteHash: inviteCodeHash(code!),
-        codeHash: signUpCodeHash(id, taken ? randomUUID() : sentCode),
+        codeHash: codeHash(deps.codeKey, id, taken ? randomUUID() : sentCode),
         wrong: 0,
         sent: 1,
         expiresAt: signUpExpiry(new Date()),
@@ -129,7 +131,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       }
       const pending = await pendingFor(id);
       if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
-      if (!sameSignUpCode(pending, code)) {
+      if (!sameCode(deps.codeKey, pending, code)) {
         const wrong = await db.accounts.wrongSignUpCode(pending.id);
         if (wrong >= SIGN_UP_WRONG_CODES) {
           await db.accounts.deletePendingSignUp(pending.id);
@@ -162,7 +164,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       const pending = await pendingFor(bodyOf(req).id);
       if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
       const sentCode = generateOTP();
-      if (!await db.accounts.newSignUpCode(pending.id, signUpCodeHash(pending.id, pending.taken ? randomUUID() : sentCode), signUpExpiry(new Date()))) {
+      if (!await db.accounts.newSignUpCode(pending.id, codeHash(deps.codeKey, pending.id, pending.taken ? randomUUID() : sentCode), signUpExpiry(new Date()))) {
         return res.status(429).json({ error: 'We have sent this sign-up enough codes; sign up again' });
       }
       const sending = pending.taken
