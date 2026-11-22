@@ -12,7 +12,12 @@ export interface WorkToken {
   value: string;
 }
 
-export function followEngineWorker(socket: Socket, config: MachineConfig, koalaUrl: string, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate, machineCluster: ClusterHost, startDeviceWorker: (options: DeviceWorkerOptions) => Promise<DeviceWorker>): DeviceWorkerHost | undefined {
+export interface KoalaReach {
+  url: string;
+  token(): Promise<string>;
+}
+
+export function followEngineWorker(socket: Socket, config: MachineConfig, koala: KoalaReach, work: WorkToken, sessions: ExternalAgentSessions, gate: IdleGate, machineCluster: ClusterHost, startDeviceWorker: (options: DeviceWorkerOptions) => Promise<DeviceWorker>): DeviceWorkerHost | undefined {
   if (!config.deviceId) return undefined;
   const { deviceId } = config;
   const host = new DeviceWorkerHost(async (settings) => {
@@ -22,7 +27,7 @@ export function followEngineWorker(socket: Socket, config: MachineConfig, koalaU
       rootDir: config.rootDir,
       deviceId,
       externalAgents: sessions,
-      git: createMachineGit({ rootDir: config.rootDir, backendUrl: koalaUrl, token: () => work.value }),
+      git: createMachineGit({ rootDir: config.rootDir, backendUrl: koala.url, token: () => koala.token() }),
       cluster: (op) => runMachineCluster(machineCluster, op),
       address,
       tls: { ca, serverName },

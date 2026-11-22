@@ -115,7 +115,7 @@ export function startWork(
   });
   place.onStop(() => { void sessions.closeAll().finally(() => place.exit(0)); });
   watchAgents(place, socket, config, sessions, gate);
-  worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate, place.cluster, place.startDeviceWorker);
+  worker = followEngineWorker(socket, config, { url: koalaUrl, token: () => access.token(koala.resource) }, work, sessions, gate, place.cluster, place.startDeviceWorker);
 
   socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}`));
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));

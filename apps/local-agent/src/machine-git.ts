@@ -25,7 +25,7 @@ const gitOver = (processes: Processes) => (args: string[], cwd: string, env: Nam
 export interface MachineGitOptions {
   rootDir: string;
   backendUrl: string;
-  token: string | (() => string);
+  token: string | (() => Promise<string>);
   processes?: Processes | undefined;
   remote?: ((repo: string) => string) | undefined;
 }
@@ -49,11 +49,14 @@ export const remoteFor =(backendUrl: string, repo: string): string =>
 export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp) => Promise<MachineGitResult> {
   const git = gitOver(options.processes ?? nodeProcesses);
   const env: Named = { GIT_TERMINAL_PROMPT: '0', ...QUIET_REPOSITORY };
-  const tokenNow = (): string => (typeof options.token === 'function' ? options.token() : options.token);
-  const signedIn = () => ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${tokenNow()}`];
-  const hidden = (text: string): string => text.replaceAll(tokenNow(), '***').trim();
-
   return async (op) => {
+    const sent = new Set<string>(typeof options.token === 'string' ? [options.token] : []);
+    const signedIn = async (): Promise<string[]> => {
+      const token = typeof options.token === 'function' ? await options.token() : options.token;
+      sent.add(token);
+      return ['-c', 'credential.helper=', '-c', 'core.askPass=', '-c', `http.extraHeader=Authorization: Bearer ${token}`];
+    };
+    const hidden = (text: string): string => [...sent].filter(Boolean).reduce((said, token) => said.replaceAll(token, '***'), text).trim();
     const relative = path.posix.join(MACHINE_TREES, op.folder);
     const folder = insideRoot(options.rootDir, relative);
     if (!folder) return { ok: false, error: `${op.folder} is outside this machine's folder` };
@@ -90,7 +93,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
         if (!(await present(path.join(folder, '.git')))) {
           await must(['init', '-q', '-b', 'koala-work'], 'could not start the folder');
         }
-        await must([...signedIn(), 'fetch', '-q', remote, `+refs/heads/${op.branch}:refs/remotes/koala/work`], `could not fetch ${op.branch}`);
+        await must([...(await signedIn()), 'fetch', '-q', remote, `+refs/heads/${op.branch}:refs/remotes/koala/work`], `could not fetch ${op.branch}`);
         await must(['checkout', '-q', '-f', '-B', 'koala-work', 'refs/remotes/koala/work'], 'could not check it out');
         await must(['clean', '-q', '-fd'], 'could not clear what the last turn left');
         await must(['update-ref', SENT, 'HEAD'], 'could not note what the workspace has');
@@ -102,7 +105,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
         if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
           await must([...AS_MACHINE, 'commit', '-q', '-m', 'Work so far, before the workspace is merged in'], 'could not commit the work');
         }
-        await must([...signedIn(), 'fetch', '-q', remote, `+refs/heads/${op.branch}:${WORKSPACE_NOW}`], `could not fetch ${op.branch}`);
+        await must([...(await signedIn()), 'fetch', '-q', remote, `+refs/heads/${op.branch}:${WORKSPACE_NOW}`], `could not fetch ${op.branch}`);
         const merged = await git([...AS_MACHINE, 'merge', '-q', '--no-edit', '-m', 'Merge what the workspace has now', WORKSPACE_NOW], folder, env);
         const conflicts = merged.code === 0 ? [] : await unmerged();
         if (merged.code !== 0 && conflicts.length === 0) throw new Error(`could not merge the workspace in: ${hidden(merged.stderr || merged.stdout)}`);
@@ -123,7 +126,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
       } else if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
         await must([...AS_MACHINE, 'commit', '-q', '-m', op.message], 'could not commit the work');
       }
-      await must([...signedIn(), 'push', '-q', '--force', remote, `HEAD:refs/heads/${op.branch}`], `could not push ${op.branch}`);
+      await must([...(await signedIn()), 'push', '-q', '--force', remote, `HEAD:refs/heads/${op.branch}`], `could not push ${op.branch}`);
       await must(['update-ref', SENT, 'HEAD'], 'could not note what the workspace has');
       return { ok: true, path: relative, commit: await must(['rev-parse', 'HEAD'], 'could not read the commit') };
     } catch (err) {

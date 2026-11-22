@@ -340,7 +340,7 @@ export class RootProvider {
         return grant;
       },
       ttl: {
-        AccessToken: CLAIMS_SECONDS,
+        AccessToken: (_ctx, token) => token.resourceServer?.accessTokenTTL ?? CLAIMS_SECONDS,
         AuthorizationCode: 60,
         ClientCredentials: (_ctx, token) => token.resourceServer?.accessTokenTTL ?? SERVICE_TOKEN_SECONDS,
         IdToken: CLAIMS_SECONDS,

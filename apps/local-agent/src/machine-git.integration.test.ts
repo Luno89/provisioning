@@ -148,6 +148,18 @@ describe('a machine\'s checkout of a project\'s work', () => {
     for (const env of envs) expect(env).toMatchObject(QUIET_REPOSITORY);
   });
 
+  it('asks for a token for its Koala each time it fetches or pushes, sends that one, and never shows it', async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
+    let asked = 0;
+    const processes = recordingProcesses((run) => (run.args?.includes('fetch') ? { code: 128, stderr: `fatal: refused ${run.args.find((arg) => arg.includes('Bearer')) ?? ''}` } : { code: 0, stdout: '' }));
+    const git = createMachineGit({ rootDir: path.join(root, 'home'), backendUrl: 'http://koala.test', token: async () => `koala-token-${++asked}`, processes });
+    const first = await git({ kind: 'checkout', repo: 'tree-t1', branch: 'main', folder: 'tree-t1' });
+    const second = await git({ kind: 'checkout', repo: 'tree-t1', branch: 'main', folder: 'tree-t1' });
+    const sent = processes.ran.flatMap((run) => run.args ?? []).filter((arg) => arg.includes('Bearer'));
+    expect(sent).toEqual(['http.extraHeader=Authorization: Bearer koala-token-1', 'http.extraHeader=Authorization: Bearer koala-token-2']);
+    expect([first.ok ? '' : first.error, second.ok ? '' : second.error]).toEqual(['could not fetch main: fatal: refused http.extraHeader=Authorization: Bearer ***', 'could not fetch main: fatal: refused http.extraHeader=Authorization: Bearer ***']);
+  });
+
   it('fails a checkout with what git said, and never shows the device token', async () => {
     root = await mkdtemp(path.join(tmpdir(), 'machine-git-'));
     const processes = recordingProcesses(() => ({ code: 128, stderr: 'fatal: could not read from http.extraHeader=Authorization: Bearer device-token\n' }));

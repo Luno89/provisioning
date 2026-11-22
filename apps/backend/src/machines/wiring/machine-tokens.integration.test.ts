@@ -24,6 +24,7 @@ import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { wireMachineAccounts } from './accounts.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { deviceByWorkToken } from './machines.js';
+import { deviceByMachineToken } from './machine-admission.js';
 import { wireSockets } from './sockets.js';
 import { agentSockets, hearing, until } from '../testing/wiring-world.js';
 
@@ -117,7 +118,7 @@ function gatewayAnswer(token: string): Promise<string | undefined> {
 }
 
 const git = () => new MachineGitService({
-  deviceFor: deviceByWorkToken(db, trust, () => clock),
+  deviceFor: deviceByMachineToken(db, machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime()), 'owner-1'),
   remote: async () => undefined,
 });
 
@@ -228,7 +229,7 @@ describe('a machine\'s connection to root, on tokens of its own key', () => {
     const told = hearing<{ url: string; resource: string; workToken: string } | null>(socket, 'machine:koala');
     const [first] = await told.saidTimes(1);
     expect(first).toMatchObject({ url: 'http://inst.test', resource: runResourceOf('inst-1') });
-    expect(await gitAnswer(first!.workToken)).not.toBe(401);
+    expect(await gatewayAnswer(first!.workToken)).not.toMatch(/not known here/);
     socket.emit('machine:koala?');
     const again = await told.saidTimes(2);
     expect(again).toHaveLength(2);
@@ -337,12 +338,29 @@ describe('a machine\'s token from root for its Koala, at the Koala\'s socket', (
   });
 });
 
-describe('a machine\'s work token at its Koala', () => {
-  it('lets the machine in at the git proxy and the gateway', async () => {
+describe('a machine\'s token from root for its Koala, at the Koala\'s git', () => {
+  it('lets the machine fetch and push with a token root gave it for this Koala, and refuses one for another Koala, one that ran out, one another key signed, its work token, and one of a machine this Koala does not have', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const token = workToken();
-    expect(await gitAnswer(token)).not.toBe(401);
-    expect(await gatewayAnswer(token)).not.toMatch(/not known here/);
+    expect(await gitAnswer(await access())).toBe(404);
+    await koalaOf('inst-2', 'owner-2');
+    await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: ISSUED }), id: 'lap', ownerId: 'owner-2' });
+    expect(await gitAnswer(await access({ deviceId: 'lap', koala: 'inst-2' }))).toBe(401);
+    expect(await gitAnswer(await access({ by: otherRoot }))).toBe(401);
+    expect(await gitAnswer(workToken())).toBe(401);
+    const short = await access({ seconds: 60 });
+    expect(await gitAnswer(short)).toBe(404);
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect(await gitAnswer(short)).toBe(401);
+    const gone = await access();
+    await db.machines.deleteLocalAgentDevice('desk');
+    expect(await gitAnswer(gone)).toBe(401);
+  });
+});
+
+describe('a machine\'s work token at its Koala', () => {
+  it('lets the machine in at the gateway', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    expect(await gatewayAnswer(workToken())).not.toMatch(/not known here/);
   });
 
   it('is refused for another Koala, from another root, past its expiry, and for a machine this Koala does not have', async () => {
