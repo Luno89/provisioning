@@ -12,6 +12,6 @@ export { k3sAnswers, k3sStep, readySince, type Kubectl } from './k3s.js';
 export { processProvider, type ProcessProvider, type ProcessSpec } from './process.js';
 export { serviceStep, type Provider, type Service, type ServiceContext } from './service.js';
 export { composeCommand, composeProvider, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
-export { releaseRollout, ROLLOUT_KINDS, rolloutAcross, rolloutOf, rolloutOfOne, SETUP_LABEL, stuckHook, type ReleaseOptions, type ReleaseRollout, type Rollout, type RolloutOptions } from './rollout.js';
+export { releaseRollout, ROLLOUT_KINDS, rolloutAcross, rolloutOf, rolloutOfOne, SETUP_LABEL, stuckHook, type ReleaseRollout, type Rollout, type RolloutOptions } from './rollout.js';
 export { chartInputs, chartStep, followRelease, INPUTS_VALUE, releaseRevision, runsInputs, type ChartCluster, type ChartContext, type ChartRelease } from './chart.js';
 export { assessWorkload, reconciledStatus, RECENT_RESTART_MS, type WorkloadHealth, type WorkloadStatus } from './workload-health.js';
