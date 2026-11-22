@@ -1,6 +1,6 @@
 import type { WorkflowClient } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
-import { PROVISIONING_CHANGED, type ProvisionPieceKey } from '@koala/engine-core/koala-install';
+import { PROVISIONING_CHANGED, SETUP_AGAIN_ASKED, type ProvisionPieceKey } from '@koala/engine-core/koala-install';
 import { isOff, type Database, type Off } from '../../platform/index.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -40,4 +40,16 @@ export function wireProvisioning(deps: ProvisioningWiringDeps): Provisioning | O
   deps.tenant.use('/api/infrastructure/provisioning', provisioningRouter({ provisioning }));
   void provisioning.start().catch((err: Error) => console.error(`[provisioning] Koala could not start setting itself up for chart revision ${koala.revision}: ${err.message}`));
   return provisioning;
+}
+
+export interface RootHeard {
+  hear(event: string, handler: () => void): void;
+}
+
+export function wireSetupAgain(root: RootHeard, provisioning: Pick<Provisioning, 'rootAsked'>): void {
+  const check = (): void => {
+    provisioning.rootAsked().catch((err: Error) => console.warn(`[provisioning] whether root asks this Koala to set itself up again could not be checked: ${err.message}; root tells it again`));
+  };
+  root.hear(SETUP_AGAIN_ASKED, check);
+  root.hear('connect', check);
 }

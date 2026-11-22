@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
-import { openedRecord, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
+import { PROVISION_PIECES, type ProvisionPieceView } from '@koala/engine-core/koala-install';
+import { againPieces, openedRecord, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
 import { INSTALLED_EXTENSIONS } from '../installed.js';
 import { runOnHost } from '../testing/host-op-runs.js';
@@ -20,7 +20,7 @@ function world(answers: Partial<Record<string, ProvisionPieceResult>> = {}) {
     pieces: { run: async (piece) => { started.push(piece); return answers[piece.piece] ?? { ok: true }; } },
     now: () => AT,
   });
-  const open = (inputs: ProvisionRunInput, ownerId = inputs.ownerId) => store.openProvisioning(openedRecord({ ownerId, target: inputs.target, revision: inputs.revision, reason: inputs.reason, runId: inputs.recordId, at: AT }));
+  const open = (inputs: ProvisionRunInput, ownerId = inputs.ownerId, pieces?: ProvisionPieceView[]) => store.openProvisioning(openedRecord({ ownerId, target: inputs.target, revision: inputs.revision, reason: inputs.reason, runId: inputs.recordId, at: AT, pieces }));
   const run = async (inputs: ProvisionRunInput, opened = true) => {
     if (opened) await open(inputs, inputs.ownerId);
     return runOnHost({ procedure: PROVISION, operations, runId: inputs.recordId, agentId: PROVISION_AGENT, ownerId: inputs.ownerId, inputs });
@@ -57,6 +57,21 @@ describe('the provision procedure', () => {
     const record = await recordOf(OWN);
     expect(record).toMatchObject({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full' });
     expect(record.pieces.filter((piece) => piece.state === 'waiting').map((piece) => piece.key)).toEqual(['verdaccio', 'infisical', 'monitoring']);
+  });
+
+  it('set up again, starts at the piece that failed and leaves the finished ones as they are', async () => {
+    const first = world({ gitea: { ok: false, why: 'the volume is full' } });
+    await first.run(OWN);
+    const stopped = await first.record(OWN);
+    const again: ProvisionRunInput = { ...OWN, recordId: 'provision-machine-desk~2', reason: 'asked' };
+    const { open, run, started, record: recordOf } = world();
+    await open(again, again.ownerId, againPieces(stopped, again.target, again.revision));
+    const result = await run(again, false);
+    expect(result.outcome).toBe('ok');
+    expect(started.map((piece) => piece.piece)).toEqual(['gitea', 'verdaccio', 'infisical', 'monitoring']);
+    const record = await recordOf(again);
+    expect(record.state).toBe('up');
+    expect(record.pieces.slice(0, 6)).toEqual(stopped.pieces.slice(0, 6));
   });
 
   it('ends failed with monitoring\'s why when the last piece cannot come up', async () => {

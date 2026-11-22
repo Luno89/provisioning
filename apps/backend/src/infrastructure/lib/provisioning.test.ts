@@ -3,7 +3,7 @@ import { PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, provisionRe
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { PLATFORM_PLAN } from './platform-provision.js';
 import {
-  openedRecord, pieceHeard, pieceProgress, piecesFor, progressSince, provisionedFor, provisioningView, provisionPieceWorkflowId, provisionRunId,
+  againPieces, openedRecord, pieceHeard, pieceProgress, piecesFor, progressSince, provisionedFor, retryStartsAt, provisioningView, provisionPieceWorkflowId, provisionRunId,
   provisionWorkflowId, recordedOn, rootReportOf, runEnded, setUpProgress, startDecision, type HeardPatch, type ProvisioningRecord,
 } from './provisioning.js';
 
@@ -53,6 +53,45 @@ describe('when a setup starts', () => {
     const running = opened();
     for (const reason of ['revision', 'missing', 'asked'] as const) expect(startDecision([running], KOALA, 8, reason)).toEqual({ start: false, running });
     expect(startDecision([running], OTHER, 7, 'missing')).toEqual({ start: true });
+  });
+});
+
+describe('setting up again after a setup stopped', () => {
+  const stoppedAtGitea = (): ProvisioningRecord => {
+    let record = opened();
+    for (const piece of ['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei'] as const) record = pieceHeard(record, pieceProgress(record, piece, { state: 'done' }), AT);
+    record = pieceHeard(record, pieceProgress(record, 'gitea', { state: 'started', line: 'waiting for gitea-0' }), AT);
+    return pieceHeard(record, pieceProgress(record, 'gitea', { state: 'failed', why: 'the volume is full' }), LATER);
+  };
+
+  it('starts at the step that failed, the finished steps kept as they were', () => {
+    const stopped = stoppedAtGitea();
+    const pieces = againPieces(stopped, KOALA, 7);
+    expect(retryStartsAt(pieces)).toBe('gitea');
+    expect(pieces.slice(0, 6)).toEqual(stopped.pieces.slice(0, 6));
+    expect(pieces.slice(6)).toEqual(PROVISION_PIECES.slice(6).map((piece) => ({ key: piece.key, title: piece.title, state: 'waiting' })));
+  });
+
+  it('starts at the step that broke when a run ended without a piece failing', () => {
+    let record = opened();
+    record = pieceHeard(record, pieceProgress(record, 'egress', { state: 'done' }), AT);
+    record = pieceHeard(record, pieceProgress(record, 'searxng', { state: 'started' }), AT);
+    expect(retryStartsAt(againPieces(runEnded(record, 'the setup\'s run was stopped', LATER), KOALA, 7))).toBe('searxng');
+  });
+
+  it('starts from the first step when nothing of this revision stopped', () => {
+    const stopped = stoppedAtGitea();
+    for (const last of [undefined, { ...stopped, revision: 6 }, { ...stopped, state: 'up' as const }, opened()]) {
+      const pieces = againPieces(last, KOALA, 7);
+      expect(pieces).toEqual(piecesFor(KOALA));
+      expect(retryStartsAt(pieces)).toBe('egress');
+    }
+    expect(againPieces(undefined, OTHER, 7)).toEqual(piecesFor(OTHER));
+  });
+
+  it('opens the new run with the pieces it is handed', () => {
+    const pieces = againPieces(stoppedAtGitea(), KOALA, 7);
+    expect(opened({ reason: 'asked', pieces }).pieces).toEqual(pieces);
   });
 });
 

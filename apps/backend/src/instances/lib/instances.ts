@@ -1,7 +1,7 @@
 import type { UpdateSetting } from './instance-updates.js';
 import type { SignInKey } from './oidc.js';
 import type { KoalaInstallRecord } from './koala-installs.js';
-import type { InstanceSetup } from './instance-setup.js';
+import type { InstanceSetup, SetupAsked } from './instance-setup.js';
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed';
 
@@ -44,6 +44,7 @@ export interface InstanceRecord {
   signIn?: SignInKey | undefined;
   install?: KoalaInstallRecord | undefined;
   setup?: InstanceSetup | undefined;
+  setupAsked?: SetupAsked | undefined;
 }
 
 export interface InstanceGroup {

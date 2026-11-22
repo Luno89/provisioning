@@ -78,6 +78,7 @@ export async function joinThisComputer(cookie: string, instanceWeb: string, here
 export async function untilKoalaReady(cookie: string, asked: RootAsked): Promise<void> {
   const { rootApi, say, pause } = asked;
   let told = '';
+  let looked = false;
   for (;;) {
     const answer = await fetch(`${rootApi}${MY_KOALA_PATH}`, { headers: { Cookie: cookie } }).catch(ignore('root refusing connections is root restarting under its watcher; the loop waits for it to answer again'));
     if (!answer) {
@@ -89,6 +90,14 @@ export async function untilKoalaReady(cookie: string, asked: RootAsked): Promise
     if (koala.line !== told) say(`your Koala is ${koala.line}`);
     told = koala.line;
     if (koala.state === 'ready') return;
+    const first = !looked;
+    looked = true;
+    if (koala.state === 'failed' && first && koala.again) {
+      say('dev asks it to set itself up again from where it stopped');
+      const asked = await fetch(`${rootApi}${koala.again}`, { method: 'POST', headers: { Cookie: cookie } });
+      if (!asked.ok) throw new Error(`root would not set this computer's Koala up again: ${asked.status} ${await asked.text()}`);
+      continue;
+    }
     if (koala.state === 'failed') throw new Error(`putting Koala on this computer failed: ${koala.detail}`);
     await pause(2000);
   }

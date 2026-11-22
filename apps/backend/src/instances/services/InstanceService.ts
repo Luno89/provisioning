@@ -1,14 +1,14 @@
 import crypto from 'crypto';
-import type { Database } from '../../platform/index.js';
+import { authorize, type Database, type Principal } from '../../platform/index.js';
 import { INSTANCE_STATUSES, servingOf, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
 import { nameProblem, suggestedName } from '../lib/instance-names.js';
 import { routeProblem } from '../lib/instance-routes.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 import type { Reach } from '../lib/instance-watch.js';
 import { InstanceReach } from './InstanceReach.js';
-import { provisionReportOf, type KoalaInstallView, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
+import { provisionReportOf, SETUP_AGAIN_ASKED, type KoalaInstallView, type PlacedKoala, type ProvisionReport } from '@koala/engine-core/koala-install';
 import { askedInstall, installUnfinished, installView } from '../lib/koala-installs.js';
-import { pastRevision, setupHeard, setupSaid, statusSettled, type InstanceSetup } from '../lib/instance-setup.js';
+import { pastRevision, setupAgainAsked, setupAgainOf, setupHeard, setupSaid, statusSettled, type InstanceSetup, type SetupAgain } from '../lib/instance-setup.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -49,6 +49,7 @@ export interface InstanceSettings {
   serviceChanged?: ((instance: InstanceRecord) => void) | undefined;
   reach?: InstanceReach | undefined;
   installs?: SetupInstalls | undefined;
+  tell?: ((instanceId: string, event: string) => void) | undefined;
 }
 
 export interface ReleaseSource {
@@ -60,6 +61,17 @@ export interface PlacingMachine {
   id: string;
   name: string;
   meshIp?: string | undefined;
+}
+
+export interface MyKoala {
+  id: string;
+  status: InstanceStatus;
+  detail?: string | undefined;
+  url: string;
+  name?: string | undefined;
+  install?: KoalaInstallView | undefined;
+  setupAgain?: SetupAgain | undefined;
+  watch: WatchView;
 }
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
@@ -129,6 +141,7 @@ export class InstanceService {
       name: named.name,
       install: askedInstall(installId, machine.id, now),
       setup: undefined,
+      setupAsked: undefined,
     });
     const replaces = existing?.install && installUnfinished(existing.install) ? existing.install.id : undefined;
     return { ok: true, value: { instanceId, ...(replaces ? { replaces } : {}) } };
@@ -293,7 +306,7 @@ export class InstanceService {
     const heard = this.setupOf(instance.setup, raw);
     if (!heard.ok) return heard;
     const { setup } = heard;
-    const saved = await this.save(instance, { setup, ...setupSaid(setup, instance.machine) });
+    const saved = await this.save(instance, { setup, ...setupSaid(setup, instance.machine), setupAsked: undefined });
     if (saved.status !== instance.status) {
       this.routesChanged();
       this.settings.serviceChanged?.(saved);
@@ -339,14 +352,37 @@ export class InstanceService {
     return { ok: true, value: saved };
   }
 
-  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; install?: KoalaInstallView | undefined; watch: WatchView } | null> {
+  async mine(ownerId: string): Promise<MyKoala | null> {
     const instance = (await this.store.instances.getInstances(ownerId))[0];
-    if (!instance) return null;
+    return instance ? this.myKoala(instance) : null;
+  }
+
+  private async myKoala(instance: InstanceRecord): Promise<MyKoala> {
+    const again = setupAgainOf(instance);
     return {
       id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name,
       ...(instance.install ? { install: installView(instance.install) } : {}),
+      ...(again ? { setupAgain: again } : {}),
       watch: await this.watchViewOf(instance),
     };
+  }
+
+  async setUpAgain(principal: Principal, instanceId: string): Promise<Outcome<MyKoala>> {
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
+    const decision = authorize(principal, 'set-up-again', { kind: 'koala', ownerId: instance?.ownerId });
+    if (!decision.allowed || !instance) return { ok: false, status: 404, error: decision.allowed ? 'Koala not found' : decision.error };
+    const asked = setupAgainAsked(instance, this.settings.connected?.(instance.id) ?? false, this.now().toISOString());
+    if (!asked.ok) return { ok: false, status: 409, error: asked.error };
+    const saved = await this.save(instance, asked.patch);
+    this.settings.serviceChanged?.(saved);
+    this.settings.tell?.(saved.id, SETUP_AGAIN_ASKED);
+    return { ok: true, value: await this.myKoala(saved) };
+  }
+
+  async setupAskedAs(instanceId: unknown, credential: unknown): Promise<Outcome<{ asked: boolean }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return { ok: true, value: { asked: setupAgainOf(instance) === 'asked' } };
   }
 
   async ownerOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ ownerId: string }>> {

@@ -1,8 +1,10 @@
+import { setUpAgainPath } from './instance-setup.js';
+
 export const MY_KOALA_PATH = '/api/instances/mine';
 
 export type KoalaReadiness =
   | { state: 'ready'; line: string }
-  | { state: 'failed'; line: string; detail: string }
+  | { state: 'failed'; line: string; detail: string; again?: string }
   | { state: 'not yet'; line: string };
 
 const NO_KOALA_YET = 'waiting for this computer to put Koala on itself';
@@ -20,7 +22,9 @@ export function koalaReadinessOf(answer: unknown): KoalaReadiness {
   if (status === 'ready') return { state: 'ready', line: `ready: ${textOf(instance.detail) ?? 'root gave no detail'}` };
   if (status === 'failed') {
     const detail = textOf(instance.detail) ?? 'root gave no reason';
-    return { state: 'failed', line: `failed: ${detail}`, detail };
+    const id = textOf(instance.id);
+    const may = Array.isArray(answer.can) && answer.can.includes('set-up-again');
+    return { state: 'failed', line: `failed: ${detail}`, detail, ...(id && may && instance.setupAgain === 'stopped' ? { again: setUpAgainPath(id) } : {}) };
   }
   return { state: 'not yet', line: `${status}: ${textOf(instance.detail) ?? 'root gave no detail'}` };
 }

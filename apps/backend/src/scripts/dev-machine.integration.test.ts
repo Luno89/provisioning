@@ -20,10 +20,13 @@ import { quietAccountSides } from '../machines/testing/wiring-world.js';
 import { machineClientsAt } from '../instances/testing/registration-code.js';
 import { hashMachineCode } from '../machines/lib/machines.js';
 import { DEV } from '../instances/index.js';
+import { PROVISION_DONE_STAGE, PROVISION_DONE_TITLE, SETUP_AGAIN_ASKED, type ProvisionReport } from '@koala/engine-core/koala-install';
 
 interface Root {
   rootApi: string;
   report: (status: string, detail: string) => Promise<void>;
+  setup: (report: ProvisionReport) => Promise<void>;
+  told: [string, string][];
   stop: () => Promise<void>;
   start: () => Promise<void>;
 }
@@ -43,7 +46,8 @@ function listen(app: Express, port: number): Promise<http.Server> {
 async function rootWithAJoinedKoala(): Promise<Root> {
   const db = await testDatabase();
   const mesh = { createPreAuthKey: async () => ({ key: 'mesh-key' }), listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }] };
-  const instances = new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 't', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, mesh);
+  const told: [string, string][] = [];
+  const instances = new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], ...testInstanceClients, registry: 'r', imageTag: 't', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev', connected: () => true, tell: (instanceId, event) => { told.push([instanceId, event]); } }, mesh);
   const identity = new IdentityService({ role: 'root', signing: identityKeysFrom(generateIdentityKey()) }, db);
   const app = await harnessApp({
     prefix: '/api',
@@ -60,6 +64,11 @@ async function rootWithAJoinedKoala(): Promise<Root> {
       const reported = await instances.report(joined.value.instanceId, joined.value.token, { status, detail });
       if (!reported.ok) throw new Error(reported.error);
     },
+    setup: async (report) => {
+      const reported = await instances.report(joined.value.instanceId, joined.value.token, { provision: report });
+      if (!reported.ok) throw new Error(reported.error);
+    },
+    told,
     stop: async () => {
       server.closeAllConnections();
       await new Promise((done) => server.close(done));
@@ -112,6 +121,49 @@ describe('dev waiting for root to say this computer\'s Koala is up', () => {
     await expect(untilKoalaReady('session=dev', { rootApi: root.rootApi, say: (line) => said.push(line), pause: async () => undefined }))
       .rejects.toThrow('putting Koala on this computer failed: k3s did not start: port 6443 is taken');
     expect(said).toEqual(['your Koala is failed: k3s did not start: port 6443 is taken']);
+  });
+});
+
+describe('dev finding this computer\'s Koala stopped setting itself up', () => {
+  const gitea = { stage: 'gitea', title: 'Gitea, your repositories and images' };
+
+  it('asks root to set it up again from where it stopped, and follows the new attempt until it is ready', async () => {
+    const root = await rootWithAJoinedKoala();
+    await root.setup({ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
+    const said: string[] = [];
+    const next: ProvisionReport[] = [
+      { revision: 2, progress: { ...gitea, state: 'started', line: 'waiting for gitea-0' } },
+      { revision: 2, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } },
+    ];
+    const pause = async (): Promise<void> => {
+      const report = next.shift();
+      if (report) await root.setup(report);
+    };
+
+    await untilKoalaReady('session=dev', { rootApi: root.rootApi, say: (line) => said.push(line), pause });
+
+    expect(root.told).toEqual([[expect.any(String), SETUP_AGAIN_ASKED]]);
+    expect(said).toEqual([
+      'your Koala is failed: Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is full',
+      'dev asks it to set itself up again from where it stopped',
+      'your Koala is installing: Asking Koala on desk to set itself up again from Gitea, your repositories and images',
+      'your Koala is installing: Koala on desk is setting itself up: Gitea, your repositories and images, waiting for gitea-0',
+      'your Koala is ready: Ready',
+    ]);
+  });
+
+  it('stops with root\'s reason when the new attempt stops too, asking only once', async () => {
+    const root = await rootWithAJoinedKoala();
+    await root.setup({ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
+    const next: ProvisionReport[] = [{ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is still full' } }];
+    const pause = async (): Promise<void> => {
+      const report = next.shift();
+      if (report) await root.setup(report);
+    };
+
+    await expect(untilKoalaReady('session=dev', { rootApi: root.rootApi, say: () => undefined, pause }))
+      .rejects.toThrow('putting Koala on this computer failed: Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is still full');
+    expect(root.told).toHaveLength(1);
   });
 });
 

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { WorkflowHandle } from '@temporalio/client';
 import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
 import { ownerIn, startedFor } from '../../platform/lib/workflow-owner.js';
-import { openedRecord, provisionPieceWorkflowId, provisionRunId, type ProvisionPieceInput, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
+import { againPieces, openedRecord, provisionPieceWorkflowId, provisionRunId, type ProvisioningRecord, type ProvisionPieceInput, type ProvisionRunInput } from '../../infrastructure/lib/provisioning.js';
 import { MemoryInfrastructureStore } from '../../infrastructure/testing/memory-store.js';
 import { fixtureWorker, type FixtureWorker } from '../testing/fixture-worker.js';
 import { runOnHost } from '../testing/host-op-runs.js';
@@ -71,18 +71,28 @@ describe('a piece of a setup, run on the cluster queue', () => {
 });
 
 describe('the provision procedure, its pieces on real Temporal', () => {
-  const runOn = async (say: string) => {
-    const store = new MemoryInfrastructureStore();
+  const runOn = async (say: string, store = new MemoryInfrastructureStore(), carried?: ProvisioningRecord['pieces']) => {
     const order: string[] = [];
     const operations = createProvisionOperations({
       records: store,
       pieces: { run: async (piece, signal) => { order.push(piece.piece); return pieces().run(piece, signal); } },
     });
-    const inputs: ProvisionRunInput = { ownerId: 'bo', recordId: provisionRunId(`${WORLD}-own`, say), target: { kind: 'koala', clusterId: `${WORLD}-own` }, revision: 3, reason: 'revision' };
-    await store.openProvisioning(openedRecord({ ownerId: 'bo', target: inputs.target, revision: 3, reason: 'revision', runId: inputs.recordId, at: new Date().toISOString() }));
+    const reason = carried ? 'asked' : 'revision';
+    const inputs: ProvisionRunInput = { ownerId: 'bo', recordId: provisionRunId(`${WORLD}-own`, say), target: { kind: 'koala', clusterId: `${WORLD}-own` }, revision: 3, reason };
+    await store.openProvisioning(openedRecord({ ownerId: 'bo', target: inputs.target, revision: 3, reason, runId: inputs.recordId, at: new Date().toISOString(), pieces: carried }));
     const result = await runOnHost({ procedure: PROVISION, operations, runId: inputs.recordId, agentId: PROVISION_AGENT, ownerId: 'bo', inputs });
-    return { result, order, record: (await store.getProvisioningRun(inputs.recordId))! };
+    return { result, order, store, record: (await store.getProvisioningRun(inputs.recordId))! };
   };
+
+  it('set up again after it stopped, starts at the piece that failed, leaving the pieces already up untouched', async () => {
+    const stopped = await runOn('refused-first~refused');
+    const again = await runOn('again', stopped.store, againPieces(stopped.record, stopped.record.target, 3));
+    expect(again.result.outcome).toBe('ok');
+    expect(again.order).toEqual(['gitea', 'verdaccio', 'infisical', 'monitoring']);
+    expect(again.record.state).toBe('up');
+    expect(again.record.pieces.slice(0, 6)).toEqual(stopped.record.pieces.slice(0, 6));
+    await expect(fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(again.record.runId, 'egress')).describe()).rejects.toThrow();
+  });
 
   it('sets up every piece in order and ends up', async () => {
     const { result, order, record } = await runOn('all');

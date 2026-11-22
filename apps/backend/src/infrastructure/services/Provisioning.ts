@@ -3,7 +3,7 @@ import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { runStamp, type Watching } from '../../platform/index.js';
 import {
-  heardPatch, openedRecord, piecesUp, progressSince, provisionedFor, provisioningView, provisionRunId, rootRefusal, rootReportOf, runEnded, startDecision,
+  againPieces, heardPatch, openedRecord, piecesUp, progressSince, provisionedFor, provisioningView, provisionRunId, rootRefusal, rootReportOf, runEnded, startDecision,
   type Provisioned, type Provisioner, type ProvisioningRecord, type ProvisionRunInput,
 } from '../lib/provisioning.js';
 import type { InfrastructureStore } from '../store.js';
@@ -17,6 +17,7 @@ export type RootAnswer = { ok: true } | { ok: false; status: number; error: stri
 
 export interface ProvisionRoot {
   setup(report: ProvisionReport): Promise<RootAnswer>;
+  setupAsked(): Promise<boolean>;
 }
 
 export interface ProvisioningDeps {
@@ -41,11 +42,13 @@ export interface ProvisionAsksDeps {
 
 type Opening = { opened: ProvisioningRecord } | { joined: ProvisioningRecord };
 
-async function openRun(deps: ProvisionAsksDeps, target: ProvisionTarget, reason: ProvisionReason, at: Date, runId: string): Promise<Opening> {
+async function openRun(deps: ProvisionAsksDeps, target: ProvisionTarget, reason: ProvisionReason, at: Date, runId: string, again = false): Promise<Opening> {
   const { ownerId, revision } = deps.koala;
-  const decision = startDecision(await deps.store.getProvisioning(target.clusterId), target, revision, reason);
+  const records = await deps.store.getProvisioning(target.clusterId);
+  const decision = startDecision(records, target, revision, reason);
   if (!decision.start) return { joined: 'running' in decision ? decision.running : decision.already };
-  const opened = openedRecord({ ownerId, target, revision, reason, runId, at: at.toISOString() });
+  const pieces = again ? againPieces(records.at(-1), target, revision) : undefined;
+  const opened = openedRecord({ ownerId, target, revision, reason, runId, at: at.toISOString(), pieces });
   const open = await deps.store.openProvisioning(opened);
   return open.opened ? { opened } : { joined: open.running };
 }
@@ -133,7 +136,12 @@ export class Provisioning implements Provisioner {
 
   async again(clusterId: string): Promise<ProvisioningRecord | undefined> {
     const record = (await this.deps.store.getProvisioning(clusterId)).at(-1);
-    return record ? this.ensure(record.target, 'asked') : undefined;
+    return record ? this.startRun(record.target, 'asked', true) : undefined;
+  }
+
+  async rootAsked(): Promise<ProvisioningRecord | undefined> {
+    if (!(await this.deps.root.setupAsked())) return undefined;
+    return this.again(this.deps.koala.clusterId);
   }
 
   async latest(): Promise<ProvisioningRecord[]> {
@@ -214,12 +222,12 @@ export class Provisioning implements Provisioner {
     });
   }
 
-  private async startRun(target: ProvisionTarget, reason: ProvisionReason): Promise<ProvisioningRecord> {
+  private async startRun(target: ProvisionTarget, reason: ProvisionReason, again = false): Promise<ProvisioningRecord> {
     const at = this.at();
     const runId = provisionRunId(target.clusterId, runStamp(at.getTime()));
     this.starting.add(runId);
     try {
-      const run = await openRun(this.deps, target, reason, at, runId);
+      const run = await openRun(this.deps, target, reason, at, runId, again);
       return 'opened' in run ? await this.begin(run.opened) : run.joined;
     } finally {
       this.starting.delete(runId);

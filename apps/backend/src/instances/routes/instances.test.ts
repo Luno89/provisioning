@@ -39,7 +39,7 @@ describe('a person making their instance', () => {
     instances.mine.calledWith(PERSON.id).mockResolvedValue({ id: 'inst-1' } as never);
     instances.setWatchOf.calledWith(PERSON.id, false).mockResolvedValue(ok({ notifyWhenUnreachable: false }) as never);
     instances.setWatchOf.calledWith(PERSON.id, 'no').mockResolvedValue(no(400, 'send true or false'));
-    expect((await (await on(router)).get(`${prefix}/mine`)).data).toEqual({ instance: { id: 'inst-1' } });
+    expect((await (await on(router)).get(`${prefix}/mine`)).data).toEqual({ instance: { id: 'inst-1' }, can: [] });
     expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false });
     expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: 'no' })).status).toBe(400);
   });

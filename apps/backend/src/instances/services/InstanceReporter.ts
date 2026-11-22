@@ -1,6 +1,7 @@
 import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
 import type { ProvisionReport } from '@koala/engine-core/koala-install';
 import type { InstanceStatus } from '../lib/instances.js';
+import { SETUP_AGAIN_PATH } from '../lib/instance-setup.js';
 import type { DeletionProgress } from '../../projects/index.js';
 
 export interface InstanceReporterDeps {
@@ -45,6 +46,12 @@ export class InstanceReporter {
     const answer = await this.call('asks it whether its owner is being removed', '/api/instances/owner-removal', { method: 'GET' });
     if (!answer.ok) throw new Error(`root would not say whether this instance's owner is being removed: ${saidBy(await answer.text())}`);
     return ((await answer.json()) as { removing?: unknown }).removing === true;
+  }
+
+  async setupAsked(): Promise<boolean> {
+    const answer = await this.call('asks it whether its owner asked it to set itself up again', SETUP_AGAIN_PATH, { method: 'GET' });
+    if (!answer.ok) throw new Error(`root would not say whether this Koala's owner asked it to set itself up again: ${saidBy(await answer.text())}`);
+    return ((await answer.json()) as { asked?: unknown }).asked === true;
   }
 
   private async send(doing: string, body: Record<string, unknown>): Promise<Reported> {

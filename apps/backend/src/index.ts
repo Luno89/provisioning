@@ -38,7 +38,7 @@ import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engin
 import { RunTokens } from './engine/index.js';
 import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
-import { wireProvisioning } from './infrastructure/wiring/provisioning.js';
+import { wireProvisioning, wireSetupAgain } from './infrastructure/wiring/provisioning.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { onKoalasCluster } from './engine-host/sandboxes/kube.js';
@@ -456,7 +456,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (!instanceReporter) throw new Error('this instance has its client settings but no sign-in through root to get a service token with');
     const clusterId = koalasClusterId(settings.clusters.here);
     wireOwnerRemoval(instanceSide, new OwnerRemoval({ ownerId: role.instance.ownerId, root: instanceReporter, workflows: temporalRemovalWorkflows(getTemporalClient, QUEUES.engine) }));
-    wireProvisioning({
+    const provisioning = wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
       connected: () => temporalBridge.connected(),
@@ -466,6 +466,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },
     });
+    if (!isOff(provisioning)) wireSetupAgain(instanceSide, provisioning);
   }
   if (!settings.underTest && gitea && tenants) {
     runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
