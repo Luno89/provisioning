@@ -203,14 +203,18 @@ export class MachineAccounts {
     if (finishing.length) this.deps.toOwner.machinesChanged(device.ownerId);
   }
 
-  private async replaced(ownerId: string, replaces: unknown): Promise<LocalAgentDeviceMetadata | undefined> {
-    if (typeof replaces !== 'string' || !replaces) return undefined;
-    const caller = await this.deps.clients.machineOfKey(replaces);
-    if (!caller || caller.ownerId !== ownerId) return undefined;
-    return (await this.deps.store.getLocalAgentDevices()).find((device) => device.id === caller.deviceId && device.ownerId === ownerId);
+  private async replaced(ownerId: string, replaces: unknown, neverRegistered: unknown): Promise<LocalAgentDeviceMetadata | undefined> {
+    const devices = async () => (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
+    if (typeof replaces === 'string' && replaces) {
+      const caller = await this.deps.clients.machineOfKey(replaces);
+      if (!caller || caller.ownerId !== ownerId) return undefined;
+      return (await devices()).find((device) => device.id === caller.deviceId);
+    }
+    if (typeof neverRegistered !== 'string' || !neverRegistered) return undefined;
+    return (await devices()).find((device) => device.id === neverRegistered && !device.signIn);
   }
 
-  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown }): Promise<Outcome<{ deviceId: string; env: Record<string, string> }>> {
+  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown; neverRegistered?: unknown }): Promise<Outcome<{ deviceId: string; env: Record<string, string> }>> {
     if (typeof code !== 'string' || !code) return { ok: false, status: 400, error: 'send the code from My Machines as "code"' };
     const rootDir = text(machine.rootDir, 500);
     if (!rootDir || !path.isAbsolute(rootDir)) return { ok: false, status: 400, error: 'send the folder Koala may work in as "rootDir", a full path' };
@@ -220,7 +224,7 @@ export class MachineAccounts {
     const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code), this.now().toISOString());
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
-    const replaced = await this.replaced(found.ownerId, machine.replaces);
+    const replaced = await this.replaced(found.ownerId, machine.replaces, machine.neverRegistered);
     const id = replaced?.id ?? uuidv4();
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);

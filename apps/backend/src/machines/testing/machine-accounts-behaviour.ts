@@ -146,6 +146,29 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(await db.machines.getLocalAgentDevices()).toHaveLength(2);
     });
 
+    it('replaces the person\'s machine that never registered a key when a later join names it, keeping its one entry and telling no Koala of a new one', async () => {
+      const machines = accounts();
+      const first = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/home/me/koala' });
+      followers.joined.mockClear();
+      const again = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/home/me/work', neverRegistered: first.deviceId });
+      expect(again.deviceId).toBe(first.deviceId);
+      expect(await db.machines.getLocalAgentDevices()).toHaveLength(1);
+      expect((await stored(first.deviceId))?.rootDir).toBe('/home/me/work');
+      expect(followers.joined).not.toHaveBeenCalled();
+    });
+
+    it('adds a machine rather than replace one named by its id that holds a key, or that is another person\'s', async () => {
+      const machines = accounts();
+      const keyed = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/x' });
+      await db.machines.updateLocalAgentDevice(keyed.deviceId, { set: { signIn: machineSignInKey() } });
+      const unkeyed = await joined(machines, 'bo', { hostname: 'laptop', rootDir: '/x' });
+      const byId = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/x', neverRegistered: keyed.deviceId });
+      const stranger = await joined(machines, 'cy', { hostname: 'laptop', rootDir: '/x', neverRegistered: unkeyed.deviceId });
+      expect([byId.deviceId, stranger.deviceId]).not.toContain(keyed.deviceId);
+      expect(stranger.deviceId).not.toBe(unkeyed.deviceId);
+      expect(await db.machines.getLocalAgentDevices()).toHaveLength(4);
+    });
+
     it('shows the person why a machine could not replace its key and when that key stops working, until it replaces it', async () => {
       const machines = accounts();
       const { deviceId } = await joined(machines);

@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PROVISIONING_CHANGED } from '@koala/engine-core/koala-install'
-import { useSocketEvent } from '../../platform'
+import { heardChange, useSocketEvent } from '../../platform'
 import { getProvisioning, provisioningKeys, setUpAgain } from '../api/provisioning'
 
 export function useProvisioning() {
   const queries = useQueryClient()
-  useSocketEvent(PROVISIONING_CHANGED, () => { void queries.invalidateQueries({ queryKey: provisioningKeys.view() }) })
+  useSocketEvent(PROVISIONING_CHANGED, () => { void heardChange(queries, { queryKey: provisioningKeys.view() }) })
   return useQuery({ queryKey: provisioningKeys.view(), queryFn: getProvisioning })
 }
 

@@ -166,7 +166,7 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       expect(await first.token()).toBeUndefined();
     });
 
-    it('joins as a new machine after root refused its registration, since root holds no key for the first, leaving that one for the person to remove', async () => {
+    it('replaces the machine root made when it refused that machine\'s registration, keeping its one entry on My Machines with the key the later join registered', async () => {
       const world = await root();
       const ctx = await joinContext(world.url, (await world.accounts.createJoinCode('bo')).code);
       ctx.host = { ...ctx.host, fetch: refusingRegistration(world.provider) };
@@ -174,10 +174,17 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       const first = await savedOf(ctx);
       ctx.host = { ...ctx.host, fetch };
       const again = await joinedAgain(world, ctx);
-      expect(again.saved.deviceId).not.toBe(first.deviceId);
-      expect(again.devices.map((device) => device.id).sort()).toEqual([first.deviceId, again.saved.deviceId].sort());
-      expect(again.devices.find((device) => device.id === first.deviceId)?.signIn).toBeUndefined();
-      expect(again.devices.find((device) => device.id === again.saved.deviceId)?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(again.saved.key)));
+      expect(again.saved.deviceId).toBe(first.deviceId);
+      expect(again.devices.map((device) => device.id)).toEqual([first.deviceId]);
+      expect(again.devices[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(again.saved.key)));
+    });
+
+    it('takes a machine named by its id alone as no proof once that machine registered a key, adding a machine rather than replacing it', async () => {
+      const world = await root();
+      const { saved } = await joinedMachine(world);
+      const taken = await world.accounts.join((await world.accounts.createJoinCode('bo')).code, { hostname: 'elsewhere', rootDir: '/x', neverRegistered: saved.deviceId });
+      expect(taken.ok && taken.value.deviceId).not.toBe(saved.deviceId);
+      expect(await world.db.machines.getLocalAgentDevices()).toHaveLength(2);
     });
 
     it('takes a token that is not of the machine\'s key as no proof, adding a machine rather than replacing it', async () => {

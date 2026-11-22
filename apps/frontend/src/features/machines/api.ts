@@ -5,7 +5,7 @@ import { KOALA_INSTALL_CHANGED, type KoalaInstallView } from '@koala/engine-core
 import { api } from '../../api/client'
 import { machineChoiceLabel } from './lib/machine-rows'
 import type { ReportedGpus } from '../../shared/lib/gpu-lines'
-import { useSocketEvent } from '../platform'
+import { heardChange, useSocketEvent } from '../platform'
 
 export type { KoalaInstallView, MachineJoinView }
 
@@ -144,7 +144,7 @@ export const dismissMachineJoin = (id: string): Promise<{ dismissed: true }> =>
 
 export function useMyMachinesLive(): void {
   const queries = useQueryClient()
-  const changed = () => { void queries.invalidateQueries({ queryKey: localAgentKeys.mine() }) }
+  const changed = () => { void heardChange(queries, { queryKey: localAgentKeys.mine() }) }
   useSocketEvent(MACHINE_JOINS_CHANGED, changed)
   useSocketEvent(KOALA_INSTALL_CHANGED, changed)
 }

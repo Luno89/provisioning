@@ -32,14 +32,15 @@ const savedMachine = async (ctx: JoinContext): Promise<Saved | undefined> => {
   return keyed ? { deviceId: deviceId as string, key } : {};
 };
 
-const replacing = async (ctx: JoinContext, progress: Progress): Promise<{ replaces: string }> => {
+const replacing = async (ctx: JoinContext, progress: Progress): Promise<{ replaces: string; neverRegistered?: string }> => {
   const saved = await savedMachine(ctx);
   if (!saved) return { replaces: '' };
   if (!saved.key || !saved.deviceId) {
     progress.line(KEYLESS_JOINS_ANEW);
     return { replaces: '' };
   }
-  return { replaces: await machineClientOf({ rootUrl: ctx.args.url, deviceId: saved.deviceId, key: saved.key, reach: ctx.host.fetch }).tokenIfKnown() ?? '' };
+  const proof = await machineClientOf({ rootUrl: ctx.args.url, deviceId: saved.deviceId, key: saved.key, reach: ctx.host.fetch }).tokenIfKnown();
+  return proof ? { replaces: proof } : { replaces: '', neverRegistered: saved.deviceId };
 };
 
 const settingsOf = (joined: Joined, agentsNotSetUp?: string): string =>

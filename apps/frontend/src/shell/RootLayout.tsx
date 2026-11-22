@@ -12,7 +12,7 @@ import { AppDashboard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useCan, useShellStore, startHistorySync } from '../features/platform';
-import { onReconnected, reconnectSocket, useSocketEvent } from '../features/platform';
+import { heardChange, onReconnected, reconnectSocket, useSocketEvent } from '../features/platform';
 import { getMe, logout, resumePathFrom, signInKeys, signInPlace } from '../features/platform';
 import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../features/instances';
 import { NoInstance } from '../features/instances';
@@ -64,7 +64,7 @@ export function RootLayout() {
     if (user) reconnectSocket();
   }, [user]);
 
-  useEffect(() => onReconnected(() => { void queryClient.invalidateQueries(); }), [queryClient]);
+  useEffect(() => onReconnected(() => { void heardChange(queryClient); }), [queryClient]);
 
   useEffect(() => {
     let stopped = false;
@@ -145,14 +145,14 @@ export function RootLayout() {
     setShowLogModal((current) => (current && current.id === data.id) ? null : current);
     clearDestroyFor(data.id);
 
-    void queryClient.invalidateQueries({ queryKey: ['clusters'] });
-    void queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    void heardChange(queryClient, { queryKey: ['clusters'] });
+    void heardChange(queryClient, { queryKey: ['deployments'] });
     setTimeout(() => dismissNotification(nid), 5000);
   });
 
   const [releasesNoticed] = useState(() => new Set<string>());
   useSocketEvent<OdooRelease>('odoo-release-updated', (release) => {
-    void queryClient.invalidateQueries({ queryKey: releaseKeys.list(release.projectId) });
+    void heardChange(queryClient, { queryKey: releaseKeys.list(release.projectId) });
     const notice = releaseNotice(releasesNoticed, release);
     if (notice) pushNotification(notice);
   });
@@ -160,7 +160,7 @@ export function RootLayout() {
   useGroveChanges();
 
   useSocketEvent('deployment-updated', () => {
-    void queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    void heardChange(queryClient, { queryKey: ['deployments'] });
   });
 
   const reportFailure = (what: string) => (err: unknown) =>
