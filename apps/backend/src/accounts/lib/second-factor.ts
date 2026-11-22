@@ -1,5 +1,3 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
-
 export type CodePurpose = 'sign-in' | 'confirm';
 
 export const TWO_FACTOR_MINUTES = 5;
@@ -12,14 +10,6 @@ export interface TwoFactorCode {
 }
 
 export const twoFactorCodeId = (userId: string, purpose: CodePurpose): string => `${purpose}:${userId}`;
-
-export const twoFactorCodeHash = (id: string, code: string): string => createHash('sha256').update(`${id}:${code.trim()}`).digest('hex');
-
-export function sameTwoFactorCode(held: Pick<TwoFactorCode, 'id' | 'codeHash'>, given: string): boolean {
-  const expected = Buffer.from(held.codeHash, 'hex');
-  const offered = Buffer.from(twoFactorCodeHash(held.id, given), 'hex');
-  return expected.length === offered.length && timingSafeEqual(expected, offered);
-}
 
 export const twoFactorExpiry = (now: number): Date => new Date(now + TWO_FACTOR_MINUTES * 60_000);
 

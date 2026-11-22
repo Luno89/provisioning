@@ -26,6 +26,7 @@ import { InstanceReach } from '../../../../backend/src/instances/services/Instan
 import { SESSION_ID_COOKIE, servedThroughRoot, signInThroughRoot, type Served } from '../../../../backend/src/instances/testing/through-root'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
+export const CODE_KEY = 'frontend-integration-code-key'
 export const SETUP_CODE = 'frontend-integration-setup-code'
 export const PASSWORD = 'a frontend integration password'
 
@@ -118,13 +119,13 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
     ? throughRoot.instanceAuth
     : rootAuthOver(db, { publicUrl: origin, open: openRoutesOf('root'), setupCode: SETUP_CODE, revocations }).auth
   const mailbox: Mail[] = []
-  const authService = new AuthService(db, { mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
-  const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations })
+  const authService = new AuthService(db, { codeKey: CODE_KEY, mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
+  const passwords = new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: loadBreachedPasswords(), revocations })
   const devices = devicesFor({ auth, sessionKey: SESSION_KEY, authService })
 
   app.use('/api', auth.requireAuth)
   app.use(express.json({ limit: JSON_LIMITS.signedIn }))
-  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, appUrl: origin, accounts: !asInstance, revocations, passwords }))
+  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: origin, accounts: !asInstance, revocations, passwords }))
   if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }))
   refuseWorkOfDeletingProjects(app, db)
   const api = express.Router()

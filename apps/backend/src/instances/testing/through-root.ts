@@ -19,7 +19,8 @@ import { openRoutesOf } from '../../open-routes.js';
 
 export const rootSigning = identityKeysFrom(generateIdentityKey());
 const ROOT_SESSION = 'root-session-key-for-the-round-trip';
-const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
+const ROOT_CODES = 'root-code-key-for-the-round-trip';
+const INSTANCE_SESSION ='instance-session-key-for-the-round-trip';
 const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
 const PROVIDER_COOKIE_KEY = 'cookie-key-for-the-round-trip';
 
@@ -83,10 +84,10 @@ export async function servedThroughRoot(options: ThroughRootOptions): Promise<Th
   const rootSessions = browserSessionsFor('root', root.url, { store: rootDb.platform, secret: ROOT_SESSION });
   const rootAuth = createAuth({ db: rootDb, publicUrl: root.url, role: 'root', open: openRoutesOf('root'), own: { sessions: rootSessions, revocations: rootRevocations } });
   root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userOf(req) }));
-  const authService = new AuthService(rootDb);
+  const authService = new AuthService(rootDb, { codeKey: ROOT_CODES });
   root.app.use('/api/auth', express.json(), authRouter({
-    db: rootDb, authService, auth: rootAuth, sessionKey: ROOT_SESSION, appUrl: root.url, revocations: rootRevocations,
-    passwords: new PasswordService({ db: rootDb, auth: authService, breached: breachedFrom(''), revocations: rootRevocations }),
+    db: rootDb, authService, auth: rootAuth, sessionKey: ROOT_SESSION, codeKey: ROOT_CODES, appUrl: root.url, revocations: rootRevocations,
+    passwords: new PasswordService({ db: rootDb, codeKey: ROOT_CODES, auth: authService, breached: breachedFrom(''), revocations: rootRevocations }),
   }));
   const signInAtRoot = async (person: { id: string; email: string }): Promise<Jar> => {
     const jar: Jar = new Map();

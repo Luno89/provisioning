@@ -1,7 +1,7 @@
 import { testIdentityKey } from '../../../../backend/src/platform/testing/keys'
 import type { Client, WorkflowHandle, WorkflowStartOptions } from '@temporalio/client'
 import type { Site } from './site'
-import { SESSION_KEY } from './site'
+import { CODE_KEY, SESSION_KEY } from './site'
 import { outsideThisTier, type StartedWorkflow } from './outside'
 import { wireAccounts } from '../../../../backend/src/accounts/wiring/accounts'
 import { devicesFor } from '../../../../backend/src/accounts/routes/device'
@@ -35,7 +35,7 @@ export function followedTemporal(): FollowedTemporal {
 }
 
 export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
-  const authService = new AuthService(site.db, {})
+  const authService = new AuthService(site.db, { codeKey: CODE_KEY })
   wireAccounts({
     app: { use: (path, router) => site.api.use(path.replace(/^\/api/, ''), router) },
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey() }),

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { generateOTP, hashPassword, type AccessRevocations, type Database, type UserMetadata } from '../../platform/index.js';
+import { generateOTP, hashPassword, type AccessRevocations, type Database, type SecretKey, type UserMetadata } from '../../platform/index.js';
+import { codeHash, sameCode } from '../lib/codes.js';
 import { passwordProblem, type BreachedPasswords } from '../lib/passwords.js';
 import { RESET_WRONG_CODES, resetCodeMail, resetExpiry, resetLive } from '../lib/password-reset.js';
-import { emailProblem, normalEmail, sameSignUpCode, signUpCodeHash } from '../lib/sign-up.js';
+import { emailProblem, normalEmail } from '../lib/sign-up.js';
 import type { AuthService, SignedInDevice } from './AuthService.js';
 
 export type Answered<T> = ({ ok: true } & T) | { ok: false; status: number; error: string };
@@ -12,6 +13,7 @@ const RESET_GONE = 'This password reset has ended; ask for a new one';
 export class PasswordService {
   constructor(private readonly deps: {
     db: Pick<Database, 'accounts'>;
+    codeKey: SecretKey;
     auth: Pick<AuthService, 'codeDelivery' | 'mailInBackground' | 'passwordChangeProblem' | 'forgetPasswordFailures'>;
     breached: BreachedPasswords;
     revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
@@ -49,7 +51,7 @@ export class PasswordService {
       id,
       ...(ownerId ? { ownerId } : {}),
       email,
-      codeHash: signUpCodeHash(id, ownerId ? code : randomUUID()),
+      codeHash: codeHash(this.deps.codeKey, id, ownerId ? code : randomUUID()),
       wrong: 0,
       sent: 1,
       expiresAt: resetExpiry(this.now()),
@@ -62,7 +64,7 @@ export class PasswordService {
     const reset = typeof id === 'string' && id ? await this.deps.db.accounts.getPasswordReset(id) : undefined;
     if (!resetLive(reset, this.now())) return { ok: false, status: 410, error: RESET_GONE };
     const code = generateOTP();
-    if (!await this.deps.db.accounts.newResetCode(reset.id, signUpCodeHash(reset.id, reset.ownerId ? code : randomUUID()), resetExpiry(this.now()))) {
+    if (!await this.deps.db.accounts.newResetCode(reset.id, codeHash(this.deps.codeKey, reset.id, reset.ownerId ? code : randomUUID()), resetExpiry(this.now()))) {
       return { ok: false, status: 429, error: 'We have sent this reset enough codes; ask for a new one' };
     }
     const sent = this.deliver(reset.email, reset.ownerId, code);
@@ -75,7 +77,7 @@ export class PasswordService {
     if (!resetLive(reset, this.now())) return { ok: false, status: 410, error: RESET_GONE };
     const weak = this.newPasswordProblem(input.password, reset.email);
     if (weak) return { ok: false, status: 400, error: weak };
-    if (!sameSignUpCode(reset, input.code) || !reset.ownerId) {
+    if (!sameCode(this.deps.codeKey, reset, input.code) || !reset.ownerId) {
       const wrong = await this.deps.db.accounts.wrongResetCode(reset.id);
       if (wrong >= RESET_WRONG_CODES) {
         await this.deps.db.accounts.deletePasswordReset(reset.id);

@@ -1,5 +1,3 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
-
 export const SIGN_UP_MINUTES = 30;
 export const SIGN_UP_WRONG_CODES = 5;
 export const SIGN_UP_CODES_SENT = 5;
@@ -28,14 +26,6 @@ export function emailProblem(email: string): string | undefined {
   if (!local || !domain.includes('.')) return refused;
   if (domain.split('.').some((label) => !label)) return refused;
   return undefined;
-}
-
-export const signUpCodeHash = (id: string, code: string): string => createHash('sha256').update(`${id}:${code.trim()}`).digest('hex');
-
-export function sameSignUpCode(pending: Pick<PendingSignUp, 'id' | 'codeHash'>, given: string): boolean {
-  const expected = Buffer.from(pending.codeHash, 'hex');
-  const offered = Buffer.from(signUpCodeHash(pending.id, given), 'hex');
-  return expected.length === offered.length && timingSafeEqual(expected, offered);
 }
 
 export const signUpExpiry = (now: Date): Date => new Date(now.getTime() + SIGN_UP_MINUTES * 60_000);

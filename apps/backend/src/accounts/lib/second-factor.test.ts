@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { confirmWith, passwordChangeNeeds, proofFrom, sameTwoFactorCode, twoFactorCodeHash, twoFactorCodeId, twoFactorExpiry, twoFactorLive } from './second-factor.js';
+import { confirmWith, passwordChangeNeeds, proofFrom, twoFactorCodeId, twoFactorExpiry, twoFactorLive } from './second-factor.js';
+import { codeHash, sameCode } from './codes.js';
+
+const KEY = 'the-data-key-two-factor-codes-are-kept-with';
 
 describe('a two-factor code', () => {
   it('is held only as a hash bound to its account and purpose, and matches only itself', () => {
     const id = twoFactorCodeId('u1', 'confirm');
     expect(id).toBe('confirm:u1');
-    const held = { id, codeHash: twoFactorCodeHash(id, '123456') };
+    const held = { id, codeHash: codeHash(KEY, id, '123456') };
     expect(held.codeHash).not.toContain('123456');
-    expect(sameTwoFactorCode(held, ' 123456 ')).toBe(true);
-    expect(sameTwoFactorCode(held, '654321')).toBe(false);
-    expect(sameTwoFactorCode({ id: twoFactorCodeId('u1', 'sign-in'), codeHash: held.codeHash }, '123456')).toBe(false);
+    expect(sameCode(KEY, held, ' 123456 ')).toBe(true);
+    expect(sameCode(KEY, held, '654321')).toBe(false);
+    expect(sameCode(KEY, { id: twoFactorCodeId('u1', 'sign-in'), codeHash: held.codeHash }, '123456')).toBe(false);
   });
 
   it('works for five minutes', () => {

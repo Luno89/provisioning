@@ -252,6 +252,33 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     expect((await account(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
   });
 
+  it('closes the machine\'s connection at the first thing it sends once the token it connected with has run out, and refuses it again saying why', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const { socket, error } = await account(OLD_TOKEN, (_next, ack) => ack(tokenAnswer(false)));
+    expect(error).toBeUndefined();
+    await new Promise((done) => socket.once('machine:koala', done));
+    await until(async () => (await stored()).tokenRenewal);
+    const cut = cutOrStill(socket, () => new Promise<void>((done) => { socket.once('machine:koala', () => done()); socket.emit('machine:koala?'); }));
+    clock = new Date(ISSUED.getTime() + 91 * DAY);
+    expect(await cut()).toBe('io server disconnect');
+    expect((await account(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
+  });
+
+  it('keeps the machine\'s connection past the old token\'s expiry once the machine took the new one over it', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    let received = '';
+    const { socket, error } = await account(OLD_TOKEN, (next, ack) => { received = next; ack(tokenAnswer(true)); });
+    expect(error).toBeUndefined();
+    await until(async () => (received && (await stored()).tokenHash === deviceTokenHash(received) ? true : undefined));
+    clock = new Date(ISSUED.getTime() + 91 * DAY);
+    const answered = new Promise<string>((done) => {
+      socket.once('machine:koala', () => done('answered'));
+      socket.once('disconnect', (reason) => done(`cut: ${reason}`));
+    });
+    socket.emit('machine:koala?');
+    expect(await answered).toBe('answered');
+  });
+
   it('hands the machine its Koala and a work token on connecting, and again when it asks', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const told: Array<{ url: string; workToken: string } | null> = [];

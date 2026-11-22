@@ -73,16 +73,18 @@ async function standInGithub(): Promise<StandInGithub> {
   return github;
 }
 
+const CODE_KEY = 'the-data-key-codes-are-kept-with';
+
 async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[], returnUrl?: string) {
   const { auth } = rootAuthOver(db, { publicUrl: url, open: openRoutesOf('root'), setupCode: SETUP_CODE });
-  const authService = new AuthService(db);
+  const authService = new AuthService(db, { codeKey: CODE_KEY });
   const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY, appUrl: APP_URL,
+    db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: APP_URL,
     providers: new SignInProviders({ providers, publicUrl: url, returnUrl, sessionKey: SESSION_KEY, accounts: authService }),
-    passwords: new PasswordService({ db, auth: authService, breached: breachedFrom('') }),
+    passwords: new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: breachedFrom('') }),
   }));
   server.on('request', app);
   return { server, authService, url };

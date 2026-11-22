@@ -1,14 +1,15 @@
 import {
   ACCOUNT_KEY, attemptsKeyFor, BaseService, CONFIRM_CODES, confirmCodesKeyFor, confirmCodesSaid, generateOTP, LOCKOUT, lockedSaid, passwordMatches, SignInAttemptLog, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid,
-  type Database, type MailMessage, type UserMetadata,
+  type Database, type MailMessage, type SecretKey, type UserMetadata,
 } from '../../platform/index.js';
+import { codeHash, sameCode } from '../lib/codes.js';
 import https from 'https';
 import { v4 as uuidv4 } from 'uuid';
 import { linkedTo, providerMatch, type ProviderPerson } from '../lib/provider-sign-in.js';
 import { signUpCodeMail } from '../lib/sign-up.js';
 import { lockNotice } from '../lib/lock-notice.js';
 import {
-  confirmCodeMail, confirmWith, PROOF_ASKED, passwordChangeNeeds, sameTwoFactorCode, signInCodeMail, twoFactorCodeHash, twoFactorCodeId, twoFactorExpiry, twoFactorLive,
+  confirmCodeMail, confirmWith, PROOF_ASKED, passwordChangeNeeds, signInCodeMail, twoFactorCodeId, twoFactorExpiry, twoFactorLive,
   type CodePurpose, type Proof,
 } from '../lib/second-factor.js';
 
@@ -28,12 +29,13 @@ export class AuthService extends BaseService {
   private readonly now: () => number;
 
   constructor(db: Database, private readonly options: {
+    codeKey: SecretKey;
     mail?: CodeMail | undefined;
     production?: boolean | undefined;
     twilio?: { accountSid: string; authToken: string; phoneNumber: string } | undefined;
     push?: { toPerson(ownerId: string, message: { title: string; body: string; path?: string | undefined; tag?: string | undefined }): Promise<number> } | undefined;
     now?: (() => number) | undefined;
-  } = {}) {
+  }) {
     super(db);
     this.now = options.now ?? (() => Date.now());
     this.attempts = new SignInAttemptLog(db.platform, this.now);
@@ -73,7 +75,7 @@ export class AuthService extends BaseService {
     if (locked) return { kind: 'locked', said: locked };
     const code = generateOTP();
     const id = twoFactorCodeId(user.id, purpose);
-    await this.db.accounts.saveTwoFactorCode({ id, ownerId: user.id, codeHash: twoFactorCodeHash(id, code), expiresAt: twoFactorExpiry(this.now()) });
+    await this.db.accounts.saveTwoFactorCode({ id, ownerId: user.id, codeHash: codeHash(this.options.codeKey, id, code), expiresAt: twoFactorExpiry(this.now()) });
     await this.send2FACode(user, code, purpose);
     return { kind: 'sent' };
   }
@@ -93,7 +95,7 @@ export class AuthService extends BaseService {
     if (locked) return { kind: 'locked', said: locked };
     const id = twoFactorCodeId(userId, purpose);
     const held = await this.db.accounts.getTwoFactorCode(id);
-    if (twoFactorLive(held, this.now()) && sameTwoFactorCode(held, code) && await this.db.accounts.takeTwoFactorCode(id)) {
+    if (twoFactorLive(held, this.now()) && sameCode(this.options.codeKey, held, code) && await this.db.accounts.takeTwoFactorCode(id)) {
       await this.attempts.succeeded(twoFactorKeyFor(userId));
       return { kind: 'ok' };
     }

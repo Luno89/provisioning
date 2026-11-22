@@ -6,7 +6,9 @@ import type { UserMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { breachedFrom } from '../lib/passwords.js';
 import { RESET_CODES_SENT, RESET_WRONG_CODES } from '../lib/password-reset.js';
-import { signUpCodeHash } from '../lib/sign-up.js';
+import { codeHash } from '../lib/codes.js';
+
+const CODE_KEY = 'the-data-key-codes-are-kept-with';
 import type { AuthService } from './AuthService.js';
 import { PasswordService } from './PasswordService.js';
 
@@ -19,7 +21,7 @@ function set(delivery: ReturnType<AuthService['codeDelivery']> = { kind: 'mail' 
   const auth = mock<Auth>();
   auth.codeDelivery.mockReturnValue(delivery);
   const revoked: AccessRevoked[] = [];
-  const service = new PasswordService({ db, auth, breached: breachedFrom('password1234\n'), revocations: { revoked: async (event) => { revoked.push(event); return []; } }, now });
+  const service = new PasswordService({ db, codeKey: CODE_KEY, auth, breached: breachedFrom('password1234\n'), revocations: { revoked: async (event) => { revoked.push(event); return []; } }, now });
   const mailed = () => auth.mailInBackground.mock.calls.map(([to, message]) => ({ to, subject: message.subject, code: /\b(\d{6})\b/.exec(message.text)?.[1] }));
   return { db, auth, service, revoked, mailed };
 }
@@ -54,7 +56,7 @@ describe('forgetting a password', () => {
     expect({ to, subject }).toEqual({ to: 'ann@example.com', subject: 'Your Koala password reset code' });
     const id = (answer as { reset: string }).reset;
     const kept = await db.accounts.getPasswordReset(id);
-    expect(kept).toMatchObject({ ownerId: 'ann', email: 'ann@example.com', wrong: 0, sent: 1, codeHash: signUpCodeHash(id, code!), expiresAt: new Date(NOW.getTime() + 30 * 60_000) });
+    expect(kept).toMatchObject({ ownerId: 'ann', email: 'ann@example.com', wrong: 0, sent: 1, codeHash: codeHash(CODE_KEY, id, code!), expiresAt: new Date(NOW.getTime() + 30 * 60_000) });
     expect(JSON.stringify(kept)).not.toContain(code);
   });
 
@@ -100,7 +102,7 @@ describe('asking for a reset\'s code again', () => {
     const { reset: id } = (await service.forgot('ann@example.com')) as { reset: string };
     for (let n = 1; n < RESET_CODES_SENT; n += 1) expect(await service.resend(id)).toEqual({ ok: true, reset: id });
     const last = mailed().at(-1)!;
-    expect((await db.accounts.getPasswordReset(id))?.codeHash).toBe(signUpCodeHash(id, last.code!));
+    expect((await db.accounts.getPasswordReset(id))?.codeHash).toBe(codeHash(CODE_KEY, id, last.code!));
     expect(await service.resend(id)).toEqual({ ok: false, status: 429, error: 'We have sent this reset enough codes; ask for a new one' });
   });
 
@@ -215,7 +217,7 @@ describe('resetting a password with the emailed code', () => {
     const auth = mock<Auth>();
     auth.codeDelivery.mockReturnValue({ kind: 'mail' });
     await db.accounts.saveUser(ann());
-    const service = new PasswordService({ db, auth, breached: breachedFrom('') });
+    const service = new PasswordService({ db, codeKey: CODE_KEY, auth, breached: breachedFrom('') });
     const { reset: id } = (await service.forgot('ann@example.com')) as { reset: string };
     const code = /\b(\d{6})\b/.exec(auth.mailInBackground.mock.calls[0]![1].text)![1]!;
     expect(await service.reset({ id, code, password: GOOD })).toMatchObject({ ok: true });
