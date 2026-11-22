@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { act, getConfig, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query'
+import { getSocket } from '../../features/platform'
 
 const freshClient = (): QueryClient => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 
@@ -32,16 +33,44 @@ export async function mutated<Variables, Result>(useHook: () => UseMutationResul
   return result
 }
 
-export function shown<T>(find: () => T | null): Promise<T> {
-  return getConfig().asyncWrapper(() => new Promise<T>((resolve) => {
-    const now = find()
-    if (now) return resolve(now)
-    const watch = new MutationObserver(() => {
-      const found = find()
-      if (!found) return
-      watch.disconnect()
+export interface ShownPage {
+  client: QueryClient
+}
+
+export function shown<T>(find: () => T | null, page?: ShownPage): Promise<T> {
+  return getConfig().asyncWrapper(() => new Promise<T>((resolve, reject) => {
+    const ends: Array<() => void> = []
+    const end = () => { for (const stop of ends.splice(0)) stop() }
+    const look = (): boolean => {
+      let found: T | null
+      try {
+        found = find()
+      } catch (err) {
+        end()
+        reject(err as Error)
+        return true
+      }
+      if (!found) return false
+      end()
       resolve(found)
-    })
+      return true
+    }
+    const cannotCome = (why: string) => { end(); reject(new Error(`what this waits for can never be shown: ${why}`)) }
+    if (look()) return
+    const watch = new MutationObserver(() => { look() })
     watch.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true })
+    ends.push(() => watch.disconnect())
+    if (!page) return
+    ends.push(page.client.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'error') cannotCome(`the page's ${JSON.stringify(event.query.queryKey)} failed: ${(event.action.error as Error).message}`)
+    }))
+    ends.push(page.client.getMutationCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'error') cannotCome(`the page's change failed: ${(event.action.error as Error).message}`)
+    }))
+    const socket = getSocket()
+    const closed = (reason: string) => cannotCome(`the page's socket closed (${reason}), so no change reaches it`)
+    if (!socket.connected) return cannotCome('the page\'s socket is not connected, so no change reaches it')
+    socket.on('disconnect', closed)
+    ends.push(() => { socket.off('disconnect', closed) })
   }))
 }

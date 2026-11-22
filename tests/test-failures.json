@@ -1,6 +1,7 @@
 {
  "apps/frontend/src/features/machines/components/AccountMachines.integration.test.tsx": [
-  "2026-11-22T07:14:37.000Z"
+  "2026-11-22T07:14:37.000Z",
+  "2026-11-22T07:31:00.000Z"
  ],
  "apps/backend/src/machines/wiring/root-link.integration.test.ts": [
   "2026-11-22T06:40:55.000Z"

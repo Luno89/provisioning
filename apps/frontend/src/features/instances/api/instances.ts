@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { KOALA_INSTALL_CHANGED } from '@koala/engine-core/koala-install'
 import { api } from '../../../api/client'
-import { useSocketEvent } from '../../platform'
+import { heardChange, useSocketEvent } from '../../platform'
 import { identityKeys } from './identity'
 import type { WatchView } from './instance-watch'
 
@@ -40,7 +40,7 @@ export function useNameCheck(name: string) {
 
 export function useMySetup(watchingReach: boolean) {
   const client = useQueryClient()
-  useSocketEvent(KOALA_INSTALL_CHANGED, () => { void client.invalidateQueries({ queryKey: instanceKeys.mine() }) })
+  useSocketEvent(KOALA_INSTALL_CHANGED, () => { void heardChange(client, { queryKey: instanceKeys.mine() }) })
   return useQuery({
     queryKey: instanceKeys.mine(),
     queryFn: getMySetup,

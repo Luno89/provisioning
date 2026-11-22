@@ -1,11 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { GROVE_CHANGED, groveKeys } from '../api/grove'
 import { projectKeys } from '../api/projects'
-import { useSocketEvent } from '../../platform'
+import { heardChange, useSocketEvent } from '../../platform'
 
 export function useGroveChanges(): void {
   const client = useQueryClient()
-  useSocketEvent(GROVE_CHANGED, () => {
-    for (const queryKey of [groveKeys.trees(), groveKeys.branches(), groveKeys.leaves(), projectKeys.list()]) void client.invalidateQueries({ queryKey })
-  })
+  useSocketEvent(GROVE_CHANGED, () => Promise.all([groveKeys.trees(), groveKeys.branches(), groveKeys.leaves(), projectKeys.list()].map((queryKey) => heardChange(client, { queryKey }))))
 }

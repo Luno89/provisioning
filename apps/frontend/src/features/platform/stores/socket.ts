@@ -45,7 +45,7 @@ export function disconnectShared(): void {
 
 export function useSocketEvent<T = unknown>(
   event: string,
-  handler: (payload: T) => void,
+  handler: (payload: T) => unknown,
 ): void {
   const handlerRef = useRef(handler)
   useEffect(() => { handlerRef.current = handler })

@@ -9,7 +9,7 @@ import AccountMachines from './AccountMachines'
 import { startBackend } from '../../../test/backend/site'
 import { rootSidesOf, type RootSides } from '../../../test/backend/machines'
 import { pageSocketsOf, type PageSockets } from '../../../test/backend/sockets'
-import { shown } from '../../../test/backend/hooks'
+import { shown, type ShownPage } from '../../../test/backend/hooks'
 import { koalaInstallActivities } from '../../../../../backend/src/activities/KoalaInstallActivities'
 import { runSteps } from '@koala/provision'
 import { joinArgsOf } from '../../../../../local-agent/src/join/args'
@@ -31,11 +31,13 @@ const accounts = root!.sides.accounts!
 
 const openPanel = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const panel = render(
     <QueryClientProvider client={client}>
       <AccountMachines name="kangaroo" nameOk hasKoala={false} onPlacing={() => undefined} />
     </QueryClientProvider>,
   )
+  const page: ShownPage = { client }
+  return { panel, on: <T,>(find: () => T | null) => shown(find, page) }
 }
 
 const home = await mkdtemp(path.join(tmpdir(), 'koala-account-machines-'))
@@ -43,11 +45,11 @@ afterAll(() => rm(home, { recursive: true, force: true }))
 
 describe('My Machines at root follows what happens to a person\'s machines while it is open', () => {
   it('shows a machine joining with the command made elsewhere as soon as the machine reports its step', async () => {
-    const panel = openPanel()
-    await shown(() => screen.queryByRole('button', { name: /Add a machine/ }))
+    const { panel, on } = openPanel()
+    await on(() => screen.queryByRole('button', { name: /Add a machine/ }))
     expect(screen.queryByText('Installing k3s')).toBeNull()
     const { code } = await accounts.createJoinCode(person.id)
-    const step = shown(() => screen.queryByText('Installing k3s'))
+    const step = on(() => screen.queryByText('Installing k3s'))
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toEqual({ ok: true, value: { recorded: true } })
     expect((await step).closest('li')?.textContent).toContain('Joining:')
     panel.unmount()
@@ -57,21 +59,21 @@ describe('My Machines at root follows what happens to a person\'s machines while
     const joined = await accounts.join((await accounts.createJoinCode(person.id)).code, { hostname: 'tower', rootDir: '/home/me/tower' })
     if (!joined.ok) throw new Error(joined.error)
     await accounts.recordMeshIp(joined.value.deviceId, '100.64.0.9')
-    openPanel()
-    const tower = (await shown(() => screen.queryByText('tower'))).closest('li')!
+    const { on } = openPanel()
+    const tower = (await on(() => screen.queryByText('tower'))).closest('li')!
     await userEvent.click(within(tower).getByRole('button', { name: 'Put Koala here' }))
-    await shown(() => within(tower).queryByText('Koala is put on it once it connects'))
+    await on(() => within(tower).queryByText('Koala is put on it once it connects'))
     const installId = root!.started.at(-1)!
     const stage = koalaInstallActivities({ db: async () => ({ db: backend.db, close: async () => undefined }), now: () => new Date() })
-    const reached = shown(() => within(tower).queryByText('Installing Koala\'s chart'))
+    const reached = on(() => within(tower).queryByText('Installing Koala\'s chart'))
     expect(await stage.KoalaInstallStageActivity({ installId, progress: { stage: 'chart', title: 'Installing Koala\'s chart', state: 'started', line: 'helm upgrade --install' } })).toBe('installing')
     expect(await reached).toBeTruthy()
     expect(within(tower).getByText('helm upgrade --install')).toBeTruthy()
   })
 
   it('shows a join that stopped because the settings the machine kept are not the ones Koala writes, with where, why and what to do, and no new machine', async () => {
-    const panel = openPanel()
-    await shown(() => screen.queryByRole('button', { name: /Add a machine/ }))
+    const { panel, on } = openPanel()
+    await on(() => screen.queryByRole('button', { name: /Add a machine/ }))
     const { code } = await accounts.createJoinCode(person.id)
     const settings = path.join(home, '.config', 'koala', 'machine.json')
     await mkdir(path.dirname(settings), { recursive: true })
@@ -86,7 +88,7 @@ describe('My Machines at root follows what happens to a person\'s machines while
       },
     })
     await expect(runSteps([joinRootStep(backend.origin)], ctx, reporter)).rejects.toThrow('is not the settings Koala writes')
-    const alert = await shown(() => screen.queryByText(/A machine could not join at/))
+    const alert = await on(() => screen.queryByText(/A machine could not join at/))
     const row = alert.closest('li')!
     expect(row.textContent).toContain(`Joining ${backend.origin}`)
     expect(row.textContent).toContain(`${settings} is not the settings Koala writes (`)
