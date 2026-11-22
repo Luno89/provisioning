@@ -80,7 +80,7 @@ async function rootServing(given?: string, newData?: number, chart: string | Buf
     client: { key: clientKey, registrationCode: joined.registrationCode },
     record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.instanceId)!,
     setUp: async (revision: number, progress: Record<string, string> = { stage: 'set-up', title: 'Koala is set up', state: 'done' }) => {
-      const heard = await service!.report(joined.instanceId, await token(), { provision: { revision, progress } });
+      const heard = await service!.report(joined.instanceId, await token(), { provision: { revision, run: `run-${revision}`, progress } });
       if (!heard.ok) throw new Error(heard.error);
     },
   };

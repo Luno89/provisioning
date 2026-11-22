@@ -187,7 +187,7 @@ export function rootRefusal(progress: MachineProgress, answer: { status: number;
 }
 
 export function rootReportOf(record: ProvisioningRecord, progress: MachineProgress): ProvisionReport | undefined {
-  return record.target.kind === 'koala' ? { revision: record.revision, progress } : undefined;
+  return record.target.kind === 'koala' ? { revision: record.revision, run: record.id, progress } : undefined;
 }
 
 const samePiece = (a: ProvisionPieceView | undefined, b: ProvisionPieceView): boolean =>

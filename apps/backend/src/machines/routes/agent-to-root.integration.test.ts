@@ -309,7 +309,7 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
     async function heard(world: Awaited<ReturnType<typeof root>>, installId: string, progress: MachineProgress, setUp = false): Promise<void> {
       const instance = await world.instances.installOf(installId);
       const at = new Date().toISOString();
-      const patch = stageHeard({ install: instance!.install!, ...(setUp ? { setup: { revision: 1, state: 'up' as const, stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, at } } : {}) }, progress, 'desk', at);
+      const patch = stageHeard({ install: instance!.install!, ...(setUp ? { setup: { revision: 1, run: 'run-1', state: 'up' as const, stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, at } } : {}) }, progress, 'desk', at);
       await world.db.instances.updateInstall(instance!.id, installId, installFields(patch, at));
     }
 

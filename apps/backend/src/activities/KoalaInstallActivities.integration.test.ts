@@ -31,7 +31,7 @@ describe('the install workflow\'s activities as root\'s host worker runs them, o
     expect(await record()).toMatchObject({ status: 'installing', detail: 'Asking desk to put Koala on itself', install: { state: 'asked', askedAt: expect.any(String) as unknown } });
     expect(await KoalaInstallStageActivity({ installId: 'install-1', progress: { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 } })).toBe('installing');
     expect(await record()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320', install: { state: 'installing', revision: 1 } });
-    expect(await KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } })).toBe('ready');
+    expect(await KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } } })).toBe('ready');
     expect(await record()).toMatchObject({ status: 'ready', url: 'http://100.64.0.7:30320', running: 'v1', install: { state: 'ready' }, setup: { revision: 1, state: 'up' } });
     expect(await KoalaInstallAskActivity({ installId: 'install-0' })).toBe('replaced');
   });

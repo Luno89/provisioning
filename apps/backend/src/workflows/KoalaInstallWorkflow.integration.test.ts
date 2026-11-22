@@ -62,10 +62,10 @@ describe('root driving Koala onto a machine', () => {
     const setUpEnds = (heard: InstallHeard): InstallAnswer => ('setup' in heard && heard.setup.progress.stage === 'set-up' ? 'ready' : 'installing');
     const { seen, result } = await run(setUpEnds, async (handle) => {
       await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala', 'started'));
-      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, progress: stage('gitea', 'started', { line: 'waiting for statefulset/gitea' }) });
+      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, run: 'run-1', progress: stage('gitea', 'started', { line: 'waiting for statefulset/gitea' }) });
       await handle.signal(KOALA_INSTALL_SIGNALS.progress, stage('koala', 'done', { url: 'https://bo.koala.app' }));
-      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, progress: stage('gitea', 'done') });
-      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, progress: stage('set-up', 'done') });
+      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, run: 'run-1', progress: stage('gitea', 'done') });
+      await handle.signal(KOALA_INSTALL_SIGNALS.setup, { revision: 1, run: 'run-1', progress: stage('set-up', 'done') });
     });
     expect(seen).toEqual(['ask', 'koala started', 'setup 1 gitea started waiting for statefulset/gitea', 'koala done', 'setup 1 gitea done', 'setup 1 set-up done']);
     expect(result).toBe('ready');

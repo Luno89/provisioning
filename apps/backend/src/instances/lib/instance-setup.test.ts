@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { PROVISION_DONE_STAGE, PROVISION_DONE_TITLE } from '@koala/engine-core/koala-install';
-import { setupAgainAsked, setupAgainOf, setupHeard, setupSaid, statusSettled, type InstanceSetup } from './instance-setup.js';
+import { askedAbout, setupAgainAsked, setupAgainOf, setupHeard, setupSaid, statusSettled, type InstanceSetup } from './instance-setup.js';
 
 const AT = '2026-11-18T10:01:00.000Z';
 const gitea = { stage: 'gitea', title: 'Gitea, your repositories and images' };
-const working: InstanceSetup = { revision: 4, state: 'running', ...gitea, line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready', at: AT };
+const working: InstanceSetup = { revision: 4, run: 'run-1', state: 'running', ...gitea, line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready', at: AT };
 
 describe('what root keeps of a Koala setting itself up after its chart', () => {
   it('follows the piece under way and what it waits on, failed with why at the piece that stopped, and up only once the setup says so', () => {
-    expect(setupHeard(undefined, { revision: 4, progress: { ...gitea, state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } }, AT)).toEqual(working);
-    expect(setupHeard(working, { revision: 4, progress: { ...gitea, state: 'done' } }, AT)).toEqual({ revision: 4, state: 'running', ...gitea, at: AT });
-    expect(setupHeard(working, { revision: 4, progress: { ...gitea, state: 'failed', why: 'pod gitea-0 is Init:Error' } }, AT)).toEqual({ revision: 4, state: 'failed', ...gitea, why: 'pod gitea-0 is Init:Error', at: AT });
-    expect(setupHeard(working, { revision: 4, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } }, AT)).toEqual({ revision: 4, state: 'up', stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, at: AT });
+    expect(setupHeard(undefined, { revision: 4, run: 'run-1', progress: { ...gitea, state: 'started', line: 'waiting for statefulset/gitea in gitea: 0 of 1 ready' } }, AT)).toEqual(working);
+    expect(setupHeard(working, { revision: 4, run: 'run-1', progress: { ...gitea, state: 'done' } }, AT)).toEqual({ revision: 4, run: 'run-1', state: 'running', ...gitea, at: AT });
+    expect(setupHeard(working, { revision: 4, run: 'run-1', progress: { ...gitea, state: 'failed', why: 'pod gitea-0 is Init:Error' } }, AT)).toEqual({ revision: 4, run: 'run-1', state: 'failed', ...gitea, why: 'pod gitea-0 is Init:Error', at: AT });
+    expect(setupHeard(working, { revision: 4, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } }, AT)).toEqual({ revision: 4, run: 'run-1', state: 'up', stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, at: AT });
   });
 
   it('takes a later revision\'s setup over an earlier one, and nothing from a setup of a revision it has already moved past', () => {
-    expect(setupHeard(working, { revision: 5, progress: { ...gitea, state: 'started' } }, AT)).toMatchObject({ revision: 5, state: 'running' });
-    expect(setupHeard(working, { revision: 3, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } }, AT)).toBeUndefined();
+    expect(setupHeard(working, { revision: 5, run: 'run-1', progress: { ...gitea, state: 'started' } }, AT)).toMatchObject({ revision: 5, state: 'running' });
+    expect(setupHeard(working, { revision: 3, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } }, AT)).toBeUndefined();
   });
 
   it('says what the person sees on My Machines, naming the machine when Koala is on one', () => {
@@ -50,15 +50,23 @@ describe('setting a Koala up again after its setup stopped', () => {
 
   it('offers it only where the setup of the revision the Koala was put on stopped', () => {
     expect(setupAgainOf(koala)).toBe('stopped');
-    expect(setupAgainOf({ ...koala, setupAsked: { revision: 4, at: AT } })).toBe('asked');
+    expect(setupAgainOf({ ...koala, setupAsked: { revision: 4, run: 'run-1', at: AT } })).toBe('asked');
     expect(setupAgainOf({ ...koala, setup: working, status: 'installing' })).toBeUndefined();
     expect(setupAgainOf({ ...koala, setup: undefined })).toBeUndefined();
     expect(setupAgainOf({ ...koala, install: { revision: 5 } })).toBeUndefined();
   });
 
   it('asks from the step that stopped, saying whether the Koala hears it now or once it connects', () => {
-    expect(setupAgainAsked(koala, true, AT)).toEqual({ ok: true, patch: { setupAsked: { revision: 4, at: AT }, status: 'installing', detail: 'Asking Koala on desk to set itself up again from Gitea, your repositories and images' } });
+    expect(setupAgainAsked(koala, true, AT)).toEqual({ ok: true, patch: { setupAsked: { revision: 4, run: 'run-1', at: AT }, status: 'installing', detail: 'Asking Koala on desk to set itself up again from Gitea, your repositories and images' } });
     expect(setupAgainAsked(koala, false, AT)).toMatchObject({ ok: true, patch: { detail: 'Koala on desk sets itself up again from Gitea, your repositories and images once it connects to root' } });
     expect(setupAgainAsked({ ...koala, setup: working, status: 'installing' }, true, AT)).toEqual({ ok: false, error: 'Koala on desk has not stopped setting itself up, so there is nothing to set up again' });
+  });
+
+  it('knows a report of the attempt an ask is about from the next attempt\'s, so hearing the old failure again keeps the ask', () => {
+    const asked = { ...koala, setupAsked: { revision: 4, run: 'run-1', at: AT } };
+    const failedAgain = { revision: 4, run: 'run-1', progress: { ...gitea, state: 'failed' as const, why: 'the volume is full' } };
+    expect(askedAbout(asked, failedAgain)).toBe(true);
+    expect(askedAbout(asked, { ...failedAgain, run: 'run-2' })).toBe(false);
+    expect(askedAbout(koala, failedAgain)).toBe(false);
   });
 });

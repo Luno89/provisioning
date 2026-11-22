@@ -125,20 +125,21 @@ describe('dev waiting for root to say this computer\'s Koala is up', () => {
 });
 
 describe('dev finding this computer\'s Koala stopped setting itself up', () => {
+  const reportingEach = (root: Root, next: ProvisionReport[]) => async (): Promise<void> => {
+    const report = next.shift();
+    if (report) await root.setup(report);
+  };
   const gitea = { stage: 'gitea', title: 'Gitea, your repositories and images' };
 
   it('asks root to set it up again from where it stopped, and follows the new attempt until it is ready', async () => {
     const root = await rootWithAJoinedKoala();
-    await root.setup({ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
+    await root.setup({ revision: 2, run: 'run-a', progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
     const said: string[] = [];
     const next: ProvisionReport[] = [
-      { revision: 2, progress: { ...gitea, state: 'started', line: 'waiting for gitea-0' } },
-      { revision: 2, progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } },
+      { revision: 2, run: 'run-b', progress: { ...gitea, state: 'started', line: 'waiting for gitea-0' } },
+      { revision: 2, run: 'run-b', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } },
     ];
-    const pause = async (): Promise<void> => {
-      const report = next.shift();
-      if (report) await root.setup(report);
-    };
+    const pause = reportingEach(root, next);
 
     await untilKoalaReady('session=dev', { rootApi: root.rootApi, say: (line) => said.push(line), pause });
 
@@ -154,16 +155,42 @@ describe('dev finding this computer\'s Koala stopped setting itself up', () => {
 
   it('stops with root\'s reason when the new attempt stops too, asking only once', async () => {
     const root = await rootWithAJoinedKoala();
-    await root.setup({ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
-    const next: ProvisionReport[] = [{ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is still full' } }];
-    const pause = async (): Promise<void> => {
-      const report = next.shift();
-      if (report) await root.setup(report);
-    };
+    await root.setup({ revision: 2, run: 'run-a', progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
+    const next: ProvisionReport[] = [{ revision: 2, run: 'run-b', progress: { ...gitea, state: 'failed', why: 'the volume is still full' } }];
+    const pause = reportingEach(root, next);
 
     await expect(untilKoalaReady('session=dev', { rootApi: root.rootApi, say: () => undefined, pause }))
       .rejects.toThrow('putting Koala on this computer failed: Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is still full');
     expect(root.told).toHaveLength(1);
+  });
+
+  it('asks again for a later failure of the same revision, and never takes the failure it asked about for the answer', async () => {
+    const root = await rootWithAJoinedKoala();
+    const monitoring = { stage: 'monitoring', title: 'Monitoring' };
+    await root.setup({ revision: 2, run: 'run-a', progress: { ...gitea, state: 'failed', why: 'the volume is full' } });
+    const first: ProvisionReport[] = [
+      { revision: 2, run: 'run-a', progress: { ...gitea, state: 'failed', why: 'the volume is full' } },
+      { revision: 2, run: 'run-b', progress: { ...gitea, state: 'started', line: 'waiting for gitea-0' } },
+      { revision: 2, run: 'run-b', progress: { ...monitoring, state: 'failed', why: 'prometheus would not start' } },
+    ];
+
+    await expect(untilKoalaReady('session=dev', { rootApi: root.rootApi, say: () => undefined, pause: reportingEach(root, first) }))
+      .rejects.toThrow('putting Koala on this computer failed: Koala on desk stopped setting itself up at Monitoring: prometheus would not start');
+
+    const said: string[] = [];
+    const second: ProvisionReport[] = [
+      { revision: 2, run: 'run-b', progress: { ...monitoring, state: 'failed', why: 'prometheus would not start' } },
+      { revision: 2, run: 'run-c', progress: { stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' } },
+    ];
+    await untilKoalaReady('session=dev', { rootApi: root.rootApi, say: (line) => said.push(line), pause: reportingEach(root, second) });
+
+    expect(root.told).toEqual([[expect.any(String), SETUP_AGAIN_ASKED], [expect.any(String), SETUP_AGAIN_ASKED]]);
+    expect(said).toEqual([
+      'your Koala is failed: Koala on desk stopped setting itself up at Monitoring: prometheus would not start',
+      'dev asks it to set itself up again from where it stopped',
+      'your Koala is installing: Asking Koala on desk to set itself up again from Monitoring',
+      'your Koala is ready: Ready',
+    ]);
   });
 });
 

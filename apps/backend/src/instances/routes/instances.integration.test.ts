@@ -255,7 +255,7 @@ describe('a Koala whose setup stopped, set up again from root', () => {
   let harness: Harness | undefined;
   afterEach(async () => { await harness?.close(); });
 
-  const stoppedAtGitea = { revision: 4, state: 'failed' as const, stage: 'gitea', title: 'Gitea, your repositories and images', why: 'the volume is full', at: 'then' };
+  const stoppedAtGitea = { revision: 4, run: 'run-1', state: 'failed' as const, stage: 'gitea', title: 'Gitea, your repositories and images', why: 'the volume is full', at: 'then' };
   const install = { id: 'install-1', machineId: 'desk', state: 'failed' as const, revision: 4, at: 'then' };
 
   it('lets only its owner ask, tells the Koala, and follows the new attempt as the Koala reports it', async () => {
@@ -287,12 +287,16 @@ describe('a Koala whose setup stopped, set up again from root', () => {
     expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: true, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as unknown });
     expect((await call('get', '/api/instances/setup-again', undefined, 'wrong')).status).toBe(401);
 
-    expect((await call('post', '/api/instances/status', { provision: { revision: 4, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for gitea-0' } } })).status).toBe(200);
+    expect((await call('post', '/api/instances/status', { provision: { revision: 4, run: 'run-1', progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', why: 'the volume is full' } } })).status).toBe(200);
+    expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: true, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as unknown });
+    expect((await person('get', '/api/instances/mine')).data).toMatchObject({ instance: { status: 'installing', setupAgain: 'asked', attempt: 'run-1' } });
+
+    expect((await call('post', '/api/instances/status', { provision: { revision: 4, run: 'run-2', progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'started', line: 'waiting for gitea-0' } } })).status).toBe(200);
     expect((await call('get', '/api/instances/setup-again')).data).toEqual({ asked: false });
     expect((await person('get', '/api/instances/mine')).data).toMatchObject({ instance: { status: 'installing', detail: 'Koala on desk is setting itself up: Gitea, your repositories and images, waiting for gitea-0' }, can: [] });
     expect((await person('post', '/api/instances/inst-1/setup-again')).data).toEqual({ error: 'Koala on desk has not stopped setting itself up, so there is nothing to set up again' });
 
-    expect((await call('post', '/api/instances/status', { provision: { revision: 4, progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', why: 'the volume is still full' } } })).status).toBe(200);
+    expect((await call('post', '/api/instances/status', { provision: { revision: 4, run: 'run-2', progress: { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', why: 'the volume is still full' } } })).status).toBe(200);
     expect((await person('get', '/api/instances/mine')).data).toMatchObject({ instance: { status: 'failed', detail: 'Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is still full', setupAgain: 'stopped' }, can: ['set-up-again'] });
   });
 });

@@ -199,26 +199,29 @@ export interface ProvisionRootRefusal {
 
 export interface ProvisionReport {
   revision: number;
+  run: string;
   progress: MachineProgress;
 }
 
 export type ProvisionReportRead = { ok: true; value: ProvisionReport } | { ok: false; problem: string };
 
-const REPORT_KEYS = ['revision', 'progress'];
+const REPORT_KEYS = ['revision', 'run', 'progress'];
+const RUN_LIMIT = 200;
 const STAGES: readonly string[] = [...PROVISION_PIECES.map((piece) => piece.key), PROVISION_DONE_STAGE];
 const finished = (progress: MachineProgress): boolean => progress.state === 'done' || progress.state === 'already-done';
 
 export function provisionReportOf(raw: unknown): ProvisionReportRead {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, problem: 'send an object with "revision" and "progress"' };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, problem: 'send an object with "revision", "run" and "progress"' };
   const body = raw as Record<string, unknown>;
   const extra = Object.keys(body).filter((key) => !REPORT_KEYS.includes(key));
-  if (extra.length > 0) return { ok: false, problem: `only "revision" and "progress" are taken, not ${extra.map((key) => `"${key}"`).join(', ')}` };
+  if (extra.length > 0) return { ok: false, problem: `only "revision", "run" and "progress" are taken, not ${extra.map((key) => `"${key}"`).join(', ')}` };
   if (typeof body.revision !== 'number' || !Number.isInteger(body.revision) || body.revision < 1) return { ok: false, problem: '"revision" is the chart revision the setup is for, a whole number from 1' };
+  if (typeof body.run !== 'string' || body.run === '' || body.run.length > RUN_LIMIT) return { ok: false, problem: `"run" names the setup attempt the report is of, in at most ${RUN_LIMIT} characters` };
   const read = progressOf(body.progress, PROVISION_PROGRESS);
   if (!read.ok) return read;
   if (!STAGES.includes(read.value.stage)) return { ok: false, problem: `"stage" is one of ${STAGES.slice(0, -1).join(', ')} or ${PROVISION_DONE_STAGE}` };
   if (read.value.stage === PROVISION_DONE_STAGE && !finished(read.value)) return { ok: false, problem: `the "${PROVISION_DONE_STAGE}" stage is only ever done: a piece that fails says so itself` };
-  return { ok: true, value: { revision: body.revision, progress: read.value } };
+  return { ok: true, value: { revision: body.revision, run: body.run, progress: read.value } };
 }
 
 export type ProvisionEnding = 'up' | 'failed';

@@ -37,25 +37,28 @@ describe('a Koala\'s setup, as root hears it on the instance\'s report', () => {
   it('takes each accepted line of the progress contract with the revision it is for', () => {
     for (const accepted of progressCases(PROVISION_PROGRESS).accepted) {
       const progress = { ...accepted, stage: 'gitea' };
-      expect(provisionReportOf({ revision: 3, progress })).toEqual({ ok: true, value: { revision: 3, progress } });
+      expect(provisionReportOf({ revision: 3, run: 'run-1', progress })).toEqual({ ok: true, value: { revision: 3, run: 'run-1', progress } });
     }
     for (const { body, problem } of progressCases(PROVISION_PROGRESS).refused) {
-      expect(provisionReportOf({ revision: 3, progress: body })).toEqual({ ok: false, problem });
+      expect(provisionReportOf({ revision: 3, run: 'run-1', progress: body })).toEqual({ ok: false, problem });
     }
-    expect(provisionReportOf({ revision: 3, progress: working })).toEqual({ ok: true, value: { revision: 3, progress: working } });
-    expect(provisionReportOf({ revision: 1, progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state: 'done' } })).toMatchObject({ ok: true });
+    expect(provisionReportOf({ revision: 3, run: 'run-1', progress: working })).toEqual({ ok: true, value: { revision: 3, run: 'run-1', progress: working } });
+    expect(provisionReportOf({ revision: 1, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state: 'done' } })).toMatchObject({ ok: true });
   });
 
   it('refuses what is not a line of the setup, saying what is wrong', () => {
-    expect(provisionReportOf(null)).toEqual({ ok: false, problem: 'send an object with "revision" and "progress"' });
-    expect(provisionReportOf({ revision: 3, progress: working, tail: 'x' })).toEqual({ ok: false, problem: 'only "revision" and "progress" are taken, not "tail"' });
-    for (const revision of [0, -1, 1.5, '3', undefined]) {
-      expect(provisionReportOf({ revision, progress: working })).toEqual({ ok: false, problem: '"revision" is the chart revision the setup is for, a whole number from 1' });
+    expect(provisionReportOf(null)).toEqual({ ok: false, problem: 'send an object with "revision", "run" and "progress"' });
+    expect(provisionReportOf({ revision: 3, run: 'run-1', progress: working, tail: 'x' })).toEqual({ ok: false, problem: 'only "revision", "run" and "progress" are taken, not "tail"' });
+    for (const run of [undefined, '', 7, 'r'.repeat(201)]) {
+      expect(provisionReportOf({ revision: 3, run, progress: working })).toEqual({ ok: false, problem: '"run" names the setup attempt the report is of, in at most 200 characters' });
     }
-    expect(provisionReportOf({ revision: 3, progress: { ...working, url: 'https://bo.koala.app' } })).toEqual({ ok: false, problem: 'only "stage", "title", "state", "why" and "line" are taken, not "url"' });
-    expect(provisionReportOf({ revision: 3, progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical, monitoring or set-up' });
+    for (const revision of [0, -1, 1.5, '3', undefined]) {
+      expect(provisionReportOf({ revision, run: 'run-1', progress: working })).toEqual({ ok: false, problem: '"revision" is the chart revision the setup is for, a whole number from 1' });
+    }
+    expect(provisionReportOf({ revision: 3, run: 'run-1', progress: { ...working, url: 'https://bo.koala.app' } })).toEqual({ ok: false, problem: 'only "stage", "title", "state", "why" and "line" are taken, not "url"' });
+    expect(provisionReportOf({ revision: 3, run: 'run-1', progress: { ...working, stage: 'koala' } })).toEqual({ ok: false, problem: '"stage" is one of egress, searxng, crawl4ai, quickwit, qdrant, tei, gitea, verdaccio, infisical, monitoring or set-up' });
     for (const state of ['started', 'failed'] as const) {
-      expect(provisionReportOf({ revision: 3, progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state, ...(state === 'failed' ? { why: 'x' } : {}) } }))
+      expect(provisionReportOf({ revision: 3, run: 'run-1', progress: { stage: PROVISION_DONE_STAGE, title: 'Koala is set up', state, ...(state === 'failed' ? { why: 'x' } : {}) } }))
         .toEqual({ ok: false, problem: 'the "set-up" stage is only ever done: a piece that fails says so itself' });
     }
   });

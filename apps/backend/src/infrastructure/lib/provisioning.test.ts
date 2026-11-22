@@ -157,8 +157,9 @@ describe('what others read of a setup', () => {
 
   it('tells root only of the setup of the Koala\'s own cluster, in the report root accepts', () => {
     const progress = pieceProgress(opened(), 'gitea', { state: 'done' });
-    const report = rootReportOf(opened(), progress);
-    expect(report).toEqual({ revision: 7, progress });
+    const record = opened();
+    const report = rootReportOf(record, progress);
+    expect(report).toEqual({ revision: 7, run: record.id, progress });
     expect(provisionReportOf(report)).toEqual({ ok: true, value: report });
     const other = openedRecord({ ownerId: 'owner-1', target: OTHER, revision: 7, reason: 'missing', runId: 'r', at: AT });
     expect(rootReportOf(other, pieceProgress(other, 'monitoring', { state: 'done' }))).toBeUndefined();
