@@ -3,6 +3,7 @@ import type { Command } from '@koala/provision';
 import { fakeCommands, type Answer, type FakeCommands } from '@koala/provision/testing';
 import { KOALA_INSTALL_FOLLOW_PATH } from '@koala/engine-core/koala-install';
 import type { JoinHost } from '../join/host.js';
+import { rootRegistration, type RootRegistration } from './root-registration.js';
 
 export interface WorldOptions {
   platform?: NodeJS.Platform;
@@ -37,6 +38,7 @@ export interface World {
   service: { enabled: boolean; activeSince: number | undefined };
   mesh: { server: string | undefined; ip: string | undefined };
   tick(): void;
+  registration: RootRegistration;
 }
 
 const argvOf = (command: Command): string => [command.command, ...(command.args ?? [])].join(' ');
@@ -128,7 +130,10 @@ export function joinWorld(options: WorldOptions = {}): World {
   };
   const commands = fakeCommands(answer);
 
+  const registration = rootRegistration();
   const fetcher = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const registering = await registration.answer(new Request(input, init));
+    if (registering) return registering;
     if (String(input).endsWith(KOALA_INSTALL_FOLLOW_PATH)) {
       follows.push(new Headers(init?.headers).get('authorization') ?? undefined);
       return options.following?.(follows.length, init?.signal ?? undefined) ?? new Response(null, { status: 204 });
@@ -137,7 +142,7 @@ export function joinWorld(options: WorldOptions = {}): World {
     joins.push(body);
     const replied = options.root?.(body) ?? {
       status: 200,
-      body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'hskey-the-mesh-key', KOALA_REGISTRY: 'registry.root.test:5000', KOALA_AGENT_SHA256: 'a'.repeat(64) } },
+      body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_REGISTRATION_TOKEN: registration.codeFor(`device-${joins.length}`), KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'hskey-the-mesh-key', KOALA_REGISTRY: 'registry.root.test:5000', KOALA_AGENT_SHA256: 'a'.repeat(64) } },
     };
     return new Response(typeof replied.body === 'string' ? replied.body : JSON.stringify(replied.body), { status: replied.status });
   }) as typeof fetch;
@@ -191,6 +196,7 @@ export function joinWorld(options: WorldOptions = {}): World {
     service,
     mesh,
     tick,
+    registration,
   };
 }
 

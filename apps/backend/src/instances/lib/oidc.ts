@@ -4,9 +4,9 @@ import type { Claim, RevokedBecause } from '../../platform/index.js';
 import { kidOf, type IdentityKeyPair } from './identity-token.js';
 import type { InstanceRecord } from './instances.js';
 import { installUnfinished } from './koala-installs.js';
-import { clientPrivateJwkOf, clientPublicJwkOf, machineRegistration, type ClientPublicJwk } from '@koala/engine-core/root-client';
+import { clientPrivateJwkOf, clientPublicJwkOf, machineRegistration, OIDC_PATH, type ClientPublicJwk } from '@koala/engine-core/root-client';
 
-export const OIDC_PATH = '/oidc';
+export { OIDC_PATH };
 export const INTERACTION_PATH = `${OIDC_PATH}/interaction`;
 export const START_PATH = '/api/auth/oidc/start';
 export const CALLBACK_PATH = '/api/auth/oidc/callback';
