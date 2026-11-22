@@ -1,6 +1,5 @@
 import type { ClusterMetadata } from '../../platform/index.js';
-import { hashesEqual } from '../lib/device-tokens.js';
-import { metricsTokenHash, stampedBody } from '../lib/machine-metrics.js';
+import { hashesEqual, metricsTokenHash, stampedBody } from '../lib/machine-metrics.js';
 
 export interface MachineMetricsDeps {
   clusters(): Promise<ClusterMetadata[]>;

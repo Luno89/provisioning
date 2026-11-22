@@ -3,6 +3,7 @@ import { memoryReporter, type MemoryReporter } from '@koala/provision/testing';
 import { K3S_BINARY, K3S_MARKER, K3S_UNINSTALL } from '../machine-cluster.js';
 import { AGENT_DIR, archive, HOME, joinWorld, NODE, type World, type WorldOptions } from '../testing/join-world.js';
 import { runJoin, type JoinDeps } from './join.js';
+import { KEYLESS_JOINS_ANEW } from './steps/join-root.js';
 import { K3S_CONFIG, K3S_FIREWALL, K3S_NODE_PORTS_FILE, K3S_REGISTRIES, K3S_SUDOERS, MACHINE_UNINSTALL_SCRIPT } from './k3s-files.js';
 import { joinPins } from './pins.js';
 import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED } from '@koala/engine-core/root-client';
@@ -83,7 +84,7 @@ describe('joining a fresh Linux machine with --yes', () => {
     ]);
     expect(world.joins).toEqual([{ code: 'the-code', hostname: 'desk', rootDir: `${HOME}/koala`, os: 'Linux x86_64', replaces: '' }]);
     const saved = JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!) as { key: string };
-    expect(saved).toEqual({ rootUrl: 'https://root.test', token: 'token-1', deviceId: 'device-1', rootDir: `${HOME}/koala`, key: expect.stringContaining('-----BEGIN PRIVATE KEY-----') as unknown });
+    expect(saved).toEqual({ rootUrl: 'https://root.test', deviceId: 'device-1', rootDir: `${HOME}/koala`, key: expect.stringContaining('-----BEGIN PRIVATE KEY-----') as unknown });
     expect(world.modes.get(`${HOME}/.config/koala/machine.json`)).toBe(0o600);
     expect(world.registration.registered).toEqual([{ clientId: 'device-1', code: 'registration-code-1', keys: [{ ...clientPublicJwkOf(clientKeysFrom(saved.key)), alg: 'Ed25519', use: 'sig' }] }]);
     expect(world.files.get(K3S_CONFIG)).toBe('disable:\n  - traefik\n  - servicelb\ntls-san:\n  - 100.64.0.7\nwrite-kubeconfig-mode: "0640"\nwrite-kubeconfig-group: ada\n');
@@ -154,28 +155,29 @@ describe('running the command again', () => {
     expect(again.root.reported).toContainEqual({ kind: 'line', id: 'service', text: 'running as the koala-machine service (journalctl --user -u koala-machine to read it)' });
   });
 
-  it('keeps the token of a join that stopped after root made the machine, so the next run replaces it', async () => {
+  it('keeps the key of a join that stopped after root made the machine, so the next run replaces it', async () => {
     const world = machine({ refuse: (command) => (command.command === 'sudo' && command.args?.[0] === '-v' ? { code: 1, stderr: 'sudo: a password is required' } : undefined) });
     const first = await join(world, ['--yes', 'first-code']);
     expect(first.code).toBe(1);
     expect(first.said).toContain('failed: sudo did not let this run as root');
-    expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toMatchObject({ token: 'token-1', deviceId: 'device-1' });
+    expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toMatchObject({ deviceId: 'device-1', key: expect.stringContaining('-----BEGIN PRIVATE KEY-----') as unknown });
     await join(world, ['--yes', 'second-code']);
     expect(world.joins.map((body) => body.replaces)).toEqual(['', 'token-for-device-1']);
   });
 
-  it('replaces a machine that joined before machines had keys by the account token it kept', async () => {
+  it('joins a machine that joined before machines had keys as a new one, saying its old entry stays on My Machines for the person to remove', async () => {
     const world = machine({ files: { [`${HOME}/.config/koala/machine.json`]: JSON.stringify({ rootUrl: 'https://root.test', token: 'token-before-keys', deviceId: 'device-old', rootDir: `${HOME}/koala` }) } });
-    await join(world, ['--yes', '--no-cluster', 'the-code']);
-    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', 'token-before-keys']]);
+    const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', undefined]]);
+    expect(ran.said).toContain(KEYLESS_JOINS_ANEW);
   });
 
-  it('offers the account token it kept when root knows no key of this machine, as after a registration root refused', async () => {
+  it('joins as a new machine when root knows no key of this machine, as after a registration root refused', async () => {
     const world = machine();
     await join(world, ['--yes', '--no-cluster', 'first-code']);
     world.registration.registered.splice(0);
     await join(world, ['--yes', '--no-cluster', 'second-code']);
-    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', undefined], ['', 'token-1']]);
+    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', undefined], ['', undefined]]);
   });
 });
 
@@ -346,24 +348,24 @@ describe('a join that fails', () => {
   });
 
   it('stops, saying why, when root names no private network', async () => {
-    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_DEVICE_TOKEN: 't', KOALA_REGISTRATION_TOKEN: 'c', KOALA_ROOT_DIR: '/home/ada/koala' } } }) });
+    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_REGISTRATION_TOKEN: 'c', KOALA_ROOT_DIR: '/home/ada/koala' } } }) });
     const ran = await join(world, ['--yes', 'the-code']);
     expect(ran.code).toBe(1);
     expect(ran.said).toContain('failed: Koala\'s root named no private network for this machine, and a machine takes work only over it');
   });
 
-  it('stops at the join with what to do when root refuses the code the machine registers with, keeping the token so the next run replaces the machine', async () => {
-    const world = machine({ tailscale: { installed: true }, root: (body) => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'device-1', KOALA_DEVICE_TOKEN: 'token-1', KOALA_REGISTRATION_TOKEN: 'a-code-root-never-made', KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'k' } } }) });
+  it('stops at the join with what to do when root refuses the code the machine registers with, keeping which machine root made', async () => {
+    const world = machine({ tailscale: { installed: true }, root: (body) => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'device-1', KOALA_REGISTRATION_TOKEN: 'a-code-root-never-made', KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'k' } } }) });
     const ran = await join(world, ['--yes', 'the-code']);
     expect(ran.code).toBe(1);
     expect(ran.said).toContain(`failed: ${MACHINE_REGISTRATION_REFUSED}`);
     expect(ran.root.reported.at(-1)).toMatchObject({ kind: 'failed', id: 'join' });
     expect(world.registration.registered).toEqual([]);
-    expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toMatchObject({ token: 'token-1', deviceId: 'device-1' });
+    expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toMatchObject({ deviceId: 'device-1' });
   });
 
   it('stops, naming what is missing, when root gives no code to register with', async () => {
-    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_DEVICE_TOKEN: 't', KOALA_ROOT_DIR: '/home/ada/koala', MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'k' } } }) });
+    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_ROOT_DIR: '/home/ada/koala', MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'k' } } }) });
     const ran = await join(world, ['--yes', 'the-code']);
     expect(ran.code).toBe(1);
     expect(ran.said).toContain('failed: Koala\'s answer to the join named no registrationCode');
@@ -399,11 +401,11 @@ describe('the settings this machine kept from its last join', () => {
     expect(ran.agents).toEqual([]);
   });
 
-  it('stops the same way when they name no device token', async () => {
-    const world = machine({ tailscale: { installed: true }, files: { [SETTINGS]: '{"rootUrl":"https://root.test"}' } });
+  it('stops the same way when they name no root', async () => {
+    const world = machine({ tailscale: { installed: true }, files: { [SETTINGS]: '{"deviceId":"device-1"}' } });
     const ran = await join(world, ['--yes', '--no-cluster', 'the-code']);
     expect(ran.code).toBe(1);
-    expect(ran.said).toContain(`failed: ${SETTINGS} is not the settings Koala writes (it names no device token)`);
+    expect(ran.said).toContain(`failed: ${SETTINGS} is not the settings Koala writes (it names no root)`);
     expect(world.joins).toEqual([]);
   });
 
@@ -429,7 +431,7 @@ describe('setting up the coding agents', () => {
     const ran = await join(world, ['--yes', '--no-cluster', 'the-code'], {}, {}, async () => { throw new Error('the ACP registry could not be reached'); });
     expect(ran.code, ran.said).toBe(0);
     expect(statesOf(ran.root)).toContain('service done');
-    expect(JSON.parse(world.files.get(SETTINGS)!)).toMatchObject({ token: 'token-1', agentsNotSetUp: 'the ACP registry could not be reached' });
+    expect(JSON.parse(world.files.get(SETTINGS)!)).toMatchObject({ deviceId: 'device-1', agentsNotSetUp: 'the ACP registry could not be reached' });
     expect(ran.said).toContain('The coding agents are not set up: the ACP registry could not be reached. My Machines shows them so; run this command again to set them up.');
     expect(ran.said).not.toContain('it looks again each time this machine connects');
   });

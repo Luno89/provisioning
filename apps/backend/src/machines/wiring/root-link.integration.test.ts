@@ -7,7 +7,6 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
-import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
 import { MachineAccounts, type MachineRemovals } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
@@ -45,8 +44,8 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   return { db, io, accounts, sockets, dependencies, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
 }
 
-async function machine(db: Database, token: string, issued: Date): Promise<void> {
-  await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: issued.toISOString(), tokenHash: deviceTokenHash(token), ...tokenLifetime(issued), signIn: machineSignInKey() });
+async function machine(db: Database, issued: Date): Promise<void> {
+  await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: issued.toISOString(), signIn: machineSignInKey() });
 }
 
 const keyOf = (db: Database) => ({ token: () => machineTokenAt(db, 'desk'), freshToken: () => machineTokenAt(db, 'desk') });
@@ -56,7 +55,7 @@ const ISSUED = new Date('2026-11-01T00:00:00Z');
 async function removingRoot() {
   const told: { ownerId: string; word: { id: string; problem?: string | undefined } }[] = [];
   const world = await root(() => ISSUED, null, { uninstalled: async (ownerId, word) => { told.push({ ownerId, word }); } });
-  await machine(world.db, 'a-token', ISSUED);
+  await machine(world.db,ISSUED);
   return { ...world, told };
 }
 
@@ -75,7 +74,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
   it('replaces its key when root offers it one as its key nears its end, and root records why when it could not', async () => {
     const now = new Date();
     const { db, url } = await root(() => now);
-    await machine(db, 'a-token', ISSUED);
+    await machine(db,ISSUED);
     await db.machines.updateLocalAgentDevice('desk', { set: { signIn: { ...machineSignInKey(), since: new Date(now.getTime() - 70 * DAY).toISOString() } } });
     const offers: unknown[] = [];
     let koalas = 0;
@@ -148,7 +147,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     const issued = new Date('2026-08-01T00:00:00Z');
     const now = new Date(issued.getTime() + 70 * DAY);
     const { db, url, accounts: accountsOf } = await root(() => now);
-    await machine(db, 'first-token', issued);
+    await machine(db,issued);
     const koalas: Koala[] = [];
     const link: RootLink = linkToRoot({
       rootUrl: url, client: keyOf(db),
@@ -171,7 +170,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
   it('stops trying and tells the agent when root removes the machine, and says when no Koala is named', async () => {
     const issued = new Date('2026-11-01T00:00:00Z');
     const { db, accounts, url } = await root(() => issued, null);
-    await machine(db, 'a-token', issued);
+    await machine(db,issued);
     const said: string[] = [];
     let removed = false;
     const link = linkToRoot({
@@ -212,7 +211,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
         told.push({ ownerId, word });
       },
     });
-    await machine(world.db, 'a-token', ISSUED);
+    await machine(world.db,ISSUED);
     await world.db.machines.markDevicesRemoving('bo', ISSUED.toISOString());
     const forgetting = vi.spyOn(world.accounts, 'uninstalled');
     let asked = 0;
@@ -232,7 +231,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
   it('keeps when a machine went off, and forgets it when the machine is back', async () => {
     const issued = new Date('2026-11-01T00:00:00Z');
     const { db, sockets, url } = await root(() => issued, null);
-    await machine(db, 'a-token', issued);
+    await machine(db,issued);
     await db.machines.updateLocalAgentDevice('desk', { set: { offSince: '2026-10-31T00:00:00.000Z' } });
     const link = linkToRoot({ rootUrl: url, client: keyOf(db), meshIp: async () => undefined, onKoala: () => undefined, onRemoved: () => undefined, say: () => undefined });
     closers.push(() => link.close());
@@ -256,7 +255,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
   it('hands the agent root\'s word to stop an install on the machine, saying whether to remove what it made', async () => {
     const issued = new Date('2026-11-01T00:00:00Z');
     const { db, sockets, url } = await root(() => issued);
-    await machine(db, 'a-token', issued);
+    await machine(db,issued);
     const stops: unknown[] = [];
     const link = linkToRoot({
       rootUrl: url, client: keyOf(db),

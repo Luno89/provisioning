@@ -142,7 +142,7 @@ export function joinWorld(options: WorldOptions = {}): World {
     joins.push(body);
     const replied = options.root?.(body) ?? {
       status: 200,
-      body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_REGISTRATION_TOKEN: registration.codeFor(`device-${joins.length}`), KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'hskey-the-mesh-key', KOALA_REGISTRY: 'registry.root.test:5000', KOALA_AGENT_SHA256: 'a'.repeat(64) } },
+      body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_REGISTRATION_TOKEN: registration.codeFor(`device-${joins.length}`), KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'hskey-the-mesh-key', KOALA_REGISTRY: 'registry.root.test:5000', KOALA_AGENT_SHA256: 'a'.repeat(64) } },
     };
     return new Response(typeof replied.body === 'string' ? replied.body : JSON.stringify(replied.body), { status: replied.status });
   }) as typeof fetch;

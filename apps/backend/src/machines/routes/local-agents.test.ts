@@ -8,7 +8,7 @@ type Machines = Pick<MachineService, 'list' | 'createJoinCode' | 'setManualAgent
 
 let machines: ReturnType<typeof mock<Machines>>;
 
-const view = (id: string): MachineView => ({ id, name: id, rootDir: '/x', createdAt: 't', online: false, tokenExpired: false, agents: [], manualAgents: [] });
+const view = (id: string): MachineView => ({ id, name: id, rootDir: '/x', createdAt: 't', online: false, agents: [], manualAgents: [] });
 
 const PREFIX = '/api/mesh/local-agents';
 

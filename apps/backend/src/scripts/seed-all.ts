@@ -10,7 +10,6 @@ import {
   seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
   migrateAgentHandOffs, migrateAgentTools, migrateMcpServers, migrateToDependencies, APPROVE_ASK_MIGRATION, dropApproveAskSetting,
 } from '../engine/index.js';
-import { giveDeviceTokenLifetimes } from '../machines/index.js';
 import { seedToolCallParsers } from '../models/index.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
@@ -35,7 +34,6 @@ export async function seedAll(db: Database) {
   counts.githubCredentialsDropped = (await runOnce(ledger, 'github-credentials-dropped', now, async () => ({ dropped: await db.accounts.dropGitHubCredentials() }))).dropped ?? 0;
   counts.joinTokensDropped = (await runOnce(ledger, 'join-tokens-dropped', now, async () => ({ dropped: await db.instances.dropJoinTokens() }))).dropped ?? 0;
   counts.approveAskDropped = (await runOnce(ledger, APPROVE_ASK_MIGRATION, now, () => dropApproveAskSetting(db.engine, now))).procedures ?? 0;
-  counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.toolCallParsers = await seedToolCallParsers(db.models);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);

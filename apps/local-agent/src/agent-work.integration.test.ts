@@ -60,7 +60,7 @@ describe('the machine agent starting its work for its Koala', () => {
     const stops: Array<() => void> = [];
     const place = placeHere(stops);
 
-    const work = startWork(place, { rootUrl: 'http://127.0.0.1:1', token: 'device', rootDir: world.rootDir, deviceId: 'work-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'work-token', () => undefined, () => undefined);
+    const work = startWork(place, { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'work-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'work-token', () => undefined, () => undefined);
     expect(work.url).toBe(`http://127.0.0.1:${port}`);
 
     const pollers = async () => (await world.env.client.workflowService.describeTaskQueue({
@@ -90,7 +90,7 @@ describe('the machine agent starting its work for its Koala', () => {
         });
       },
     });
-    const work = startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', token: 'device', rootDir: world.rootDir, deviceId: 'ended-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'old-token', () => { asked += 1; }, () => undefined);
+    const work = startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'ended-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'old-token', () => { asked += 1; }, () => undefined);
     expect(await firstCut).toBe(1);
     await work.setToken('new-token');
     while (tokens.length < 2) await new Promise((done) => setTimeout(done, 50));
@@ -102,7 +102,7 @@ describe('the machine agent starting its work for its Koala', () => {
     const sockets: Socket[] = [];
     const { koala, port } = await koalaAnsweringPayloads(world, { at: '/agent', key: 'agent-work-exec-key-0123456789abcdef', connected: (socket) => { sockets.push(socket); } });
     await mkdir(path.join(world.rootDir, 'project'), { recursive: true });
-    startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', token: 'device', rootDir: world.rootDir, deviceId: 'exec-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'exec-token', () => undefined, () => undefined);
+    startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'exec-desk', key: 'unused-here' }, `http://127.0.0.1:${port}`, 'exec-token', () => undefined, () => undefined);
     while (sockets.length === 0) await new Promise((done) => setTimeout(done, 50));
     const ran = await sockets[0]!.emitWithAck('sandbox:exec', { leafId: 'leaf-1', command: 'pwd; echo a warning >&2; exit 3', cwd: 'project' }) as Record<string, unknown>;
     expect(ran).toMatchObject({ stdout: `${await realpath(path.join(world.rootDir, 'project'))}\n`, stderr: 'a warning\n', exitCode: 3, timedOut: false });

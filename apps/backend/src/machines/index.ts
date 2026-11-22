@@ -1,4 +1,4 @@
-export { askDevice, deleteFileOnDevice, dropDevice, giveDeviceTokenLifetimes, listDirOnDevice, localAgentStatus, readFileOnDevice, tellDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
+export { askDevice, deleteFileOnDevice, dropDevice, listDirOnDevice, localAgentStatus, readFileOnDevice, tellDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
 export type { AgentUpdateReport, AgentUpdateView } from './lib/agent-updates.js';
 export { newMetricsToken } from './lib/machine-metrics.js';
 export { accountDefaultOf, MACHINE_DEFAULT_NEEDS_MODEL } from './lib/machine-runs.js';

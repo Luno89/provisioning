@@ -12,7 +12,6 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
-import { deviceTokenHash } from '../lib/device-tokens.js';
 import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
 import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE, WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
 import { keyReplacementFrom } from '@koala/engine-core/root-client';
@@ -71,9 +70,6 @@ const device = (lifetime: { issuedAt: Date; expiresAt: Date }) => ({
   name: 'desk',
   rootDir: '/home/person/koala',
   createdAt: lifetime.issuedAt.toISOString(),
-  tokenHash: deviceTokenHash(OLD_TOKEN),
-  issuedAt: lifetime.issuedAt.toISOString(),
-  expiresAt: lifetime.expiresAt.toISOString(),
   signIn: machineSignInKey(),
 });
 const keyToken = (lifetime?: { seconds: number }) => machineTokenAt(db, 'desk', lifetime);
@@ -174,7 +170,7 @@ afterEach(async () => {
 describe('a machine\'s connection to root, on tokens of its own key', () => {
   const askedKoala = (socket: ClientSocket) => () => new Promise<void>((done) => { socket.once('machine:koala', () => done()); socket.emit('machine:koala?'); });
 
-  it('lets the machine in with a token of its key, and refuses none, the account token its join gave and a token of a key it no longer holds', async () => {
+  it('lets the machine in with a token of its key, and refuses none, a token that is not of its key and a token of a key it no longer holds', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const replaced = await keyToken();
     expect((await account(replaced)).error).toBeUndefined();

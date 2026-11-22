@@ -6,7 +6,7 @@ import { followingEnded, installFollowing, MACHINE_GONE } from './koala-install-
 const JOINED = '2026-11-18T10:00:00.000Z';
 const BEFORE = '2026-11-18T09:00:00.000Z';
 const AFTER = '2026-11-18T10:05:00.000Z';
-const desk: LocalAgentDeviceMetadata = { id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: BEFORE, issuedAt: JOINED };
+const desk: LocalAgentDeviceMetadata = { id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: BEFORE, joinedAt: JOINED };
 type Install = NonNullable<InstanceRecord['install']>;
 const instance = (install: Partial<Install> & Pick<Install, 'state' | 'at'>, more: Partial<InstanceRecord> = {}): InstanceRecord => ({
   id: 'inst-bo', ownerId: 'bo', url: '', createdAt: BEFORE, updatedAt: install.at, machineId: 'desk',

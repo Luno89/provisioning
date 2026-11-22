@@ -178,7 +178,7 @@ describe('/api/machines/join', () => {
     const answer = await call({ method: 'POST', path: '/join', body: { code: 'abc', hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token', replacesKeyless: 'old-token', ignored: 'x' } });
     expect(answer.status).toBe(200);
     expect(answer.data).toEqual({ deviceId: 'dev-1', env: { KOALA_DEVICE_ID: 'dev-1', KOALA_AGENT_SHA256: SHA } });
-    expect(machines.join).toHaveBeenCalledWith('abc', { hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token', replacesKeyless: 'old-token' });
+    expect(machines.join).toHaveBeenCalledWith('abc', { hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'client-token' });
   });
 
   it('answers a refusal in plain text with its status', async () => {

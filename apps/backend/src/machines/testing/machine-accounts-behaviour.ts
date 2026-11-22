@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { deviceTokenHash } from '../lib/device-tokens.js';
 import { MACHINE_CODE_TTL_SECONDS } from '../lib/machines.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import { anyOf, containing } from '../../platform/lib/test-matchers.js';
@@ -36,6 +35,11 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     now: () => clock,
     ...over,
   });
+
+  const keyProof = async (deviceId: string): Promise<string> => {
+    await db.machines.updateLocalAgentDevice(deviceId, { set: { signIn: machineSignInKey() } });
+    return machineTokenAt(db, deviceId);
+  };
 
   const stored = async (id: string) => (await db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === id);
 
@@ -74,7 +78,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(Date.parse(made.expiresAt)).toBeLessThanOrEqual(Date.now() + MACHINE_CODE_TTL_SECONDS * 1000);
     });
 
-    it('joins the machine once, keeping only a hash of its account token, and tells its Koala', async () => {
+    it('joins the machine once, handing it a one-use code to register its own key rather than a token of root\'s, and tells its Koala', async () => {
       const machines = accounts();
       const { code } = await machines.createJoinCode('bo');
       const outcome = await machines.join(code, { hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
@@ -84,9 +88,9 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(registrations).toEqual([{ id: deviceId, ownerId: 'bo' }]);
       const saved = (await stored(deviceId))!;
       expect(saved).toMatchObject({ ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64', createdAt: clock.toISOString() });
-      expect(saved.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));
-      expect(JSON.stringify(saved)).not.toContain(env.KOALA_DEVICE_TOKEN);
-      expect(Date.parse(saved.expiresAt!) - Date.parse(saved.issuedAt!)).toBe(90 * DAY);
+      expect(Object.keys(env).sort()).toEqual(['KOALA_DEVICE_ID', 'KOALA_REGISTRATION_TOKEN', 'KOALA_REGISTRY', 'KOALA_ROOT_DIR', 'KOALA_ROOT_URL', 'MESH_AUTH_KEY', 'MESH_LOGIN_SERVER']);
+      expect(Object.keys(saved).sort()).toEqual(['createdAt', 'id', 'joinedAt', 'name', 'os', 'ownerId', 'rootDir']);
+      expect(saved.joinedAt).toBe(clock.toISOString());
       expect(followers.joined).toHaveBeenCalledWith({ id: deviceId, ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64', createdAt: clock.toISOString() });
       expect(await machines.join(code, { hostname: 'other', rootDir: '/x' })).toEqual({ ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' });
     });
@@ -125,11 +129,11 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const before = (await stored(first.deviceId))!;
       followers.joined.mockClear();
       const { code } = await machines.createJoinCode('bo');
-      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/work', replacesKeyless: first.env.KOALA_DEVICE_TOKEN });
+      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/work', replaces: await keyProof(first.deviceId) });
       expect(again.ok && again.value.deviceId).toBe(first.deviceId);
       const replaced = (await stored(first.deviceId))!;
       expect(replaced).toMatchObject({ rootDir: '/home/me/work', createdAt: before.createdAt });
-      expect(replaced.tokenHash).not.toBe(before.tokenHash);
+      expect(replaced.signIn).toBeUndefined();
       expect(await db.machines.getLocalAgentDevices()).toHaveLength(1);
       expect(followers.joined).not.toHaveBeenCalled();
     });
@@ -137,7 +141,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     it('adds a second machine rather than replace one that is not the person\'s own', async () => {
       const machines = accounts();
       const first = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/x' });
-      const stranger = await joined(machines, 'cy', { hostname: 'desk', rootDir: '/x', replacesKeyless: first.env.KOALA_DEVICE_TOKEN });
+      const stranger = await joined(machines, 'cy', { hostname: 'desk', rootDir: '/x', replaces: await keyProof(first.deviceId) });
       expect(stranger.deviceId).not.toBe(first.deviceId);
       expect(await db.machines.getLocalAgentDevices()).toHaveLength(2);
     });
@@ -310,7 +314,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const machines = accounts();
       const before = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/home/me/koala' });
       const { code } = await machines.createJoinCode('bo');
-      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala', replacesKeyless: before.env.KOALA_DEVICE_TOKEN });
+      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala', replaces: await keyProof(before.deviceId) });
       if (!again.ok) throw new Error(again.error);
       expect(again.value.deviceId).toBe(before.deviceId);
       await machines.reportJoinProgress(code, started);
@@ -329,7 +333,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       await machines.reportJoinProgress(second.code, started);
       expect(await machines.joins('bo')).toHaveLength(2);
       browsersTold = [];
-      const joined2 = await machines.join(second.code, { hostname: 'desk', rootDir: '/home/me/koala', replacesKeyless: joined1.value.env.KOALA_DEVICE_TOKEN });
+      const joined2 = await machines.join(second.code, { hostname: 'desk', rootDir: '/home/me/koala', replaces: await keyProof(joined1.value.deviceId) });
       if (!joined2.ok) throw new Error(joined2.error);
       expect((await machines.joins('bo')).map((join) => join.state)).toEqual(['started']);
       expect(browsersTold).toEqual(['bo']);
@@ -379,19 +383,14 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   });
 
   describe('taking an instance\'s machines from before root held them', () => {
-    it('keeps each with its id and token hash for the instance\'s owner, once, so running the command again keeps it', async () => {
+    it('keeps each with its id for the instance\'s owner, once, and nothing of the token the instance once gave it', async () => {
       const machines = accounts();
-      const oldToken = 'a-token-the-instance-gave-before';
-      const issuedAt = new Date(clock.getTime() - 30 * DAY).toISOString();
-      const expiresAt = new Date(clock.getTime() + 60 * DAY).toISOString();
-      const before = { id: 'old-desk', ownerId: 'someone-else', name: 'desk', rootDir: '/home/bo/koala', createdAt: issuedAt, tokenHash: deviceTokenHash(oldToken), issuedAt, expiresAt, agents: [{ id: 'x' }] };
+      const createdAt = new Date(clock.getTime() - 30 * DAY).toISOString();
+      const before = { id: 'old-desk', ownerId: 'someone-else', name: 'desk', rootDir: '/home/bo/koala', createdAt, tokenHash: 'h'.repeat(64), issuedAt: createdAt, expiresAt: clock.toISOString(), agents: [{ id: 'x' }] };
       expect(await machines.adoptFrom('bo', [before, { id: 'no-folder', name: 'x', createdAt: 'then' }, 'nonsense'])).toEqual({ adopted: 1 });
-      expect(await stored('old-desk')).toEqual({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: issuedAt, tokenHash: deviceTokenHash(oldToken), issuedAt, expiresAt });
+      expect(await stored('old-desk')).toEqual({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt });
       expect(await machines.adoptFrom('bo', [{ ...before, name: 'changed' }])).toEqual({ adopted: 0 });
       expect((await stored('old-desk'))?.name).toBe('desk');
-      const { code } = await machines.createJoinCode('bo');
-      const again = await machines.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replacesKeyless: oldToken });
-      expect(again.ok && again.value.deviceId).toBe('old-desk');
     });
   });
 

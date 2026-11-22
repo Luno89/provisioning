@@ -8,7 +8,6 @@ import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { instanceIdFor } from '../../instances/services/InstanceService.js';
 import { koalaInstallWorkflowId } from '../../instances/lib/koala-installs.js';
-import { deviceTokenHash } from '../lib/device-tokens.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { reopening } from '@koala/engine-core/reopening';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
@@ -38,7 +37,7 @@ afterAll(async () => {
   await temporal?.close();
 });
 
-const deskOf = (store: MongoDB) => store.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-11-05T00:00:00Z', tokenHash: deviceTokenHash(TOKEN), signIn: machineSignInKey(), koalaWanted: { name: 'bobby' } });
+const deskOf = (store: MongoDB) => store.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-11-05T00:00:00Z', signIn: machineSignInKey(), koalaWanted: { name: 'bobby' } });
 
 beforeEach(async () => {
   db = await fresh();

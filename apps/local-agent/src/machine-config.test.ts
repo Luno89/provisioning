@@ -9,18 +9,18 @@ afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true })
 
 describe('where a machine finds its settings', () => {
   it('reads the file the install wrote, with any setting in the environment taking its place', () => {
-    const saved = { rootUrl: 'https://app.koala.example', token: 'saved', rootDir: '/home/me/koala', deviceId: 'dev-1', key: 'the-key-pem' };
+    const saved = { rootUrl: 'https://app.koala.example', rootDir: '/home/me/koala', deviceId: 'dev-1', key: 'the-key-pem' };
     expect(machineConfigFrom({}, saved, '/cwd')).toEqual(saved);
-    expect(machineConfigFrom({ KOALA_DEVICE_TOKEN: 'from-env', KOALA_ROOT_DIR: 'work' }, saved, '/cwd')).toEqual({ ...saved, token: 'from-env', rootDir: path.resolve('work') });
+    expect(machineConfigFrom({ KOALA_ROOT_DIR: 'work' }, saved, '/cwd')).toEqual({ ...saved, rootDir: path.resolve('work') });
   });
 
-  it('takes where it works from the environment, in the folder it was started in, and its key only from the file the join wrote', () => {
-    expect(machineConfigFrom({ KOALA_ROOT_URL: 'http://localhost:3001', KOALA_DEVICE_TOKEN: 't' }, { deviceId: 'dev-1', key: 'k' }, '/here')).toEqual({ rootUrl: 'http://localhost:3001', token: 't', rootDir: '/here', deviceId: 'dev-1', key: 'k' });
+  it('takes where it works from the environment, in the folder it was started in, and its key only from the file the join wrote, never a token of root\'s', () => {
+    expect(machineConfigFrom({ KOALA_ROOT_URL: 'http://localhost:3001', KOALA_DEVICE_TOKEN: 't' }, { deviceId: 'dev-1', key: 'k', token: 'an-old-device-token' }, '/here')).toEqual({ rootUrl: 'http://localhost:3001', rootDir: '/here', deviceId: 'dev-1', key: 'k' });
   });
 
-  it('says what to do when it has nowhere to connect, no token or no key, and when it was added before machines joined through root', () => {
+  it('says what to do when it has nowhere to connect or no key, and when it was added before machines joined through root', () => {
     expect(() => machineConfigFrom({}, {}, '/')).toThrow('this machine has no root to connect to: run the command from My Machines');
-    expect(() => machineConfigFrom({ KOALA_ROOT_URL: 'http://x' }, {}, '/')).toThrow('no device token');
+    expect(() => machineConfigFrom({ KOALA_ROOT_URL: 'http://x' }, {}, '/')).toThrow('this machine joined before machines held a key of their own: run the command from My Machines again');
     expect(() => machineConfigFrom({}, { rootUrl: 'http://x', token: 't', deviceId: 'dev-1' }, '/')).toThrow('this machine joined before machines held a key of their own: run the command from My Machines again');
     expect(() => machineConfigFrom({}, { rootUrl: 'http://x', token: 't', key: 'k' }, '/')).toThrow('this machine joined before machines held a key of their own: run the command from My Machines again');
     expect(() => machineConfigFrom({}, { backendUrl: 'https://old.koala.example', token: 't' }, '/')).toThrow('this machine was added before machines joined through root: run the command from My Machines again');
@@ -34,8 +34,8 @@ describe('where a machine finds its settings', () => {
   it('loads the saved file, and treats a missing one as nothing saved', async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'machine-config-'));
     const file = path.join(dir, 'machine.json');
-    await writeFile(file, JSON.stringify({ rootUrl: 'http://k', token: 't', rootDir: dir, deviceId: 'dev-1', key: 'k' }));
-    expect(await loadMachineConfig({ KOALA_MACHINE_CONFIG: file }, '/')).toEqual({ rootUrl: 'http://k', token: 't', rootDir: dir, deviceId: 'dev-1', key: 'k' });
+    await writeFile(file, JSON.stringify({ rootUrl: 'http://k', rootDir: dir, deviceId: 'dev-1', key: 'k' }));
+    expect(await loadMachineConfig({ KOALA_MACHINE_CONFIG: file }, '/')).toEqual({ rootUrl: 'http://k', rootDir: dir, deviceId: 'dev-1', key: 'k' });
     await expect(loadMachineConfig({ KOALA_MACHINE_CONFIG: path.join(dir, 'none.json') }, '/')).rejects.toThrow('no root to connect to');
   });
 });

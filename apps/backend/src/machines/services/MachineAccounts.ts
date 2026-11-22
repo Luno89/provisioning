@@ -7,8 +7,6 @@ import type { IdentityKeyPair, MachineCaller } from '../../instances/index.js';
 import { machineKeyEnds, type KeyReplacement } from '@koala/engine-core/root-client';
 import type { KeyReplaced } from '../lib/machines.js';
 import type { KoalaInstalls } from './KoalaInstalls.js';
-import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { deviceTokenHash, newDeviceToken, tokenLifetime } from '../lib/device-tokens.js';
 import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, joinCodeLapsed, joinDismissable, joinEndsOnConnecting, joinShown, machineCommand, machineJoinView, meshAddress, newMachineCode } from '../lib/machines.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import type { MachinesStore } from '../store.js';
@@ -101,7 +99,7 @@ export const accountMachineOf = (device: LocalAgentDeviceMetadata): AccountMachi
   ...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
 });
 
-const ADOPTED_TEXT = ['id', 'name', 'rootDir', 'createdAt', 'os', 'meshIp', 'tokenHash', 'issuedAt', 'expiresAt'] as const;
+const ADOPTED_TEXT = ['id', 'name', 'rootDir', 'createdAt', 'os', 'meshIp'] as const;
 
 interface AdoptedMachine {
   id: string;
@@ -110,9 +108,6 @@ interface AdoptedMachine {
   createdAt: string;
   os?: string | undefined;
   meshIp?: string | undefined;
-  tokenHash?: string | undefined;
-  issuedAt?: string | undefined;
-  expiresAt?: string | undefined;
 }
 
 function adoptable(raw: unknown): AdoptedMachine | undefined {
@@ -208,17 +203,14 @@ export class MachineAccounts {
     if (finishing.length) this.deps.toOwner.machinesChanged(device.ownerId);
   }
 
-  private async replaced(ownerId: string, machine: { replaces?: unknown; replacesKeyless?: unknown }): Promise<LocalAgentDeviceMetadata | undefined> {
-    const own = (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
-    if (typeof machine.replaces === 'string' && machine.replaces) {
-      const caller = await this.deps.clients.machineOfKey(machine.replaces);
-      return caller && caller.ownerId === ownerId ? own.find((device) => device.id === caller.deviceId) : undefined;
-    }
-    if (typeof machine.replacesKeyless === 'string' && machine.replacesKeyless) return matchDeviceToken(own.filter((device) => !device.signIn), machine.replacesKeyless)?.device;
-    return undefined;
+  private async replaced(ownerId: string, replaces: unknown): Promise<LocalAgentDeviceMetadata | undefined> {
+    if (typeof replaces !== 'string' || !replaces) return undefined;
+    const caller = await this.deps.clients.machineOfKey(replaces);
+    if (!caller || caller.ownerId !== ownerId) return undefined;
+    return (await this.deps.store.getLocalAgentDevices()).find((device) => device.id === caller.deviceId && device.ownerId === ownerId);
   }
 
-  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown; replacesKeyless?: unknown }): Promise<Outcome<{ deviceId: string; env: Record<string, string> }>> {
+  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown }): Promise<Outcome<{ deviceId: string; env: Record<string, string> }>> {
     if (typeof code !== 'string' || !code) return { ok: false, status: 400, error: 'send the code from My Machines as "code"' };
     const rootDir = text(machine.rootDir, 500);
     if (!rootDir || !path.isAbsolute(rootDir)) return { ok: false, status: 400, error: 'send the folder Koala may work in as "rootDir", a full path' };
@@ -228,20 +220,18 @@ export class MachineAccounts {
     const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code), this.now().toISOString());
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
-    const replaced = await this.replaced(found.ownerId, machine);
+    const replaced = await this.replaced(found.ownerId, machine.replaces);
     const id = replaced?.id ?? uuidv4();
-    const token = newDeviceToken();
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
-    const { os: _formerOs, signIn: _formerKey, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, signIn: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
+    const { os: _formerOs, signIn: _formerKey, ...kept } = replaced ?? { os: undefined, signIn: undefined };
     const device: LocalAgentDeviceMetadata = {
       ...kept,
       id,
       ownerId: found.ownerId,
       name,
       rootDir,
-      tokenHash: deviceTokenHash(token),
-      ...tokenLifetime(this.now()),
+      joinedAt: this.now().toISOString(),
       createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
       ...(found.koalaName ? { koalaWanted: { name: found.koalaName } } : {}),
@@ -259,7 +249,6 @@ export class MachineAccounts {
         env: {
           KOALA_ROOT_URL: this.deps.settings.url,
           KOALA_DEVICE_ID: id,
-          KOALA_DEVICE_TOKEN: token,
           KOALA_REGISTRATION_TOKEN: registrationCode,
           KOALA_ROOT_DIR: rootDir,
           MESH_LOGIN_SERVER: meshLoginServer,

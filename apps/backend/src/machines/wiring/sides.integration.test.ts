@@ -219,10 +219,10 @@ describe('a root and an instance wired as they run, against each other', () => {
 
   it('copies the instance\'s machines from before to root once it connects, keeping their ids', async () => {
     const { rootDb, watch } = await rootAndInstance(async (db) => {
-      await db.machines.saveLocalAgentDevice({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z', tokenHash: 'h'.repeat(64) });
+      await db.machines.saveLocalAgentDevice({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z' });
     });
     watch();
-    expect(await until(async () => (await machinesOn(rootDb)).find((machine) => machine.id === 'old-desk'))).toMatchObject({ ownerId: 'bo', tokenHash: 'h'.repeat(64) });
+    expect(await until(async () => (await machinesOn(rootDb)).find((machine) => machine.id === 'old-desk'))).toEqual({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z' });
   });
 
   it('a machine joining at root reaches the instance\'s copy and becomes a project, its mesh address following; one removed through the instance leaves both, its connection dropped', async () => {
@@ -234,7 +234,8 @@ describe('a root and an instance wired as they run, against each other', () => {
     const joined = await rootSide.accounts!.join(made.code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
     const id = joined.value.deviceId;
-    await until(async () => (await machinesOn(instanceDb)).find((machine) => machine.id === id));
+    expect(joined.value.env).not.toHaveProperty('KOALA_DEVICE_TOKEN');
+    expect(await until(async () => (await machinesOn(instanceDb)).find((machine) => machine.id === id))).not.toHaveProperty('tokenHash');
     expect(await until(async () => ((await projectsOn()).length ? projectsOn() : undefined))).toEqual([{ ownerId: 'bo', name: 'desk - koala', deviceId: id }]);
     await rootSide.accounts!.recordMeshIp(id, '100.64.0.9');
     await until(async () => (await machinesOn(instanceDb)).find((machine) => machine.id === id && machine.meshIp === '100.64.0.9'));
@@ -296,7 +297,8 @@ describe('a root and an instance wired as they run, against each other', () => {
     const { code } = await accounts.createJoinCode('bo');
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
     expect(await heard.saidTimes(1)).toEqual([{}]);
-    const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replacesKeyless: first.value.env.KOALA_DEVICE_TOKEN });
+    await rootDb.machines.updateLocalAgentDevice(first.value.deviceId, { set: { signIn: machineSignInKey() } });
+    const again = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala', replaces: await machineTokenAt(rootDb, first.value.deviceId) });
     if (!again.ok) throw new Error(again.error);
     expect(again.value.deviceId).toBe(first.value.deviceId);
     expect(await heard.saidTimes(2)).toEqual([{}, {}]);

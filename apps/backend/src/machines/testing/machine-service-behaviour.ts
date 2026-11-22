@@ -2,12 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
-import { tokenLifetime } from '../lib/device-tokens.js';
 import { MachineClusters } from '../services/MachineClusters.js';
 import { MachineService, type MachineAccountSide, type MachineDevices, type MachineDeps } from '../services/MachineService.js';
+import { machineSignInKey } from '../../instances/testing/registration-code.js';
 
 export function machineServiceBehaviour(make: () => Promise<Database>): void {
-  const DAY = 24 * 60 * 60 * 1000;
   const A = 'a'.repeat(64);
   const B = 'b'.repeat(64);
 
@@ -27,7 +26,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
   });
 
   const device = (over: Partial<LocalAgentDeviceMetadata> = {}): LocalAgentDeviceMetadata => ({
-    id: 'dev-1', ownerId: 'bo', name: 'Desk', rootDir: '/x', tokenHash: 'h'.repeat(64), createdAt: '2026-01-01T00:00:00Z', ...tokenLifetime(clock), ...over,
+    id: 'dev-1', ownerId: 'bo', name: 'Desk', rootDir: '/x', createdAt: '2026-01-01T00:00:00Z', ...over,
   });
 
   const stored = async (id: string) => (await db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === id);
@@ -44,13 +43,13 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
 
   describe('what My Machines shows of a machine', () => {
     it('lists only the person\'s own machines, with whether each is connected, and never a token', async () => {
-      await db.machines.saveLocalAgentDevice(device({ id: 'mine', lastSeenAt: '2026-10-30T11:00:00Z', os: 'Linux', agentsAt: '2026-10-30T11:00:00Z' }));
+      await db.machines.saveLocalAgentDevice(device({ id: 'mine', lastSeenAt: '2026-10-30T11:00:00Z', os: 'Linux', agentsAt: '2026-10-30T11:00:00Z', signIn: machineSignInKey() }));
       await db.machines.saveLocalAgentDevice(device({ id: 'theirs', ownerId: 'cy' }));
       devices.status.mockImplementation((id) => (id === 'mine' ? { online: true, connectedAt: '2026-10-30T10:00:00Z' } : { online: false }));
       const listed = await service().list('bo');
       expect(listed).toHaveLength(1);
-      expect(listed[0]).toMatchObject({ id: 'mine', online: true, connectedAt: '2026-10-30T10:00:00Z', os: 'Linux', lastSeenAt: '2026-10-30T11:00:00Z', tokenExpired: false, agents: [], manualAgents: [] });
-      expect(JSON.stringify(listed)).not.toContain('tokenHash');
+      expect(listed[0]).toMatchObject({ id: 'mine', online: true, connectedAt: '2026-10-30T10:00:00Z', os: 'Linux', lastSeenAt: '2026-10-30T11:00:00Z', agents: [], manualAgents: [] });
+      expect(JSON.stringify(listed)).not.toContain('signIn');
     });
 
     it('shows each machine\'s GPUs and any problem reading them, from the report its cluster keeps, and nothing for one that has not reported', async () => {
@@ -61,12 +60,6 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       const listed = await service({ clusters }).list('bo');
       expect(listed.find((entry) => entry.id === 'rig')).toMatchObject({ gpus: [{ vendor: 'nvidia', model: 'RTX 3090', memoryMiB: 24576, count: 2, runtime: true }], gpuProblems: ['the AMD kernel driver does not answer'] });
       expect(listed.find((entry) => entry.id === 'old')).not.toHaveProperty('gpus');
-    });
-
-    it('says a machine\'s token has expired once its time is up', async () => {
-      await db.machines.saveLocalAgentDevice(device({ id: 'old' }));
-      clock = new Date(clock.getTime() + 91 * DAY);
-      expect((await service().list('bo'))[0]!.tokenExpired).toBe(true);
     });
 
     it('says where each agent stands against the bundle Koala serves', async () => {
