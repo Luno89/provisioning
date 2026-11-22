@@ -49,14 +49,17 @@ export const rootUrlOf = (rootUrl: string, path: string): string => `${rootUrl.r
 
 export interface RootReporting {
   lines?: boolean;
-  ending?: { stage: string; url: string };
+  ending?: { stage: string; url: string; revision: () => Promise<number> };
 }
 
 export function rootReporter(sink: ProgressSink, reporting: RootReporting = {}): Reporter {
   let told = Promise.resolve();
   let lineLost: { err: unknown } | undefined;
   const tell = (step: StepName, state: ProgressState, extra: Partial<MachineProgress> = {}) => sink.tell({ stage: step.id, title: step.title, state, ...extra });
-  const ended = (step: StepName): Partial<MachineProgress> => (reporting.ending?.stage === step.id ? { url: reporting.ending.url } : {});
+  const ended = async (step: StepName): Promise<Partial<MachineProgress>> => {
+    const { ending } = reporting;
+    return ending?.stage === step.id ? { url: ending.url, revision: await ending.revision() } : {};
+  };
   const inTurn = (telling: () => Promise<void>): Promise<void> => {
     const next = told.then(() => {
       if (lineLost) throw lineLost.err;
@@ -67,12 +70,12 @@ export function rootReporter(sink: ProgressSink, reporting: RootReporting = {}):
   };
   return {
     started: (step) => inTurn(() => tell(step, 'started')),
-    alreadyDone: (step) => inTurn(() => tell(step, 'already-done', ended(step))),
+    alreadyDone: (step) => inTurn(async () => tell(step, 'already-done', await ended(step))),
     line: (step, text) => {
       if (!reporting.lines || text.trim() === '') return;
       inTurn(() => tell(step, 'started', { line: boundedLine(text) })).catch((err: unknown) => { lineLost ??= { err }; });
     },
-    done: (step) => inTurn(() => tell(step, 'done', ended(step))),
+    done: (step) => inTurn(async () => tell(step, 'done', await ended(step))),
     failed: (step, failure) => inTurn(() => tell(step, 'failed', { why: boundedWhy(failure.why) })),
   };
 }

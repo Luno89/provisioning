@@ -134,7 +134,7 @@ describe('putting Koala on this machine', () => {
     const args = ran.find(([file, verb]) => file === HELM && verb === 'upgrade') ?? [];
     const own = args.indexOf('/home/bo/.config/koala/koala-values.yaml');
     expect(args.slice(own - 3, own + 1)).toEqual(['-f', expect.stringMatching(/koala-values\.json$/), '-f', '/home/bo/.config/koala/koala-values.yaml']);
-    expect(heard.at(-1)?.body).toMatchObject({ stage: 'koala', state: 'done', url: 'http://127.0.0.1:3252' });
+    expect(heard.at(-1)?.body).toMatchObject({ stage: 'koala', state: 'done', url: 'http://127.0.0.1:3252', revision: 1 });
   });
 
   it('installs nothing from a chart that is not the one root released, and tells root where and why it stopped', async () => {

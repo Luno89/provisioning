@@ -83,7 +83,7 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'waiting for job/instance-seed-1 runs' });
     await until(async () => ((await instanceOf()).install?.line ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'desk is putting Koala on itself: Putting Koala on this machine, waiting for job/instance-seed-1 runs', install: { state: 'installing', stage: 'koala' } });
-    await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' });
+    await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 });
     await until(async () => ((await instanceOf()).url ? true : undefined));
     expect(await instanceOf()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320', install: { state: 'installing' } });
     const koala = new InstanceReporter({ root: { url, instanceId: placed.instanceId, token: async () => tokenOfInstance(placed.instanceId) }, wait: reopening(1), log: () => undefined });
@@ -110,7 +110,7 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     const root = reporting(placed);
     await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'waiting for job/instance-seed-1 runs' });
     await untilWhile(following, () => (said.includes('  waiting for job/instance-seed-1 runs') ? true : undefined));
-    await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' });
+    await root.tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 });
     const koala = new InstanceReporter({ root: { url, instanceId: placed.instanceId, token: async () => tokenOfInstance(placed.instanceId) }, wait: reopening(1), log: () => undefined });
     expect(await koala.setup({ revision: 1, progress: { stage: 'set-up', title: 'Koala is set up', state: 'done' } })).toEqual({ ok: true });
     expect(await following).toBe('ready');

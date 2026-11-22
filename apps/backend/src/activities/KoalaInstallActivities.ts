@@ -48,7 +48,7 @@ export function koalaInstallActivities(deps: KoalaInstallDeps) {
     KoalaInstallStageActivity: ({ installId, ...heard }: { installId: string } & InstallHeard): Promise<InstallAnswer> =>
       withInstall(deps, installId, (instance, at) => ('setup' in heard
         ? installSetupHeard({ install: instance.install, setup: instance.setup, machine: machineOf(instance) }, heard.setup, at)
-        : stageHeard(instance.install, heard.progress, machineOf(instance), at))),
+        : stageHeard(instance, heard.progress, machineOf(instance), at))),
     KoalaInstallStoppedActivity: ({ installId }: { installId: string }): Promise<InstallAnswer> =>
       withInstall(deps, installId, (instance, at) => installStopped(instance.install, machineOf(instance), at)),
   };

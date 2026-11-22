@@ -13,8 +13,7 @@ export interface KoalaInstallRecord {
   why?: string | undefined;
   imageTag?: string | undefined;
   askedAt?: string | undefined;
-  koalaUp?: boolean | undefined;
-  setUp?: boolean | undefined;
+  revision?: number | undefined;
   at: string;
 }
 
@@ -44,6 +43,9 @@ export const askedInstall = (id: string, machineId: string, at: string): KoalaIn
 
 const putting = (machine: string): string => `${machine} is putting Koala on itself`;
 
+const puttingSaid = (install: KoalaInstallRecord, machine: string): string =>
+  (install.title ? `${putting(machine)}: ${install.title}${install.line ? `, ${install.line}` : ''}` : `Asking ${machine} to put Koala on itself`);
+
 export function askedAgain(install: KoalaInstallRecord, machine: string, at: string): InstallPatch {
   return {
     install: { ...install, askedAt: at, at },
@@ -55,26 +57,31 @@ export function askedAgain(install: KoalaInstallRecord, machine: string, at: str
 const lastDone = (progress: MachineProgress): boolean =>
   progress.stage === KOALA_INSTALL_LAST_STAGE && (progress.state === 'done' || progress.state === 'already-done');
 
-const READY = (install: KoalaInstallRecord, at: string): Pick<InstallPatch, 'install' | 'status' | 'detail'> =>
-  ({ install: { ...install, state: 'ready', line: undefined, why: undefined, at }, status: 'ready', detail: 'Ready' });
+export interface InstallHeld {
+  install: KoalaInstallRecord;
+  setup?: InstanceSetup | undefined;
+}
 
-export function stageHeard(install: KoalaInstallRecord, progress: MachineProgress, machine: string, at: string): InstallPatch {
+function settled(install: KoalaInstallRecord & { revision: number }, setup: InstanceSetup | undefined, machine: string, at: string): InstallPatch {
+  const own = setup && setup.revision >= install.revision ? setup : undefined;
+  if (!own) return { install: { ...install, state: 'installing', line: undefined, why: undefined, at }, status: 'installing', detail: `Koala on ${machine} is setting itself up` };
+  const state: KoalaInstallState = own.state === 'failed' ? 'failed' : own.state === 'up' ? 'ready' : 'installing';
+  return { install: { ...install, stage: own.stage, title: own.title, line: own.line, why: own.why, state, at }, ...setupSaid(own, machine) };
+}
+
+export function stageHeard({ install, setup }: InstallHeld, progress: MachineProgress, machine: string, at: string): InstallPatch {
   const stage = { stage: progress.stage, title: progress.title };
   if (progress.state === 'failed') {
     const why = progress.why ?? 'it said no more';
     return { install: { ...install, ...stage, state: 'failed', line: undefined, why, at }, status: 'failed', detail: `Putting Koala on ${machine} stopped at ${progress.title}: ${why}` };
   }
   if (lastDone(progress)) {
-    const up = { ...install, ...stage, koalaUp: true };
-    if (install.setUp) return { ...READY(up, at), url: progress.url };
-    return { install: { ...up, state: 'installing', line: undefined, why: undefined, at }, status: 'installing', detail: `Koala on ${machine} is setting itself up`, url: progress.url };
+    if (progress.revision === undefined) throw new Error(`${machine} said Koala is on it without naming the chart revision it put on`);
+    return { ...settled({ ...install, ...stage, revision: progress.revision }, setup, machine, at), url: progress.url };
   }
   const line = progress.state === 'started' ? progress.line : undefined;
-  return {
-    install: { ...install, ...stage, state: 'installing', line, why: undefined, at },
-    status: 'installing',
-    detail: `${putting(machine)}: ${progress.title}${line ? `, ${line}` : ''}`,
-  };
+  const heard: KoalaInstallRecord = { ...install, ...stage, state: 'installing', line, why: undefined, at };
+  return { install: heard, status: 'installing', detail: puttingSaid(heard, machine) };
 }
 
 export const INSTALL_STOPPED_SAID = 'it was stopped before it finished';
@@ -83,22 +90,16 @@ export function installStopped(install: KoalaInstallRecord, machine: string, at:
   return { install: { ...install, state: 'failed', line: undefined, why: INSTALL_STOPPED_SAID, at }, status: 'failed', detail: `Putting Koala on ${machine} stopped: ${INSTALL_STOPPED_SAID}` };
 }
 
-export function installSetupHeard(instance: { install: KoalaInstallRecord; setup?: InstanceSetup | undefined; machine?: string | undefined }, report: ProvisionReport, at: string): InstallPatch | undefined {
+export function installSetupHeard(instance: InstallHeld & { machine?: string | undefined }, report: ProvisionReport, at: string): InstallPatch | undefined {
   const setup = setupHeard(instance.setup, report, at);
   if (!setup) return undefined;
   const machine = instance.machine ?? 'your machine';
   const { install } = instance;
-  const piece = { ...install, stage: setup.stage, title: setup.title, line: setup.line, why: undefined, at };
-  if (setup.state === 'failed') return { install: { ...piece, state: 'failed', why: setup.why }, ...setupSaid(setup, machine), setup };
-  if (setup.state === 'up') {
-    const up = { ...piece, setUp: true };
-    if (install.koalaUp) return { ...READY(up, at), setup };
-    return { install: { ...up, state: 'installing' }, status: 'installing', detail: `Koala on ${machine} is set up, and ${machine} is finishing putting it on itself`, setup };
-  }
-  return { install: { ...piece, state: 'installing' }, ...setupSaid(setup, machine), setup };
+  if (install.revision === undefined) return { install, status: 'installing', detail: puttingSaid(install, machine), setup };
+  return { ...settled({ ...install, revision: install.revision }, setup, machine, at), setup };
 }
 
-const HEARD = ['state', 'stage', 'title', 'line', 'why', 'at', 'koalaUp', 'setUp'] as const;
+const HEARD = ['state', 'stage', 'title', 'line', 'why', 'at', 'revision'] as const;
 
 export function installFields(patch: InstallPatch, at: string): Record<string, unknown> {
   const heard = {

@@ -9,6 +9,7 @@ export interface MachineProgress {
   why?: string;
   line?: string;
   url?: string;
+  revision?: number;
 }
 
 export const PROGRESS_LIMITS = { stage: 64, title: 200, why: 4000, line: 500, url: 2048 } as const;
@@ -31,7 +32,7 @@ export const boundedWhy = (why: string): string => bounded(why, PROGRESS_LIMITS.
 
 export const boundedLine = (line: string): string => bounded(line, PROGRESS_LIMITS.line);
 
-const keysOf = (contract: ProgressContract): string[] => ['stage', 'title', 'state', 'why', ...(contract.lines ? ['line'] : []), ...(contract.lastStage ? ['url'] : [])];
+const keysOf = (contract: ProgressContract): string[] => ['stage', 'title', 'state', 'why', ...(contract.lines ? ['line'] : []), ...(contract.lastStage ? ['url', 'revision'] : [])];
 
 const listed = (names: readonly string[]): string => {
   const quoted = names.map((name) => `"${name}"`);
@@ -65,8 +66,11 @@ function optionalProblem(body: Record<string, unknown>, state: ProgressState, co
   if (last) {
     const url = textProblem(body.url, 'url');
     if (url) return `the last stage, done, says where Koala answers: ${url}`;
+    if (typeof body.revision !== 'number' || !Number.isInteger(body.revision) || body.revision < 1) return 'the last stage, done, says the chart revision it put on: "revision" is a whole number from 1';
   } else if (body.url !== undefined) {
     return 'only the last stage, done, has "url"';
+  } else if (body.revision !== undefined) {
+    return 'only the last stage, done, has "revision"';
   }
   return undefined;
 }
@@ -92,6 +96,7 @@ export function progressOf(raw: unknown, contract: ProgressContract): ProgressRe
       ...(body.why !== undefined ? { why: body.why as string } : {}),
       ...(body.line !== undefined ? { line: body.line as string } : {}),
       ...(body.url !== undefined ? { url: body.url as string } : {}),
+      ...(body.revision !== undefined ? { revision: body.revision as number } : {}),
     },
   };
 }
@@ -136,13 +141,18 @@ export function progressCases(contract: ProgressContract): ProgressCases {
   }
   if (contract.lastStage) {
     const last = contract.lastStage;
-    accepted.push({ stage: last, title: 'The last stage', state: 'done', url: 'https://bo.koala.test' });
-    accepted.push({ stage: last, title: 'The last stage', state: 'already-done', url: 'http://100.64.0.7:30320' });
-    refused.push({ body: { stage: last, title: 'The last stage', state: 'done' }, problem: 'the last stage, done, says where Koala answers: "url" is a non-empty string' });
+    accepted.push({ stage: last, title: 'The last stage', state: 'done', url: 'https://bo.koala.test', revision: 1 });
+    accepted.push({ stage: last, title: 'The last stage', state: 'already-done', url: 'http://100.64.0.7:30320', revision: 4 });
+    refused.push({ body: { stage: last, title: 'The last stage', state: 'done', revision: 1 }, problem: 'the last stage, done, says where Koala answers: "url" is a non-empty string' });
+    refused.push({ body: { stage: last, title: 'The last stage', state: 'done', url: 'https://bo.koala.test' }, problem: 'the last stage, done, says the chart revision it put on: "revision" is a whole number from 1' });
+    refused.push({ body: { stage: last, title: 'The last stage', state: 'done', url: 'https://bo.koala.test', revision: 0 }, problem: 'the last stage, done, says the chart revision it put on: "revision" is a whole number from 1' });
+    refused.push({ body: { stage: last, title: 'The last stage', state: 'done', url: 'https://bo.koala.test', revision: '2' }, problem: 'the last stage, done, says the chart revision it put on: "revision" is a whole number from 1' });
+    refused.push({ body: { stage: 'k3s', title: 'Installing k3s', state: 'done', revision: 2 }, problem: 'only the last stage, done, has "revision"' });
     refused.push({ body: { stage: 'k3s', title: 'Installing k3s', state: 'done', url: 'https://bo.koala.test' }, problem: 'only the last stage, done, has "url"' });
     refused.push({ body: { stage: last, title: 'The last stage', state: 'started', url: 'https://bo.koala.test' }, problem: 'only the last stage, done, has "url"' });
   } else {
     refused.push({ body: { stage: 'k3s', title: 'Installing k3s', state: 'done', url: 'https://bo.koala.test' }, problem: `only ${listed(keys)} are taken, not "url"` });
+    refused.push({ body: { stage: 'k3s', title: 'Installing k3s', state: 'done', revision: 1 }, problem: `only ${listed(keys)} are taken, not "revision"` });
   }
   return { accepted, refused };
 }

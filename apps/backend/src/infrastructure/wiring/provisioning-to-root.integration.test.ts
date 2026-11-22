@@ -148,9 +148,9 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
     running = workers.map((worker) => worker.run());
 
     await root.workflows.start('install-1', 'bo');
-    await root.workflows.progress('install-1', { stage: 'koala', title: 'Koala', state: 'done', url: 'https://bobby.koala.test' });
+    await root.workflows.progress('install-1', { stage: 'koala', title: 'Koala', state: 'done', url: 'https://bobby.koala.test', revision: 1 });
     const rootRecord = async () => (await rootDb.instances.getInstances('bo'))[0]!;
-    while ((await rootRecord()).install?.koalaUp !== true) await new Promise((done) => setTimeout(done, 200));
+    while ((await rootRecord()).install?.revision !== 1) await new Promise((done) => setTimeout(done, 200));
     expect(await rootRecord()).toMatchObject({ status: 'installing', install: { state: 'installing' } });
 
     const seen: ProvisioningRecord[] = [];
@@ -183,6 +183,6 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
     expect(seen.some((each) => each.pieces.some((piece) => piece.key === 'egress' && piece.state === 'working' && piece.line === 'the egress proxy: ready'))).toBe(true);
     expect(await instanceDb.infrastructure.getProvisioningRun(record!.id)).toMatchObject({ state: 'up', workflowId: expect.any(String) as unknown });
     expect(await steps.access.kubectl(steps.access.own(), ['get', 'deployment', 'egress-proxy', '-n', 'koala-egress', '-o', 'jsonpath={.status.availableReplicas}'])).toBe('1');
-    expect(await rootRecord()).toMatchObject({ status: 'ready', url: 'https://bobby.koala.test', install: { state: 'ready', setUp: true, koalaUp: true } });
+    expect(await rootRecord()).toMatchObject({ status: 'ready', url: 'https://bobby.koala.test', install: { state: 'ready', revision: 1 } });
   }, 0);
 });
