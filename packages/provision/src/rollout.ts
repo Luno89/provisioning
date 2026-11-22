@@ -1,11 +1,11 @@
-import { assessWorkload } from './workload-health.js';
+import { assessWorkload, podTroubles, type Trouble } from './workload-health.js';
 
 export type Rollout = { state: 'done' } | { state: 'rolling'; waiting: string } | { state: 'hopeless'; reason: string };
 
 export const ROLLOUT_KINDS = 'deployments,statefulsets,daemonsets,replicasets,jobs,pods';
 
 interface Owner { kind?: string; name?: string }
-interface Condition { type?: string; status?: string; reason?: string; message?: string }
+interface Condition { type?: string; status?: string; reason?: string; message?: string; lastTransitionTime?: string }
 interface Item {
   kind?: string;
   metadata?: { name?: string; generation?: number; labels?: Record<string, string>; annotations?: Record<string, string>; ownerReferences?: Owner[]; deletionTimestamp?: string; creationTimestamp?: string };
@@ -77,80 +77,161 @@ function waitsForRoom(pod: Item): string | undefined {
 
 export interface RolloutOptions {
   none?: 'done' | 'rolling';
-  now?: number;
+}
+
+type Crash = Extract<Trouble, { kind: 'crashing' }> & { job?: string };
+
+interface Seen {
+  name: string;
+  state: 'available' | 'failed' | 'changing';
+  waiting: string;
+  readyAt: number;
+  crashes: Crash[];
+}
+
+interface Look {
+  seen: Seen[];
+  judged: Seen[];
+  hopeless?: string;
+  waiting?: string;
+}
+
+const conditionTrue = (item: Item, type: string): Condition | undefined => item.status?.conditions?.find((condition) => condition.type === type && condition.status === 'True');
+const crashesOf = (troubles: readonly Trouble[]): Crash[] => troubles.filter((trouble): trouble is Crash => trouble.kind === 'crashing');
+const changing = (name: string, waiting: string): Seen => ({ name, state: 'changing', waiting, readyAt: 0, crashes: [] });
+const latest = (times: readonly number[]): number => times.filter(Number.isFinite).reduce((a, b) => Math.max(a, b), 0);
+const podsOfJob = (items: readonly Item[], job: Item): Item[] => items.filter((item) => item.kind === 'Pod' && !item.metadata?.deletionTimestamp && ownedBy(item, 'Job', job.metadata?.name));
+
+function workloadSeen(items: readonly Item[], workload: Item): Seen {
+  const pods = currentPods(items, [workload]);
+  const waiting = waitingOn(workload);
+  return {
+    name: `${workload.kind?.toLowerCase()}/${workload.metadata?.name}`,
+    state: waiting ? 'changing' : 'available',
+    waiting: waiting ?? '',
+    readyAt: latest(pods.map((pod) => Date.parse(conditionTrue(pod, 'Ready')?.lastTransitionTime ?? ''))),
+    crashes: crashesOf(podTroubles(pods)),
+  };
+}
+
+function jobSeen(items: readonly Item[], job: Item, judged: boolean): Seen {
+  const name = `job/${job.metadata?.name}`;
+  const status = job.status as (Item['status'] & { succeeded?: number; active?: number; completionTime?: string }) | undefined;
+  const complete = conditionTrue(job, 'Complete');
+  if ((status?.succeeded ?? 0) > 0 || complete) return { name, state: 'available', waiting: '', readyAt: latest([Date.parse(complete?.lastTransitionTime ?? status?.completionTime ?? '')]), crashes: [] };
+  if (conditionTrue(job, 'Failed')) return { name, state: 'failed', waiting: '', readyAt: 0, crashes: [] };
+  const pods = podsOfJob(items, job);
+  const crashes = judged ? crashesOf(podTroubles(pods)).map((crash) => ({ ...crash, job: job.metadata?.name ?? '' })) : [];
+  return { ...changing(name, (status?.active ?? 0) > 0 || pods.length > 0 ? `${name} runs` : `${name} has not started`), crashes };
+}
+
+type Verdict = { final: string } | { note: string };
+
+function verdictOn(crash: Crash, own: Seen, seen: readonly Seen[]): Verdict {
+  const others = seen.filter((other) => other !== own);
+  const awaited = others.find((other) => other.state === 'changing' && other.crashes.length === 0);
+  if (awaited) return { note: `${crash.name} restarts while ${awaited.waiting}` };
+  const last = others.filter((other) => other.state === 'available').reduce<Seen | undefined>((a, b) => (a && a.readyAt >= b.readyAt ? a : b), undefined);
+  if (!last || crash.exitedAt > last.readyAt) return { final: crash.reason };
+  return { note: `${crash.name} restarts, and is watched for its next try now that ${last.name} is available` };
+}
+
+function verdicts(judged: readonly Seen[], seen: readonly Seen[]): { own: Seen; crash: Crash; verdict: Verdict }[] {
+  return judged.flatMap((own) => own.crashes.map((crash) => ({ own, crash, verdict: verdictOn(crash, own, seen) })));
+}
+
+function look(items: readonly Item[], options: RolloutOptions, only?: (workload: Item) => boolean): Look {
+  const workloads = items.filter((item) => WORKLOADS.has(item.kind ?? ''));
+  const judged = only ? workloads.filter(only) : workloads;
+  const jobs = items.filter((item) => item.kind === 'Job' && !item.metadata?.deletionTimestamp).map((job) => jobSeen(items, job, false));
+  if (judged.length === 0) {
+    if (options.none === 'done') return { seen: jobs, judged: [] };
+    const waiting = 'none of its workloads is there yet';
+    return { seen: [changing('its workloads', waiting)], judged: [], waiting };
+  }
+  const unseen = judged.find((workload) => (workload.status?.observedGeneration ?? 0) < (workload.metadata?.generation ?? 0));
+  if (unseen) {
+    const waiting = waitingOn(unseen) ?? 'a workload has not seen its new spec';
+    return { seen: [changing(`${unseen.kind?.toLowerCase()}/${unseen.metadata?.name}`, waiting)], judged: [], waiting };
+  }
+  const cannot = refused(items, judged);
+  if (cannot) return { seen: [], judged: [], hopeless: cannot };
+  const pods = currentPods(items, judged);
+  const pulled = podTroubles(pods).find((trouble) => trouble.kind === 'refused');
+  if (pulled) return { seen: [], judged: [], hopeless: pulled.reason };
+  const judgedSeen = judged.map((workload) => workloadSeen(items, workload));
+  const siblings = workloads.filter((workload) => !judged.includes(workload)).map((workload) => workloadSeen(items, workload));
+  const waiting = judged.map(waitingOn).find((reason): reason is string => reason !== undefined);
+  const room = pods.map(waitsForRoom).find((reason): reason is string => reason !== undefined);
+  return { seen: [...judgedSeen, ...siblings, ...jobs], judged: judgedSeen, ...(waiting ? { waiting: room ? `${waiting}; ${room}` : waiting } : {}) };
+}
+
+const notesOf = (judged: ReturnType<typeof verdicts>, own: Seen): string[] => judged.flatMap((one) => (one.own === own && 'note' in one.verdict ? [one.verdict.note] : []));
+
+function decided(looks: readonly Look[]): Rollout {
+  const hopeless = looks.find((looked) => looked.hopeless !== undefined)?.hopeless;
+  if (hopeless) return { state: 'hopeless', reason: hopeless };
+  const judged = verdicts(looks.flatMap((looked) => looked.judged), looks.flatMap((looked) => looked.seen));
+  for (const { verdict } of judged) if ('final' in verdict) return { state: 'hopeless', reason: verdict.final };
+  const lines = [looks.map((looked) => looked.waiting).find((line) => line !== undefined), ...judged.map(({ verdict }) => ('note' in verdict ? verdict.note : undefined))]
+    .filter((line): line is string => line !== undefined);
+  return lines.length > 0 ? { state: 'rolling', waiting: lines.join('; ') } : { state: 'done' };
 }
 
 export function rolloutOf(listed: unknown, options: RolloutOptions = {}): Rollout {
-  const items = itemsOf(listed);
-  const workloads = items.filter((item) => WORKLOADS.has(item.kind ?? ''));
-  if (workloads.length === 0) return options.none === 'done' ? { state: 'done' } : { state: 'rolling', waiting: 'none of its workloads is there yet' };
-  const unseen = workloads.find((workload) => (workload.status?.observedGeneration ?? 0) < (workload.metadata?.generation ?? 0));
-  if (unseen) return { state: 'rolling', waiting: waitingOn(unseen) ?? 'a workload has not seen its new spec' };
-  const cannot = refused(items, workloads);
-  if (cannot) return { state: 'hopeless', reason: cannot };
-  const pods = currentPods(items, workloads);
-  const health = assessWorkload({ items: pods }, options.now);
-  if (health.health === 'unhealthy') return { state: 'hopeless', reason: health.reason };
-  const waiting = workloads.map(waitingOn).find((reason): reason is string => reason !== undefined);
-  if (!waiting) return { state: 'done' };
-  const room = pods.map(waitsForRoom).find((reason): reason is string => reason !== undefined);
-  return { state: 'rolling', waiting: room ? `${waiting}; ${room}` : waiting };
+  return decided([look(itemsOf(listed), options)]);
 }
 
 export function rolloutOfOne(listed: unknown, workload: string, options: RolloutOptions = {}): Rollout {
   const [kind, name] = workload.split('/');
-  const items = itemsOf(listed).filter((item) => !WORKLOADS.has(item.kind ?? '') || (item.kind?.toLowerCase() === kind?.toLowerCase() && item.metadata?.name === name));
-  return rolloutOf({ items }, options);
+  return decided([look(itemsOf(listed), options, (item) => item.kind?.toLowerCase() === kind?.toLowerCase() && item.metadata?.name === name)]);
 }
 
 export function rolloutAcross(lists: readonly unknown[], options: RolloutOptions = {}): Rollout {
-  const each = lists.map((listed) => rolloutOf(listed, options));
-  return each.find((rollout) => rollout.state === 'hopeless') ?? each.find((rollout) => rollout.state === 'rolling') ?? { state: 'done' };
+  return decided(lists.map((listed) => look(itemsOf(listed), options)));
 }
 
 export const SETUP_LABEL = 'koala.app/setup';
 
 export type ReleaseRollout = { state: 'done' } | { state: 'rolling'; waiting: string[] } | { state: 'hopeless'; reason: string; job?: string };
 
-export interface ReleaseOptions {
-  now?: number;
-}
-
-const conditionTrue = (item: Item, type: string): Condition | undefined => item.status?.conditions?.find((condition) => condition.type === type && condition.status === 'True');
-
-type JobState = { state: 'done' } | { state: 'waiting'; line: string } | { state: 'hopeless'; reason: string; job: string };
-
-function jobState(items: readonly Item[], job: Item, now: number | undefined): JobState {
+function jobRefused(items: readonly Item[], job: Item): { reason: string; job: string } | undefined {
   const name = `job/${job.metadata?.name}`;
-  const status = job.status as (Item['status'] & { succeeded?: number; active?: number }) | undefined;
-  if ((status?.succeeded ?? 0) > 0 || conditionTrue(job, 'Complete')) return { state: 'done' };
   const failed = conditionTrue(job, 'Failed');
-  if (failed) return { state: 'hopeless', reason: `${name} failed: ${failed.message ?? failed.reason ?? 'its pod ended in failure'}`, job: job.metadata?.name ?? '' };
-  const pods = items.filter((item) => item.kind === 'Pod' && !item.metadata?.deletionTimestamp && ownedBy(item, 'Job', job.metadata?.name));
-  const health = assessWorkload({ items: pods }, now);
-  if (health.health === 'unhealthy') return { state: 'hopeless', reason: `${name}: ${health.reason}`, job: job.metadata?.name ?? '' };
-  const unplaced = pods.map((pod) => pod.status?.conditions?.find((condition) => condition.type === 'PodScheduled' && condition.status === 'False')).find((condition) => condition !== undefined);
-  if (unplaced) return { state: 'waiting', line: `${name} waits for room: ${unplaced.message ?? unplaced.reason ?? 'the scheduler has not placed it'}` };
-  return { state: 'waiting', line: (status?.active ?? 0) > 0 || pods.length > 0 ? `${name} runs` : `${name} has not started` };
+  if (failed) return { reason: `${name} failed: ${failed.message ?? failed.reason ?? 'its pod ended in failure'}`, job: job.metadata?.name ?? '' };
+  const pulled = podTroubles(podsOfJob(items, job)).find((trouble) => trouble.kind === 'refused');
+  return pulled ? { reason: `${name}: ${pulled.reason}`, job: job.metadata?.name ?? '' } : undefined;
 }
 
-export function releaseRollout(listed: unknown, options: ReleaseOptions = {}): ReleaseRollout {
+function jobLine(items: readonly Item[], job: Item, seen: Seen): string {
+  const unplaced = podsOfJob(items, job).map((pod) => pod.status?.conditions?.find((condition) => condition.type === 'PodScheduled' && condition.status === 'False')).find((condition) => condition !== undefined);
+  return unplaced ? `job/${job.metadata?.name} waits for room: ${unplaced.message ?? unplaced.reason ?? 'the scheduler has not placed it'}` : seen.waiting;
+}
+
+export function releaseRollout(listed: unknown): ReleaseRollout {
   const items = itemsOf(listed);
   const workloads = items.filter((item) => WORKLOADS.has(item.kind ?? ''));
   const jobs = items.filter((item) => item.kind === 'Job' && item.metadata?.labels?.[SETUP_LABEL] !== undefined && !item.metadata.deletionTimestamp);
-  const waiting: string[] = [];
-  if (workloads.length > 0) {
-    const rolled = rolloutOf({ items: items.filter((item) => item.kind !== 'Job') }, options.now === undefined ? {} : { now: options.now });
-    if (rolled.state === 'hopeless') return rolled;
-    if (rolled.state === 'rolling') {
-      const each = workloads.map(waitingOn).filter((line): line is string => line !== undefined);
-      waiting.push(...(each.length > 0 ? each : [rolled.waiting]));
-    }
+  const looked: Look = workloads.length > 0 ? look(items.filter((item) => item.kind !== 'Job'), {}) : { seen: [], judged: [] };
+  if (looked.hopeless) return { state: 'hopeless', reason: looked.hopeless };
+  const jobsSeen = jobs.map((job) => ({ job, seen: jobSeen(items, job, true) }));
+  for (const { job, seen } of jobsSeen) {
+    const cannot = seen.state === 'available' ? undefined : jobRefused(items, job);
+    if (cannot) return { state: 'hopeless', ...cannot };
   }
-  for (const job of jobs) {
-    const state = jobState(items, job, options.now);
-    if (state.state === 'hopeless') return state;
-    if (state.state === 'waiting') waiting.push(state.line);
+  const judged = verdicts([...looked.judged, ...jobsSeen.map(({ seen }) => seen)], [...looked.seen, ...jobsSeen.map(({ seen }) => seen)]);
+  for (const { crash, verdict } of judged) {
+    if (!('final' in verdict)) continue;
+    return crash.job === undefined ? { state: 'hopeless', reason: verdict.final } : { state: 'hopeless', reason: `job/${crash.job}: ${verdict.final}`, job: crash.job };
+  }
+  const waiting: string[] = [];
+  if (looked.waiting !== undefined) {
+    const each = workloads.map(waitingOn).filter((line): line is string => line !== undefined);
+    waiting.push(...(each.length > 0 ? each : [looked.waiting]));
+  }
+  waiting.push(...looked.judged.flatMap((own) => notesOf(judged, own)));
+  for (const { job, seen } of jobsSeen) {
+    if (seen.state === 'changing') waiting.push([jobLine(items, job, seen), ...notesOf(judged, seen)].join('; '));
   }
   return waiting.length > 0 ? { state: 'rolling', waiting } : { state: 'done' };
 }
