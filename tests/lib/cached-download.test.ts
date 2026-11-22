@@ -1,20 +1,11 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { cachedDownload } from './cached-download.js';
+import { freshPlaces } from './fresh-places.js';
 
-const dirs: string[] = [];
-const freshDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), 'cached-download-'));
-  dirs.push(dir);
-  return dir;
-};
-
-afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
+const freshDir = freshPlaces('cached-download-');
 
 const slowWrite = (content: string, started: string[]) => async (to: string): Promise<void> => {
   started.push(to);
