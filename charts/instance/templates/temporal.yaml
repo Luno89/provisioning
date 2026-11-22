@@ -169,12 +169,10 @@ spec:
               value: {{ include "instance.name" . }}-temporal-db
             - name: BIND_ON_IP
               value: 0.0.0.0
-            - name: SERVICES
-              value: frontend:internal-frontend:history:matching:worker
+            - name: TEMPORAL_SERVICES
+              value: frontend,internal-frontend,history,matching,worker
             - name: USE_INTERNAL_FRONTEND
               value: "true"
-            - name: TEMPORAL_ADDRESS
-              value: 127.0.0.1:7236
             - name: TEMPORAL_AUTH_AUTHORIZER
               value: default
             - name: TEMPORAL_AUTH_CLAIM_MAPPER

@@ -11,7 +11,7 @@ const PROJECT: ComposeProject = { program: ['docker', 'compose'], files: ['/repo
 const instant: WaitOptions = { pause: async () => undefined };
 const BASE = ['compose', '-p', 'koala-test', '-f', '/repo/docker-compose.mongo.yml'];
 
-interface Container { state: string; exitCode?: number; hash: string; oneShot?: boolean }
+interface Container { state: string; exitCode?: number; hash: string; oneShot?: boolean; id?: string; restarts?: number }
 
 interface Host {
   configured: Record<string, string>;
@@ -25,11 +25,16 @@ interface Host {
 const said = (command: Command): string[] => (command.args ?? []).slice(BASE.length);
 
 const docker = (host: Host) => fakeCommands((command): Answer | undefined => {
+  const [inspect, ...asked] = command.args ?? [];
+  if (command.command === 'docker' && inspect === 'inspect') {
+    const ids = asked.filter((arg) => !arg.startsWith('--') && !arg.includes('{{'));
+    return { stdout: Object.values(host.containers).filter((c) => c.id !== undefined && ids.includes(c.id)).map((c) => `${c.id}0000 ${c.restarts ?? 0}\n`).join('') };
+  }
   if (command.command !== 'docker' || JSON.stringify((command.args ?? []).slice(0, BASE.length)) !== JSON.stringify(BASE)) return undefined;
   const [verb, ...rest] = (command.args ?? []).slice(BASE.length);
   if (verb === 'config') return { stdout: Object.entries(host.configured).map(([service, hash]) => `${service} ${hash}\n`).join('') };
   if (verb === 'ps') host.onPs?.(host);
-  if (verb === 'ps') return { stdout: Object.entries(host.containers).map(([service, c]) => `${service}\t${c.state}\t${c.exitCode ?? 0}\t${c.hash}\t${c.oneShot ? 'true' : ''}\n`).join('') };
+  if (verb === 'ps') return { stdout: Object.entries(host.containers).map(([service, c]) => `${service}\t${c.state}\t${c.exitCode ?? 0}\t${c.hash}\t${c.oneShot ? 'true' : ''}\t${c.id ?? ''}\n`).join('') };
   if (verb === 'up') {
     if (host.upFails) return { code: 1, stderr: 'Error response from daemon: port is already allocated\n' };
     host.afterUp?.(host, rest);
@@ -188,6 +193,41 @@ describe('a service started through its compose file', () => {
     const reporter = memoryReporter();
     await runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers: answering([]) })], { commands: docker(host), wait: instant }, reporter);
     expect(listed).toBeGreaterThanOrEqual(5);
+    expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'mongo' });
+  });
+
+  it('fails with the log tail of a container that keeps exiting as it starts, though Docker keeps starting it again', async () => {
+    let listed = 0;
+    const host: Host = {
+      configured: { temporal: 't' },
+      containers: { temporal: { state: 'running', hash: 't', id: 'old', restarts: 15 } },
+      logs: 'temporal-1  | Unable to start server. Error: failed to start service worker: context deadline exceeded\n',
+      afterUp: (h) => { h.containers['temporal'] = { state: 'running', hash: 't', id: 'new', restarts: 0 }; },
+      onPs: (h) => {
+        listed += 1;
+        const own = h.containers['temporal']!;
+        if (own.id === 'new' && listed % 2 === 0) h.containers['temporal'] = { ...own, restarts: (own.restarts ?? 0) + 1 };
+      },
+    };
+    const answers = async (): Promise<StepState> => ({ done: false, why: 'its system worker polls none of its queues yet' });
+    const commands = docker(host);
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers })], { commands, wait: instant }, memoryReporter()));
+    expect(failure.why).toContain('Temporal to answer: temporal keeps exiting as it starts: Docker started it again 2 times since it was started');
+    expect(failure.tail).toContain('temporal-1  | Unable to start server. Error: failed to start service worker: context deadline exceeded');
+    expect(verbs(commands.ran)).toContain('up -d --force-recreate');
+  });
+
+  it('keeps waiting on a container Docker started again once, as one exit is not yet a way it always ends', async () => {
+    let listed = 0;
+    const host: Host = {
+      configured: { mongodb: 'h1' },
+      containers: {},
+      afterUp: (h) => { h.containers['mongodb'] = { state: 'running', hash: 'h1', id: 'm', restarts: 1 }; },
+      onPs: () => { listed += 1; },
+    };
+    const answers = async (): Promise<StepState> => (listed >= 8 ? { done: true } : { done: false, why: 'not a replica set member yet' });
+    const reporter = memoryReporter();
+    await runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers })], { commands: docker(host), wait: instant }, reporter);
     expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'mongo' });
   });
 

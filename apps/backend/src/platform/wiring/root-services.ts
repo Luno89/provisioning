@@ -4,12 +4,13 @@ import { request } from 'node:http';
 import { dirname, join } from 'node:path';
 import { connect as tlsConnect } from 'node:tls';
 import type { Connection } from '@temporalio/client';
+import protos from '@temporalio/proto';
 import { connectTemporal } from '@koala/engine-core/temporal';
 import { composeProvider, composeStep, serviceStep, type ComposeContext, type ComposeProject, type Provider, type ServiceContext, type Step, type StepState } from '@koala/provision';
 import { mongoClientFor } from '../lib/collection.js';
 import { answerFailure, failureOf, stillDown } from '../lib/dependencies.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
-import { temporalJwks } from '../lib/temporal-auth.js';
+import { temporalJwks, temporalToken } from '../lib/temporal-auth.js';
 import { temporalDial } from '../lib/temporal-connection.js';
 import { answersHttp } from './dependencies.js';
 
@@ -174,6 +175,9 @@ async function whyNotConnected(address: string, ca: Buffer, err: unknown): Promi
   return stillDown(`its TLS handshake completes, but its gRPC connection did not open yet: ${connecting.reason}`);
 }
 
+export const TEMPORAL_SYSTEM_NAMESPACE = 'temporal-system';
+export const TEMPORAL_SYSTEM_QUEUE = 'temporal-sys-tq-scanner-taskqueue-0';
+
 export function temporalAnswers(temporal: RootServices['temporal']): () => Promise<StepState> {
   return async () => {
     const dial = temporalDial('koala-root-services', { temporal: { address: temporal.address, namespace: temporal.namespace, caPath: join(temporal.tlsDir, 'ca.crt') }, keys: { temporal: temporal.key() } }, 'read');
@@ -185,7 +189,13 @@ export function temporalAnswers(temporal: RootServices['temporal']): () => Promi
     }
     try {
       await connection.workflowService.getSystemInfo({});
-      return { done: true };
+      const system = temporalToken(temporal.key(), { subject: 'koala-root-services', namespace: TEMPORAL_SYSTEM_NAMESPACE, role: 'read' });
+      const { pollers } = await connection.withApiKey(system, () => connection.workflowService.describeTaskQueue({
+        namespace: TEMPORAL_SYSTEM_NAMESPACE,
+        taskQueue: { name: TEMPORAL_SYSTEM_QUEUE },
+        taskQueueType: protos.temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_WORKFLOW,
+      }));
+      return pollers.length > 0 ? { done: true } : { done: false, why: `its frontend answers, but its system worker does not poll ${TEMPORAL_SYSTEM_QUEUE} yet` };
     } finally {
       await connection.close();
     }

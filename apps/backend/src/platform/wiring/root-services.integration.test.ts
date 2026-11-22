@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { Client } from '@temporalio/client';
 import { afterEach, describe, expect, it } from 'vitest';
+import { connectTemporal } from '@koala/engine-core/temporal';
 import { composeCommand, localCommands, runSteps } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
 import { mongoClientFor } from '../lib/collection.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
-import { temporalJwks } from '../lib/temporal-auth.js';
+import { temporalJwks, temporalToken } from '../lib/temporal-auth.js';
+import { readyNamespace } from '../lib/temporal-client.js';
+import { temporalDial } from '../lib/temporal-connection.js';
 import { COMPOSE, rootServicesWorld } from '../testing/root-services-world.js';
 import { rootServicesAt, rootServiceSteps, type RootServiceName, type RootServices } from './root-services.js';
 
@@ -31,12 +36,26 @@ async function provisioned(services: RootServices, names: RootServiceName[]): Pr
 }
 
 describe('root\'s services from their pinned compose files, on this computer\'s Docker', () => {
-  it('Temporal gets its certificate and its key, starts, answers over TLS to its CA, and is left alone the next time', async () => {
+  it('Temporal gets its certificate and its key, starts from an empty database, takes a workflow from a token Koala signed, stays up, and is left alone the next time', async () => {
     const { services } = await world();
     expect(await provisioned(services, ['temporal'])).toEqual(['temporal-tls done', 'temporal-jwks done', 'temporal done']);
     expect(JSON.parse(readFileSync(services.temporal.jwksFile, 'utf8'))).toEqual(temporalJwks(KEY));
+    const { temporal } = services;
+    const connection = await connectTemporal(temporalDial('koala-backend', { temporal: { address: temporal.address, namespace: temporal.namespace, caPath: join(temporal.tlsDir, 'ca.crt') }, keys: { temporal: KEY } }), 'client');
+    try {
+      await readyNamespace(connection, temporal.namespace, {
+        system: temporalToken(KEY, { subject: 'koala-backend', namespace: 'temporal-system', role: 'admin' }),
+        namespace: temporalToken(KEY, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }),
+      });
+      const started = await new Client({ connection, namespace: temporal.namespace }).workflow.start('rootServicesStart', { taskQueue: 'root-services-start', workflowId: `root-services-${randomUUID()}` });
+      expect(started.firstExecutionRunId).not.toBe('');
+    } finally {
+      await connection.close();
+    }
+    const id = (await commands.run(composeCommand({ program: services.program, files: temporal.files, project: services.project! }, ['ps', '-q', 'temporal']), quiet)).stdout.trim();
+    expect((await commands.run({ command: 'docker', args: ['inspect', '--format', '{{.State.Status}} {{.RestartCount}}', id] }, quiet)).stdout.trim()).toBe('running 0');
     expect(await provisioned(services, ['temporal'])).toEqual(['temporal-tls already-done', 'temporal-jwks already-done', 'temporal already-done']);
-  });
+  }, 0);
 
   it('Mongo starts as a replica set, and one running on its own is started again as one, its data kept', async () => {
     const { services, override } = await world();
