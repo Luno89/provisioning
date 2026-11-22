@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, Lock, LogIn, UserPlus, Github, Chrome, KeyRound, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
 import { errorMessage } from '../../../api/client';
-import { confirmSecondFactor, providerSignInUrl, register, resendSignUpCode, signIn, verifySignUp, type SignInAnswer } from '../../platform';
+import { confirmSecondFactor, providerSignInUrl, register, resendSignUpCode, signIn, verifySignUp, type InteractionPath, type SignInAnswer } from '../../platform';
 import { safeHref } from '../../../shared/lib/safe-href';
 import { useSignInProviders } from '../hooks/useSignInProviders';
 import ForgotPassword from './ForgotPassword';
 
 interface LoginProps {
-  resume: string;
+  resume: InteractionPath;
   start: string;
   invite?: { code: string; email?: string | undefined } | undefined;
 }

@@ -31,9 +31,14 @@ const FETCH_TYPES = /\/node_modules\/(typescript\/lib\/lib\.dom|undici-types|@ty
 
 export interface KoalaClient { file: RegExp; name: string; base: string }
 
-export const FRONTEND_CLIENT: KoalaClient = { file: /\/apps\/frontend\/src\/api\/client\.ts$/, name: 'api', base: '/api' };
+const FRONTEND_CLIENT_FILE = /\/apps\/frontend\/src\/api\/client\.ts$/;
 
-export function httpChannels(program: ts.Program, clients: readonly KoalaClient[] = [FRONTEND_CLIENT]): (call: ts.CallExpression) => ChannelEnd[] | undefined {
+export const FRONTEND_CLIENTS: readonly KoalaClient[] = [
+  { file: FRONTEND_CLIENT_FILE, name: 'api', base: '/api' },
+  { file: FRONTEND_CLIENT_FILE, name: 'site', base: '' },
+];
+
+export function httpChannels(program: ts.Program, clients: readonly KoalaClient[] = FRONTEND_CLIENTS):(call: ts.CallExpression) => ChannelEnd[] | undefined {
   const checker = program.getTypeChecker();
   const aliased = (symbol: ts.Symbol | undefined) => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
   const literalsOf = (expression: ts.Expression | undefined): string[] | undefined => {
@@ -87,19 +92,75 @@ export function httpChannels(program: ts.Program, clients: readonly KoalaClient[
     return undefined;
   };
 
-  const mounts: Array<{ inside: ts.Node | undefined; prefix: string; factory: ts.Node }> = [];
+  const callsNamed = new Map<string, ts.CallExpression[]>();
+  const calleeName = (call: ts.CallExpression): string | undefined => {
+    if (ts.isIdentifier(call.expression)) return call.expression.text;
+    return ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : undefined;
+  };
+  const nameOf = (fn: ts.Node): string | undefined => {
+    if (ts.isFunctionDeclaration(fn)) return fn.name?.text;
+    return ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name) ? fn.parent.name.text : undefined;
+  };
+  const callsOf = (fn: ts.Node): ts.CallExpression[] => {
+    const name = nameOf(fn);
+    if (!name) return [];
+    return (callsNamed.get(name) ?? []).filter((call) => {
+      const declaration = aliased(checker.getSymbolAtLocation(ts.isPropertyAccessExpression(call.expression) ? call.expression.name : call.expression))?.valueDeclaration;
+      return declaration === fn || (declaration !== undefined && ts.isVariableDeclaration(declaration) && declaration.initializer === fn);
+    });
+  };
+  const propertyGiven = (argument: ts.Expression | undefined, name: string): ts.Expression | undefined => {
+    if (!argument || !ts.isObjectLiteralExpression(argument)) return undefined;
+    for (const property of argument.properties) {
+      if (ts.isPropertyAssignment(property) && property.name.getText() === name) return property.initializer;
+      if (ts.isShorthandPropertyAssignment(property) && property.name.text === name) return property.name;
+    }
+    return undefined;
+  };
+  const factoriesOf = (mounted: ts.Expression, depth = 0): ts.Node[] => {
+    if (depth > 8) return [];
+    if (ts.isParenthesizedExpression(mounted)) return factoriesOf(mounted.expression, depth + 1);
+    if (ts.isConditionalExpression(mounted)) return [...factoriesOf(mounted.whenTrue, depth + 1), ...factoriesOf(mounted.whenFalse, depth + 1)];
+    if (ts.isCallExpression(mounted)) {
+      const factory = factoryOf(mounted);
+      return factory ? [factory] : [];
+    }
+    if (ts.isIdentifier(mounted)) {
+      const symbol = ts.isShorthandPropertyAssignment(mounted.parent) && mounted.parent.name === mounted ? checker.getShorthandAssignmentValueSymbol(mounted.parent) : aliased(checker.getSymbolAtLocation(mounted));
+      const declaration = symbol?.valueDeclaration;
+      return declaration && ts.isVariableDeclaration(declaration) && declaration.initializer ? factoriesOf(declaration.initializer, depth + 1) : [];
+    }
+    if (ts.isPropertyAccessExpression(mounted) && ts.isIdentifier(mounted.expression)) {
+      const parameter = aliased(checker.getSymbolAtLocation(mounted.expression))?.valueDeclaration;
+      if (!parameter || !ts.isParameter(parameter) || !ts.isFunctionLike(parameter.parent)) return [];
+      const index = parameter.parent.parameters.indexOf(parameter);
+      return callsOf(parameter.parent).flatMap((call) => {
+        const given = propertyGiven(call.arguments[index], mounted.name.text);
+        return given ? factoriesOf(given, depth + 1) : [];
+      });
+    }
+    return [];
+  };
+
+  const mounted: Array<{ use: ts.CallExpression; router: ts.Expression }> = [];
   for (const source of program.getSourceFiles()) {
     if (source.fileName.includes('/node_modules/') || source.isDeclarationFile || isTestFile(source.fileName) || TESTING_FOLDER.test(source.fileName)) continue;
     const visit = (node: ts.Node) => {
-      const mounted = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'use' ? node.arguments[node.arguments.length - 1] : undefined;
-      if (ts.isCallExpression(node) && mounted && declaredIn(checker.getTypeAtLocation(mounted), EXPRESS_TYPES)) {
-        const prefix = node.arguments.length > 1 ? literal(node.arguments[0]) : '';
-        const factory = mounted ? factoryOf(mounted) : undefined;
-        if (prefix !== undefined && factory) mounts.push({ inside: enclosingFunction(node), prefix, factory });
+      if (ts.isCallExpression(node)) {
+        const name = calleeName(node);
+        if (name) callsNamed.set(name, [...(callsNamed.get(name) ?? []), node]);
+        const router = ts.isPropertyAccessExpression(node.expression) && name === 'use' ? node.arguments[node.arguments.length - 1] : undefined;
+        if (router && declaredIn(checker.getTypeAtLocation(router), EXPRESS_TYPES)) mounted.push({ use: node, router });
       }
       ts.forEachChild(node, visit);
     };
     visit(source);
+  }
+  const mounts: Array<{ inside: ts.Node | undefined; prefix: string; factory: ts.Node }> = [];
+  for (const { use, router } of mounted) {
+    const prefix = use.arguments.length > 1 ? literal(use.arguments[0]) : '';
+    if (prefix === undefined) continue;
+    for (const factory of factoriesOf(router)) mounts.push({ inside: enclosingFunction(use), prefix, factory });
   }
   const prefixes = new Map<ts.Node, Set<string>>();
   const makesRouter = (fn: ts.Node): boolean => {

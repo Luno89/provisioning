@@ -20,7 +20,7 @@ import { PasswordService } from '../../../../backend/src/accounts/services/Passw
 import { loadBreachedPasswords } from '../../../../backend/src/accounts/services/breached-passwords'
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
-import { getMe, logout, register, signIn as signInAt, verifySignUp, type SessionUser } from '../../features/platform'
+import { getMe, logout, register, resumePathFrom, signIn as signInAt, verifySignUp, type InteractionPath, type SessionUser } from '../../features/platform'
 import { INTERACTION_PATH, START_PATH } from '../../../../backend/src/instances/lib/oidc'
 import { openRoutesOf } from '../../../../backend/src/open-routes'
 import { InstanceReach } from '../../../../backend/src/instances/services/InstanceReach'
@@ -60,7 +60,7 @@ export interface Backend {
   turnedAway: (email: string) => Promise<string>
   invite: () => Promise<string>
   codeMailedTo: (email: string) => string
-  resumeAt: () => Promise<string>
+  resumeAt: () => Promise<InteractionPath>
   landedFrom: (next: string) => Promise<URL>
   signedOutAtRoot: (endSession: string) => Promise<string>
   signOut: () => Promise<void>
@@ -204,8 +204,8 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
     }
   }
 
-  const resumeAt = async (): Promise<string> => {
-    const resume = (await followed(START_PATH, (at) => at.searchParams.has('resume'))).searchParams.get('resume')
+  const resumeAt = async (): Promise<InteractionPath> => {
+    const resume = resumePathFrom((await followed(START_PATH, (at) => at.searchParams.has('resume'))).search)
     if (!resume) throw new Error('root sent the page back with no sign-in to resume')
     return resume
   }

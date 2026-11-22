@@ -1,4 +1,4 @@
-import { api, API_BASE } from '../../api/client'
+import { api, site, SITE_BASE } from '../../api/client'
 import type { SessionPermissions } from './lib/permissions'
 
 export type ConfirmWith = 'two-factor' | 'password' | 'email-code'
@@ -50,19 +50,19 @@ export interface SignUpCode {
   devCode?: string
 }
 
-const site = (): { baseURL: string } => ({ baseURL: API_BASE.replace(/\/api$/, '') })
+export type InteractionPath = `/oidc/interaction/${string}`
 
 export const register = (credentials: { email: string; password: string; inviteCode?: string }): Promise<SignUpAnswer> =>
   api.post<SignUpAnswer>('/auth/register', credentials).then((r) => r.data)
 
-export const signIn = (resume: string, credentials: { email: string; password: string }): Promise<SignInAnswer> =>
-  api.post<SignInAnswer>(`${resume}/login`, credentials, site()).then((r) => r.data)
+export const signIn = (resume: InteractionPath, credentials: { email: string; password: string }): Promise<SignInAnswer> =>
+  site.post<SignInAnswer>(`${resume}/login`, credentials).then((r) => r.data)
 
-export const confirmSecondFactor = (resume: string, code: string): Promise<SignInAnswer> =>
-  api.post<SignInAnswer>(`${resume}/second-factor`, { code }, site()).then((r) => r.data)
+export const confirmSecondFactor = (resume: InteractionPath, code: string): Promise<SignInAnswer> =>
+  site.post<SignInAnswer>(`${resume}/second-factor`, { code }).then((r) => r.data)
 
-export const verifySignUp = (resume: string, body: { id: string; code: string }): Promise<SignInAnswer> =>
-  api.post<SignInAnswer>(`${resume}/sign-up/verify`, body, site()).then((r) => r.data)
+export const verifySignUp = (resume: InteractionPath, body: { id: string; code: string }): Promise<SignInAnswer> =>
+  site.post<SignInAnswer>(`${resume}/sign-up/verify`, body).then((r) => r.data)
 
 export const resendSignUpCode = (id: string): Promise<SignUpCode> =>
   api.post<SignUpCode>('/auth/register/resend', { id }).then((r) => r.data)
@@ -84,8 +84,8 @@ export const signInKeys = {
 export const signInPlace = (): Promise<SignInPlace> =>
   api.get<SignInPlace>('/auth/sign-in').then((r) => r.data)
 
-export const providerSignInUrl = (resume: string, id: string, invite?: string): string =>
-  `${site().baseURL}${resume}/provider/${encodeURIComponent(id)}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`
+export const providerSignInUrl = (resume: InteractionPath, id: string, invite?: string): string =>
+  `${SITE_BASE}${resume}/provider/${encodeURIComponent(id)}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`
 
 export const accountRemovalPlace = (): Promise<string | null> =>
   api.get<{ url: string | null }>('/auth/account-removal').then((r) => r.data.url)

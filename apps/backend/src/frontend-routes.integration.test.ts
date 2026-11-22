@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, inject, it } from 'vitest';
 import ts from 'typescript';
 import { clientCallsIn, served, type Route } from '../../../tests/coupling/http-edges.js';
 import { isTest } from '../../../tests/coupling/graph.js';
-import { httpChannels } from '../../../tests/coupling/http-routes.js';
+import { FRONTEND_CLIENTS, httpChannels } from '../../../tests/coupling/http-routes.js';
 import { devSplitPlan, generateIdentityKey, publicKeyPem } from './instances/index.js';
 import { identityKeysFrom } from './instances/lib/identity-token.js';
 import { testDataDir } from './platform/testing/data-dir.js';
@@ -64,7 +64,7 @@ describe('every call the frontend makes is one some backend serves', () => {
 
   it('finds a route of the same method and shape for each of the frontend\'s calls, and can read every path the frontend names', () => {
     const everywhere = Object.values(byRole).flat();
-    const { calls, unread } = clientCallsIn(FRONTEND, join(FRONTEND, '..'));
+    const { calls, unread } = clientCallsIn(FRONTEND, join(FRONTEND, '..'), FRONTEND_CLIENTS);
     expect(calls.length).toBeGreaterThan(300);
     expect(calls.filter((call) => !served(call, everywhere)).map((call) => `${call.method} ${call.path} (${call.file}:${call.line})`)).toEqual([]);
     expect(unread.map((call) => `${call.file}:${call.line} ${call.text}`)).toEqual([]);

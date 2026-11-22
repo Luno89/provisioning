@@ -18,7 +18,7 @@ function mountOf(layer: Layer): string {
   if (!layer.regexp || layer.regexp.fast_slash) return '';
   let source = layer.regexp.source.replace(/^\^/, '').replace(/\\\/\?\(\?=\\\/\|\$\)$/, '').replace(/\(\?=\\\/\|\$\)$/, '');
   let key = 0;
-  source = source.replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, () => `:${layer.keys?.[key++]?.name ?? 'param'}`);
+  source = source.replace(/\(\?:\\\/\(\[\^\/\]\+\?\)\)/g, () => `\\/:${layer.keys?.[key++]?.name ?? 'param'}`);
   return source.replace(/\\\//g, '/').replace(/\\(.)/g, '$1');
 }
 
@@ -40,17 +40,49 @@ export function routesOf(app: { _router?: { stack: Layer[] } }): Route[] {
 
 const VERBS = new Set(['get', 'post', 'put', 'delete', 'patch']);
 
-export type Locals = Map<string, ts.Expression>;
+export interface Locals { values: Map<string, ts.Expression>; types: Map<string, ts.TypeNode> }
 
 export function localsOf(source: ts.SourceFile): Locals {
-  const locals: Locals = new Map();
+  const locals: Locals = { values: new Map(), types: new Map() };
   for (const statement of source.statements) {
+    if (ts.isTypeAliasDeclaration(statement)) locals.types.set(statement.name.text, statement.type);
     if (!ts.isVariableStatement(statement)) continue;
     for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.initializer) locals.set(declaration.name.text, declaration.initializer);
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) locals.values.set(declaration.name.text, declaration.initializer);
     }
   }
   return locals;
+}
+
+function typedPaths(type: ts.TypeNode, locals: Locals, depth: number): string[] | undefined {
+  if (depth > 4) return undefined;
+  if (ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) return [type.literal.text];
+  if (ts.isUnionTypeNode(type)) {
+    const each = type.types.map((part) => typedPaths(part, locals, depth + 1));
+    return each.every(Boolean) ? each.flat() as string[] : undefined;
+  }
+  if (ts.isTemplateLiteralTypeNode(type)) {
+    let paths = [type.head.text];
+    for (const span of type.templateSpans) {
+      const parts = typedPaths(span.type, locals, depth + 1) ?? [':*'];
+      paths = paths.flatMap((before) => parts.map((part) => `${before}${part}${span.literal.text}`));
+    }
+    return paths;
+  }
+  if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) {
+    const named = locals.types.get(type.typeName.text);
+    return named ? typedPaths(named, locals, depth + 1) : undefined;
+  }
+  return undefined;
+}
+
+function parameterNamed(node: ts.Identifier): ts.ParameterDeclaration | undefined {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (!ts.isFunctionLike(parent)) continue;
+    const found = parent.parameters.find((parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === node.text);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 export function pathsOf(node: ts.Expression, locals: Locals, depth = 0): string[] | undefined {
@@ -62,11 +94,13 @@ export function pathsOf(node: ts.Expression, locals: Locals, depth = 0): string[
     return both.every(Boolean) ? both.flat() as string[] : undefined;
   }
   if (ts.isIdentifier(node)) {
-    const value = locals.get(node.text);
+    const parameter = parameterNamed(node);
+    if (parameter) return parameter.type ? typedPaths(parameter.type, locals, depth + 1) : undefined;
+    const value = locals.values.get(node.text);
     return value && !ts.isArrowFunction(value) ? pathsOf(value, locals, depth + 1) : undefined;
   }
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-    const value = locals.get(node.expression.text);
+    const value = locals.values.get(node.expression.text);
     if (value && ts.isArrowFunction(value) && !ts.isBlock(value.body)) return pathsOf(value.body, locals, depth + 1);
     return undefined;
   }
@@ -89,21 +123,22 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-export function clientCallsIn(dir: string, root: string, client = 'api', base = '/api'): { calls: ClientCall[]; unread: UnreadCall[] } {
+export function clientCallsIn(dir: string, root: string, clients: ReadonlyArray<{ name: string; base: string }>): { calls: ClientCall[]; unread: UnreadCall[] } {
   const calls: ClientCall[] = [];
   const unread: UnreadCall[] = [];
   for (const file of sourceFiles(dir)) {
     const text = readFileSync(file, 'utf8');
-    if (!text.includes(`${client}.`)) continue;
+    if (!clients.some((client) => text.includes(`${client.name}.`))) continue;
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const locals = localsOf(source);
     const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)
-        && node.expression.expression.text === client && VERBS.has(node.expression.name.text) && node.arguments[0]) {
+      const receiver = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) ? node.expression.expression.text : undefined;
+      const client = clients.find((known) => known.name === receiver);
+      if (client && ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && VERBS.has(node.expression.name.text) && node.arguments[0]) {
         const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
         const paths = pathsOf(node.arguments[0], locals);
         if (paths === undefined) unread.push({ file: relative(root, file), line, text: node.arguments[0].getText(source).slice(0, 80) });
-        else for (const path of paths) calls.push({ method: node.expression.name.text.toUpperCase(), path: `${base}${path.split('?')[0]}`.replace(/\/+$/, ''), file: relative(root, file), line });
+        else for (const path of paths) calls.push({ method: node.expression.name.text.toUpperCase(), path: `${client.base}${path.split('?')[0]}`.replace(/\/+$/, ''), file: relative(root, file), line });
       }
       ts.forEachChild(node, visit);
     };

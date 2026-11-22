@@ -3,7 +3,8 @@
   "2026-11-04T15:52:22.804Z"
  ],
  "tests/coupling/ends.integration.test.ts": [
-  "2026-11-04T19:49:49.071Z"
+  "2026-11-04T19:49:49.071Z",
+  "2026-11-22T03:24:15.000Z"
  ],
  "tests/files-live.ts": [
   "2026-11-08T00:36:00.999Z"
@@ -158,6 +159,12 @@
   "2026-11-22T03:24:15.000Z"
  ],
  "apps/backend/src/infrastructure/services/TemporalBridge.memory.integration.test.ts": [
+  "2026-11-22T03:24:15.000Z"
+ ],
+ "apps/backend/src/frontend-routes.integration.test.ts": [
+  "2026-11-22T03:24:15.000Z"
+ ],
+ "tests/coupling/flows.integration.test.ts": [
   "2026-11-22T03:24:15.000Z"
  ]
 }
