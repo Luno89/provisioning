@@ -2,11 +2,11 @@ import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type InteractionResults, type KoaContextWithOIDC, type ResourceServer } from 'oidc-provider';
 import { servingOf } from '../lib/instances.js';
-import { SignJWT } from 'jose';
+import { decodeProtectedHeader, SignJWT } from 'jose';
 import { decryptValue, encryptValue, reopening, type AccessRevoked, type Database, type Reopening, type SecretKey, type Watching } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
+  ACCESS_TOKEN_TYPE, basicSecretOf, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   machineClientMetadata, metricsClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
@@ -54,10 +54,17 @@ const kindOf = (client: unknown): { kind: ClientKind; owner?: string | undefined
   return { kind: known.koala_kind, owner: known.koala_owner };
 };
 
-const metricsClientIssued = (deviceId: string): Record<string, string> => ({
+const metricsClientIssued = (deviceId: string, waiting?: string): Record<string, string> => ({
   [METRICS_CLIENT_FIELDS.id]: metricsClientIdOf(deviceId),
-  [METRICS_CLIENT_FIELDS.secret]: crypto.randomBytes(32).toString('base64url'),
+  [METRICS_CLIENT_FIELDS.secret]: waiting ?? crypto.randomBytes(32).toString('base64url'),
 });
+
+const rotating = (): boolean => Boolean(Provider.ctx?.oidc?.entities?.RegistrationAccessToken);
+
+const assertionKid = (ctx: KoaContextWithOIDC | undefined): string | undefined => {
+  const assertion = (ctx?.oidc?.params as { client_assertion?: unknown } | undefined)?.client_assertion;
+  return typeof assertion === 'string' ? decodeProtectedHeader(assertion).kid : undefined;
+};
 
 export type InteractionHeld = Record<string, unknown>;
 
@@ -151,6 +158,35 @@ export class RootProvider {
     return (await this.store.machines.getLocalAgentDevices()).find((candidate) => candidate.id === id);
   }
 
+  private async saveMachineClient(id: string, signIn: SignInKey, secret: string, rotated: boolean): Promise<void> {
+    const device = await this.device(id);
+    const heldSecret = device?.metricsClient ? decryptValue(device.metricsClient.secret, this.settings.dataKey) : undefined;
+    const metricsClient = heldSecret === secret && device?.metricsClient ? device.metricsClient : { secret: encryptValue(secret, this.settings.dataKey), since: new Date(this.now()).toISOString() };
+    if (!rotated) {
+      await this.store.machines.updateLocalAgentDevice(id, { set: { signIn, metricsClient }, unset: ['previousSignIn', 'previousMetricsClient'] });
+      return;
+    }
+    const previousSignIn = device?.previousSignIn ?? (device?.signIn && device.signIn.jwk.kid !== signIn.jwk.kid ? device.signIn : undefined);
+    const previousMetricsClient = device?.previousMetricsClient ?? (device?.metricsClient && heldSecret !== secret ? device.metricsClient : undefined);
+    await this.store.machines.updateLocalAgentDevice(id, { set: { signIn, metricsClient, ...(previousSignIn ? { previousSignIn } : {}), ...(previousMetricsClient ? { previousMetricsClient } : {}) } });
+  }
+
+  private presentedMetricsSecret(device: LocalAgentDeviceMetadata): string | undefined {
+    if (!device.metricsClient) return undefined;
+    const current = decryptValue(device.metricsClient.secret, this.settings.dataKey);
+    if (!device.previousMetricsClient) return current;
+    const previous = decryptValue(device.previousMetricsClient.secret, this.settings.dataKey);
+    return basicSecretOf(Provider.ctx?.get('authorization')) === previous ? previous : current;
+  }
+
+  private async metricsSecretUsed(ctx: KoaContextWithOIDC | undefined, clientId: string | undefined): Promise<void> {
+    const metricsOf = clientId ? machineOfMetricsClient(clientId) : undefined;
+    const device = metricsOf ? await this.device(metricsOf) : undefined;
+    if (!device?.metricsClient || !device.previousMetricsClient) return;
+    if (basicSecretOf(ctx?.get('authorization')) !== decryptValue(device.metricsClient.secret, this.settings.dataKey)) return;
+    await this.store.machines.updateLocalAgentDevice(device.id, { unset: ['previousMetricsClient'] });
+  }
+
   private async registering(ctx: KoaContextWithOIDC, properties: Record<string, unknown>): Promise<void> {
     const key = registeredKeyOf(properties);
     if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
@@ -159,7 +195,8 @@ export class RootProvider {
       await replacing.destroy();
       const device = await this.device(replacing.clientId ?? '');
       if (!device?.signIn) throw new errors.InvalidToken('root keeps no key for this machine, so there is none to replace');
-      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }), metricsClientIssued(device.id));
+      const waiting = device.previousMetricsClient && device.metricsClient ? decryptValue(device.metricsClient.secret, this.settings.dataKey) : undefined;
+      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }), metricsClientIssued(device.id, waiting));
       return;
     }
     const code = ctx.oidc.entities.InitialAccessToken?.jti;
@@ -232,8 +269,7 @@ export class RootProvider {
           if ((payload as KoalaClient).koala_kind === 'machine') {
             const secret = (payload as Record<string, unknown>)[METRICS_CLIENT_FIELDS.secret];
             if (typeof secret !== 'string' || !secret) throw new errors.InvalidClientMetadata('root registers a machine only with a client for its Prometheus');
-            const since = new Date(this.now()).toISOString();
-            await this.store.machines.updateLocalAgentDevice(id, { set: { signIn: { jwk: key, since: sinceFor((await this.device(id))?.signIn) }, metricsClient: { secret: encryptValue(secret, this.settings.dataKey), since } } });
+            await this.saveMachineClient(id, { jwk: key, since: sinceFor((await this.device(id))?.signIn) }, secret, rotating());
             return;
           }
           const held = (await instances.getInstances()).find((candidate) => candidate.id === id)?.signIn;
@@ -243,12 +279,13 @@ export class RootProvider {
           const metricsOf = machineOfMetricsClient(id);
           if (metricsOf) {
             const device = await this.device(metricsOf);
-            return device?.metricsClient ? metricsClientMetadata({ id: device.id, ownerId: device.ownerId, secret: decryptValue(device.metricsClient.secret, this.settings.dataKey) }) as AdapterPayload : undefined;
+            const secret = device ? this.presentedMetricsSecret(device) : undefined;
+            return device && secret ? metricsClientMetadata({ id: device.id, ownerId: device.ownerId, secret }) as AdapterPayload : undefined;
           }
           const client = await this.addressedClient(id);
           if (client) return clientMetadata(client) as AdapterPayload;
           const device = await this.device(id);
-          return device?.signIn ? machineClientMetadata({ id: device.id, ownerId: device.ownerId, key: device.signIn.jwk }) as AdapterPayload : undefined;
+          return device?.signIn ? machineClientMetadata({ id: device.id, ownerId: device.ownerId, key: device.signIn.jwk, previous: device.previousSignIn?.jwk }) as AdapterPayload : undefined;
         },
         findByUserCode: async () => undefined,
         findByUid: async () => undefined,
@@ -335,7 +372,10 @@ export class RootProvider {
       issueRefreshToken: async (_ctx, client) => client.grantTypeAllowed('refresh_token'),
       expiresWithSession: async () => false,
       extraTokenClaims: async (ctx, token) => {
-        if (token.kind === 'ClientCredentials') return this.machineKeyClaim(ctx, token.clientId);
+        if (token.kind === 'ClientCredentials') {
+          await this.metricsSecretUsed(ctx, token.clientId);
+          return this.machineKeyClaim(ctx, token.clientId);
+        }
         if (token.kind !== 'AccessToken' || !token.grantId) return undefined;
         const run = await this.store.instances.oidcFind('KoalaRun', token.grantId);
         if (!run) return undefined;
@@ -425,7 +465,10 @@ export class RootProvider {
     const authenticated = ctx?.oidc?.client;
     const client = authenticated?.clientId === clientId ? authenticated : clientId ? await this.provider.Client.find(clientId) : undefined;
     if (!client || kindOf(client).kind !== 'machine') return undefined;
-    const kid = registeredKeyOf(client.metadata() as Record<string, unknown>)?.kid;
+    const device = await this.device(client.clientId);
+    if (!device?.signIn) return undefined;
+    const kid = authenticated?.clientId === client.clientId ? assertionKid(ctx) : device.signIn.jwk.kid;
+    if (kid === device.signIn.jwk.kid && device.previousSignIn) await this.store.machines.updateLocalAgentDevice(device.id, { unset: ['previousSignIn'] });
     return kid ? { [MACHINE_KEY_CLAIM]: kid } : undefined;
   }
 
@@ -437,9 +480,9 @@ export class RootProvider {
     const kind = kindOf(client);
     if (kind.kind !== 'machine' || !kind.owner) return undefined;
     const tokenKey = (found.extra as Record<string, unknown> | undefined)?.[MACHINE_KEY_CLAIM];
-    if (!tokenKey || tokenKey !== registeredKeyOf(client.metadata() as Record<string, unknown>)?.kid) return undefined;
-    const since = (await this.device(client.clientId))?.signIn?.since;
-    if (!since) return undefined;
+    const device = await this.device(client.clientId);
+    const since = [device?.signIn, device?.previousSignIn].find((held) => held && tokenKey === held.jwk.kid)?.since;
+    if (!tokenKey || !since) return undefined;
     return { deviceId: client.clientId, ownerId: kind.owner, until: found.exp * 1000, keyEnds: machineKeyEnds(since) };
   }
 

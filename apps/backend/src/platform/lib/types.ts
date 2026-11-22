@@ -224,7 +224,9 @@ export interface LocalAgentDeviceMetadata {
   removal?: { startedAt: string } | undefined;
   offSince?: string | undefined;
   signIn?: { jwk: ClientPublicJwk; since: string } | undefined;
+  previousSignIn?: { jwk: ClientPublicJwk; since: string } | undefined;
   metricsClient?: { secret: string; since: string } | undefined;
+  previousMetricsClient?: { secret: string; since: string } | undefined;
   keyReplacement?: { reason: string; failedAt: string } | undefined;
   [key: string]: unknown;
 }

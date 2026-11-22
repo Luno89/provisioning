@@ -138,12 +138,26 @@ export function keptRootSession(sessions: ReadonlyArray<{ id: string; payload: R
 export const instanceClient = (instance: Pick<InstanceRecord, 'id' | 'ownerId' | 'url' | 'signIn'>): ClientRegistration | undefined =>
   instance.signIn && instance.url ? { clientId: instance.id, kind: 'instance', url: instance.url, key: instance.signIn.jwk, owner: instance.ownerId } : undefined;
 
-export const machineClientMetadata = (machine: { id: string; ownerId: string; key: PublicJwk }): Record<string, unknown> => ({
+export const machineClientMetadata = (machine: { id: string; ownerId: string; key: PublicJwk; previous?: PublicJwk | undefined }): Record<string, unknown> => ({
   ...machineRegistration(machine.key),
+  ...(machine.previous ? { jwks: { keys: [machine.key, machine.previous].map((key) => (machineRegistration(key).jwks as { keys: unknown[] }).keys[0]) } } : {}),
   client_id: machine.id,
   koala_kind: 'machine',
   koala_owner: machine.ownerId,
 });
+
+export function basicSecretOf(authorization: string | undefined): string | undefined {
+  const [scheme, encoded] = (authorization ?? '').split(' ');
+  if (scheme?.toLowerCase() !== 'basic' || !encoded) return undefined;
+  const basic = Buffer.from(encoded, 'base64').toString('utf8');
+  const colon = basic.indexOf(':');
+  if (colon === -1) return undefined;
+  try {
+    return decodeURIComponent(basic.slice(colon + 1).replace(/\+/g, '%20'));
+  } catch {
+    return undefined;
+  }
+}
 
 export const metricsClientMetadata = (machine: { id: string; ownerId: string; secret: string }): Record<string, unknown> => ({
   client_id: metricsClientIdOf(machine.id),
