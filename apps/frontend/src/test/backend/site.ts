@@ -14,7 +14,7 @@ import { JSON_LIMITS } from '../../../../backend/src/platform/lib/http-limits'
 import type { Database } from '../../../../backend/src/platform/lib/db-interface'
 import { authRouter } from '../../../../backend/src/accounts/routes/auth'
 import { passwordRouter } from '../../../../backend/src/accounts/routes/password'
-import { devicesFor } from '../../../../backend/src/accounts/routes/device'
+import { devicesFor, type Devices } from '../../../../backend/src/accounts/routes/device'
 import { AuthService } from '../../../../backend/src/accounts/services/AuthService'
 import { PasswordService } from '../../../../backend/src/accounts/services/PasswordService'
 import { loadBreachedPasswords } from '../../../../backend/src/accounts/services/breached-passwords'
@@ -35,6 +35,7 @@ export interface Site {
   db: Database
   api: Router
   auth: Auth
+  devices: Devices
   origin: string
   io: SocketServer
 }
@@ -125,17 +126,17 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { codeKey: CODE_KEY, mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: loadBreachedPasswords(), revocations })
-  const devices = devicesFor({ auth, sessionKey: SESSION_KEY, authService })
+  const devices = devicesFor({ auth, store: db.accounts, authService, ...(asInstance ? {} : { revocations }) })
 
   app.use('/api', auth.requireAuth)
   app.use(express.json({ limit: JSON_LIMITS.signedIn }))
   if (world) world.mount(app, { authService, codeKey: CODE_KEY, devices })
-  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: origin, start: START_PATH, interactionPath: INTERACTION_PATH, accounts: !asInstance, revocations, passwords }))
-  if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }))
+  app.use('/api/auth', authRouter({ db, authService, auth, devices, codeKey: CODE_KEY, appUrl: origin, start: START_PATH, interactionPath: INTERACTION_PATH, accounts: !asInstance, revocations, passwords }))
+  if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, devices }))
   refuseWorkOfDeletingProjects(app, db)
   const api = express.Router()
   app.use('/api', api)
-  await mount({ db, api, auth, origin, io })
+  await mount({ db, api, auth, devices, origin, io })
   app.use(errorResponder)
 
   moveThePageTo(origin)

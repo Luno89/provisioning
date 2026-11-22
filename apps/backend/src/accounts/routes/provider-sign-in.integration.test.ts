@@ -22,7 +22,6 @@ import { openRoutesOf } from '../../open-routes.js';
 
 const fresh = await emptiedEachTime();
 
-const SESSION_KEY = 'provider-test-secret';
 const SETUP_CODE = 'the-setup-code';
 const APP_URL = 'http://localhost:5173';
 
@@ -83,12 +82,13 @@ async function serve(db: Database, { server, url }: { server: http.Server; url: 
   const { auth } = root;
   const authService = new AuthService(db, { codeKey: CODE_KEY });
   const signInProviders = new SignInProviders({ providers, publicUrl: url, returnUrl, accounts: authService });
+  const devices = devicesFor({ auth, store: db.accounts, authService, revocations: root.revocations });
   const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
-  root.mount(app, { authService, codeKey: CODE_KEY, appUrl: APP_URL, providers: signInProviders, devices: devicesFor({ auth, sessionKey: SESSION_KEY, authService }) });
+  root.mount(app, { authService, codeKey: CODE_KEY, appUrl: APP_URL, providers: signInProviders, devices });
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: APP_URL, start: START_PATH, interactionPath: INTERACTION_PATH,
+    db, authService, auth, devices, codeKey: CODE_KEY, appUrl: APP_URL, start: START_PATH, interactionPath: INTERACTION_PATH,
     revocations: root.revocations,
     providers: signInProviders,
     passwords: new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: breachedFrom('') }),

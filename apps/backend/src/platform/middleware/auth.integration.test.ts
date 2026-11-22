@@ -27,6 +27,11 @@ describe('parseCookie', () => {
   it('does not match a cookie whose name merely starts the same', () => {
     expect(parseCookie('session_backup=xyz', 'session')).toBeUndefined();
   });
+
+  it('reads a value whole as the browser sent it, with its equals signs and its escapes undone', () => {
+    expect(parseCookie('theme=dark; state=a.b==; lang=en', 'state')).toBe('a.b==');
+    expect(parseCookie('koala_sid=s%3Aabc.def', 'koala_sid')).toBe('s:abc.def');
+  });
 });
 
 function fakeCall(headers: Record<string, string> = {}) {

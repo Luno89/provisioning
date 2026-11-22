@@ -194,6 +194,15 @@ describe('a check run that talks to Koala through its real routes', () => {
     expect(revoked.at(-1)).toBe('revoked');
     expect((await clients.slice(before)[0]!.get('/conversations')).status).toBe(200);
   });
+
+  it('reaches the person\'s Koala as the space only while its check run is live there', async () => {
+    const space = await makeSpace();
+    const client = api.clientFor(space);
+    expect((await client.get('/conversations')).status).toBe(200);
+    const checkRun = (await api.db.engine.getRunGrantOfRun('c1'))!;
+    await api.db.engine.saveRunGrant({ ...checkRun, state: 'ended' });
+    await expect(client.get('/conversations')).rejects.toThrow('run c1 has ended, so it holds no token');
+  });
 });
 
 describe('a check\'s world made through the real routes', () => {

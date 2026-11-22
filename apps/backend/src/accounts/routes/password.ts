@@ -1,12 +1,11 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, type Auth, type UserMetadata, type OpenRoute } from '../../platform/index.js';
+import { asyncRoute, type UserMetadata, type OpenRoute } from '../../platform/index.js';
 import type { Answered, PasswordService } from '../services/PasswordService.js';
 import type { Devices } from './device.js';
 
 export interface PasswordRouterDeps {
   passwords: Pick<PasswordService, 'forgot' | 'resend' | 'reset' | 'change'>;
-  auth: Pick<Auth, 'keptSession'>;
-  devices: Pick<Devices, 'known'>;
+  devices: Pick<Devices, 'known' | 'kept'>;
 }
 
 const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
@@ -36,7 +35,7 @@ export function passwordRouter(deps: PasswordRouterDeps): Router {
     const user = (req as { user?: UserMetadata }).user;
     if (!user) return res.status(401).json({ error: 'Sign in first' });
     const { password, current, code } = bodyOf(req);
-    const changed = await deps.passwords.change(user, { password, current, code }, deps.devices.known(req), deps.auth.keptSession(req), req.ip);
+    const changed = await deps.passwords.change(user, { password, current, code }, await deps.devices.known(req), await deps.devices.kept(req), req.ip);
     return answer(res, changed, () => ({ changed: true }));
   }));
 

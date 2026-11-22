@@ -1,5 +1,5 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
-export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, generateOTP, hashPassword, passwordMatches, removalProgressOf, removalProgressToken, signJWT, verifyJWT, verifyPassword } from './lib/auth.js';
+export { arrivedOverHttps, cookieNamed, generateOTP, hashPassword, passwordMatches, removalProgressOf, removalProgressToken, signJWT, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { TokenPurpose } from './lib/auth.js';
 export { watchingAll, watchWrites } from './lib/change-streams.js';
 export { REOPEN_FIRST_MS, REOPEN_MOST_MS, reopening, type Reopening } from '@koala/engine-core/reopening';

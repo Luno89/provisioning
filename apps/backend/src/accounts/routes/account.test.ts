@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { Principal } from '../../platform/lib/permissions.js';
-import { deviceToken, removalProgressOf, removalProgressToken } from '../../platform/lib/auth.js';
+import { removalProgressOf, removalProgressToken, signJWT } from '../../platform/lib/auth.js';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 import { accountRouter } from './account.js';
@@ -39,7 +39,7 @@ describe('the person\'s own page while their account is removed', () => {
 
   it('shows nothing without it, with one signed for something else or with another key, or once the account is not being removed', async () => {
     const { removal: service, routes } = await set();
-    for (const headers of [{}, { authorization: 'Bearer nonsense' }, { authorization: `Bearer ${deviceToken(PERSON.email, KEY)}` }, { authorization: `Bearer ${removalProgressToken(PERSON.id, 'other-key')}` }]) {
+    for (const headers of [{}, { authorization: 'Bearer nonsense' }, { authorization: `Bearer ${signJWT('oauth-state', { progressOf: PERSON.id }, KEY, 60)}` }, { authorization: `Bearer ${removalProgressToken(PERSON.id, 'other-key')}` }]) {
       expect(await routes.get('/api/account/removal/progress', { headers }), JSON.stringify(headers)).toMatchObject({ status: 401, data: { error: 'This does not show a removal' } });
     }
     expect(service.removalProgress).not.toHaveBeenCalled();

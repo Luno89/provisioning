@@ -60,20 +60,22 @@ import { treesRouter } from '../../projects/routes/trees.js';
 import { releaseSettingsRouter } from '../../releases/routes/release-settings.js';
 import { releasesRouter } from '../../releases/routes/releases.js';
 import { clientImportRouter } from '../../releases/routes/client-import.js';
-import { authRouter } from '../../accounts/routes/auth.js';
-import { AuthService } from '../../accounts/services/AuthService.js';
-import { rootAuthOver } from '../../platform/testing/root-auth.js';
-import { INTERACTION_PATH, START_PATH } from '../../instances/lib/oidc.js';
 import { errorResponder } from '../../platform/middleware/async-route.js';
-import { authorize, type Principal } from '../../platform/lib/permissions.js';
+import { asPerson, authorize, type Principal } from '../../platform/lib/permissions.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
+import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
 import type { PlanAdopter } from '../../projects/services/PlanService.js';
-import { openRoutesOf } from '../../open-routes.js';
-import { runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { grantsOver, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { RunTokens } from '../../engine/services/RunTokens.js';
+import { bearerApi } from '../../checks/services/CheckToolAccess.js';
+import { InstanceReach } from '../../instances/services/InstanceReach.js';
+import { servedThroughRoot, signInThroughRoot } from '../../instances/testing/through-root.js';
 
-export const SESSION_KEY = 'check-api-session-key';
-const CODE_KEY = 'check-api-code-key';
+const CHECKING_PERSON = 'bo';
+const INSTANCE_ID = 'inst-bo';
+const CHECK_RUN = 'c1';
+const DATA_KEY = 'check-api-data-key';
 
 export interface CheckApiPorts {
   workflows: { started: { type: string; runId: string; conversationId: string | undefined; owner: string }[]; signals: { workflowId: string; name: string; payload: unknown }[]; onStart: (started: { runId: string; conversationId: string | undefined; owner: string }) => Promise<void> };
@@ -115,7 +117,7 @@ export interface CheckApi {
   db: MongoDB;
   ports: CheckApiPorts;
   baseURL: string;
-  clientFor: (user: { id: string; email: string }) => AxiosInstance;
+  clientFor: (space: { id: string }) => AxiosInstance;
   close: () => Promise<void>;
 }
 
@@ -176,9 +178,22 @@ export async function mountCheckApi(): Promise<CheckApi> {
     pullRequests: [],
   };
 
-  const rootWorld = rootAuthOver(db, { open: openRoutesOf('root') });
-  const { auth } = rootWorld;
-  const authService = new AuthService(db, { codeKey: CODE_KEY });
+  const rootDb = await testDatabase();
+  const rootApp = express();
+  const rootServer = await listening(rootApp);
+  const app = express();
+  const server = await listening(app);
+  const revocations = new AccessRevocations();
+  await rootDb.accounts.saveUser({ id: CHECKING_PERSON, email: `${CHECKING_PERSON}@example.com`, emailVerified: true, twoFactorEnabled: false, createdAt: '2026-11-01T00:00:00.000Z' });
+  const throughRoot = await servedThroughRoot({
+    rootDb, instanceDb: db, root: { url: rootServer.url, app: rootApp }, instance: { url: server.url, app }, reach: new InstanceReach({ open: true }),
+    instanceId: INSTANCE_ID, ownerId: CHECKING_PERSON, revocations, dependency: { failed: (_dependency, err) => err },
+  });
+  await throughRoot.signIn.register();
+  await signInThroughRoot(rootServer.url, server.url, await throughRoot.signInAtRoot({ id: CHECKING_PERSON, email: `${CHECKING_PERSON}@example.com` }));
+  await grantsOver(db.engine).issue({ ownerId: CHECKING_PERSON, runId: CHECK_RUN, principal: asPerson(CHECKING_PERSON), startedBy: 'person' });
+  const runTokens = new RunTokens({ store: db.engine, root: throughRoot.signIn, dataKey: DATA_KEY, log: () => undefined, holder: 'check-api' });
+  const auth = throughRoot.instanceAuth;
   const getOwnedProject = async (id: string, principal: Principal) => {
     const project = (await db.projects.getProjects()).find((candidate) => candidate.id === id);
     return project && authorize(principal, 'see', { kind: 'project', ownerId: project.ownerId }).allowed ? project : undefined;
@@ -203,14 +218,8 @@ export async function mountCheckApi(): Promise<CheckApi> {
     save: (task: Task) => db.projects.saveTask(task),
   };
 
-  const app = express();
   app.use(express.json({ limit: '20mb' }));
   app.use('/api', auth.requireAuth);
-  rootWorld.mount(app, { authService });
-  app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY as never, codeKey: CODE_KEY, appUrl: 'http://localhost:5173', start: START_PATH, interactionPath: INTERACTION_PATH,
-    revocations: rootWorld.revocations, passwords: { newPasswordProblem: () => undefined },
-  }));
   app.use('/api/engine', engineRouter({
     runs,
     registry,
@@ -261,24 +270,8 @@ export async function mountCheckApi(): Promise<CheckApi> {
   app.use('/api/monitoring', monitoringRouter({ monitoring: ports.monitoring }));
   app.use(errorResponder);
 
-  const server = http.createServer(app);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const { port } = server.address() as { port: number };
-  const baseURL = `http://127.0.0.1:${port}/api`;
-  const sessions = new Map<string, Promise<string>>();
-  const sessionOf = (user: { id: string }): Promise<string> => {
-    const held = sessions.get(user.id) ?? rootWorld.signedIn(user.id).then((signedIn) => signedIn.cookie);
-    sessions.set(user.id, held);
-    return held;
-  };
-  const clientFor = (user: { id: string; email: string }) => {
-    const client = axios.create({ baseURL, proxy: false });
-    client.interceptors.request.use((config) => sessionOf(user).then((cookie) => {
-      config.headers.set('Cookie', cookie);
-      return config;
-    }));
-    return client;
-  };
+  const baseURL = `${server.url}/api`;
+  const clientFor = (space: { id: string }) => bearerApi(baseURL, () => runTokens.bearerForRun(CHECK_RUN, space.id));
 
   return {
     db,
@@ -286,7 +279,13 @@ export async function mountCheckApi(): Promise<CheckApi> {
     baseURL,
     clientFor,
     close: async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await Promise.all([server, rootServer].map((served) => new Promise<void>((resolve) => served.server.close(() => resolve()))));
     },
   };
+}
+
+async function listening(app: express.Express): Promise<{ server: http.Server; url: string }> {
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  return { server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}` };
 }

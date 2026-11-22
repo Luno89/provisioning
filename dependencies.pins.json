@@ -760,6 +760,25 @@
       "released": "2025-11-30T23:46:37Z"
     },
     {
+      "kind": "npm",
+      "name": "cookie",
+      "version": "2.0.1",
+      "where": "reads the cookies a browser sends to the backend",
+      "source": "https://www.npmjs.com/package/cookie",
+      "github": "jshttp/cookie",
+      "osv": {
+        "ecosystem": "npm",
+        "name": "cookie"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/package.json",
+          "pattern": "\"cookie\": \"([0-9.]+)\""
+        }
+      ],
+      "released": "2026-06-30T22:15:13Z"
+    },
+    {
       "kind": "image",
       "name": "node",
       "version": "22-bookworm-slim",

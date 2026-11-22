@@ -1,11 +1,9 @@
 import { testIdentityKey } from '../../../../backend/src/platform/testing/keys'
 import type { Client, WorkflowHandle, WorkflowStartOptions } from '@temporalio/client'
 import type { Site } from './site'
-import { CODE_KEY, SESSION_KEY } from './site'
+import { SESSION_KEY } from './site'
 import { outsideThisTier, type StartedWorkflow } from './outside'
 import { wireAccounts } from '../../../../backend/src/accounts/wiring/accounts'
-import { devicesFor } from '../../../../backend/src/accounts/routes/device'
-import { AuthService } from '../../../../backend/src/accounts/services/AuthService'
 import { roleFromEnv } from '../../../../backend/src/platform/lib/platform-role'
 
 export interface FollowedTemporal {
@@ -35,7 +33,6 @@ export function followedTemporal(): FollowedTemporal {
 }
 
 export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
-  const authService = new AuthService(site.db, { codeKey: CODE_KEY })
   wireAccounts({
     app: { use: (path, router) => site.api.use(path.replace(/^\/api/, ''), router) },
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey() }),
@@ -43,7 +40,7 @@ export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
     temporal: () => temporal.client,
     operatorOnly: site.auth.requireOperator('manage-accounts'),
     clearSession: site.auth.clearSession,
-    devices: devicesFor({ auth: site.auth, sessionKey: SESSION_KEY, authService }),
+    devices: site.devices,
     tellInstance: () => undefined,
     sessionKey: SESSION_KEY,
   })

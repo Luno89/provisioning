@@ -13,7 +13,7 @@ import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
-import { deviceToken, hashPassword } from '../../platform/lib/auth.js';
+import { hashPassword } from '../../platform/lib/auth.js';
 import { INTERACTION_PATH, START_PATH } from '../../instances/lib/oidc.js';
 import type { CookieJar } from '../services/sign-in/password-at-root.js';
 import { interactionAt } from '../testing/interaction-driver.js';
@@ -23,7 +23,6 @@ const fresh = await emptiedEachTime();
 
 const sessionFrom = (answer: globalThis.Response): string => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('koala_sid=')) ?? '';
 
-const JWT_SECRET = 'test-secret';
 const SETUP_CODE = 'the-setup-code';
 
 const CODE_KEY = 'the-data-key-codes-are-kept-with';
@@ -40,7 +39,7 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
   revocations.listen(async (event: AccessRevoked) => { revoked.push(event); });
   const authService = new AuthService(db, { ...options, codeKey: CODE_KEY });
   const passwords = new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: breachedFrom('password1234\n'), revocations });
-  const devices = devicesFor({ auth, sessionKey: JWT_SECRET, authService });
+  const devices = devicesFor({ auth, store: db.accounts, authService, revocations });
   app.use(express.json());
   app.use('/api', auth.requireAuth);
   root.mount(app, { authService, devices, codeKey: CODE_KEY, appUrl: 'http://localhost:5173' });
@@ -48,7 +47,7 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
     db,
     authService,
     auth,
-    sessionKey: JWT_SECRET,
+    devices,
     codeKey: CODE_KEY,
     appUrl: 'http://localhost:5173',
     start: START_PATH,
@@ -56,7 +55,7 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
     revocations,
     passwords,
   }));
-  app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));
+  app.use('/api/auth/password', passwordRouter({ passwords, devices }));
   return { server, authService, revoked, at, url: (p: string) => `${at}${p}` };
 }
 
@@ -115,8 +114,11 @@ describe('auth router', () => {
     const known = await attempt('hunter2hunter2', device);
     expect(known.status).toBe(200);
     expect(known.login.headers.getSetCookie().find((line) => line.startsWith('device='))!.split(';')[0]).toBeDefined();
-    expect((await attempt('hunter2hunter2', deviceToken('other@example.com', JWT_SECRET))).status).toBe(429);
-    expect((await attempt('hunter2hunter2', deviceToken('known@example.com', 'another-key'))).status).toBe(429);
+    await db.accounts.saveUser({ id: 'other', email: 'other@example.com', passwordHash: await hashPassword('hunter2hunter2'), twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
+    const others = (await logIn('other@example.com', 'hunter2hunter2')).interaction.jar.get('device')!;
+    expect(others).toBeDefined();
+    expect((await attempt('hunter2hunter2', others)).status).toBe(429);
+    expect((await attempt('hunter2hunter2', 'a-browser-koala-never-remembered')).status).toBe(429);
     for (let n = 0; n < 10; n += 1) expect((await attempt('wrong', device)).status).toBe(401);
     expect((await attempt('hunter2hunter2', device)).status).toBe(429);
   });

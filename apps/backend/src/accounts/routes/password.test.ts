@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { Auth } from '../../platform/middleware/auth.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { PasswordService } from '../services/PasswordService.js';
@@ -10,10 +9,9 @@ import type { Devices } from './device.js';
 const KEPT = { session: 'the-session-the-change-was-made-in', rootSid: 'its-session-at-root' };
 
 async function set(passwords = mock<PasswordService>()) {
-  const auth = mock<Auth>();
   const devices = mock<Devices>();
-  const routes = await routesInProcess({ prefix: '/api/auth/password', router: () => passwordRouter({ passwords, auth, devices }), user: PERSON, open: true });
-  return { passwords, auth, devices, routes };
+  const routes = await routesInProcess({ prefix: '/api/auth/password', router: () => passwordRouter({ passwords, devices }), user: PERSON, open: true });
+  return { passwords, devices, routes };
 }
 
 describe('/api/auth/password', () => {
@@ -67,12 +65,12 @@ describe('/api/auth/password', () => {
   });
 
   it('changes the password for the person signed in and keeps their browser\'s session', async () => {
-    const { passwords, auth, devices, routes } = await set();
+    const { passwords, devices, routes } = await set();
     const changed = { ...PERSON, passwordHash: 'the-new-hash' } as UserMetadata;
     const device = { account: PERSON.email, id: 'phone' };
-    devices.known.mockReturnValue(device);
+    devices.known.mockResolvedValue(device);
     passwords.change.mockResolvedValue({ ok: true, user: changed });
-    auth.keptSession.mockReturnValue(KEPT);
+    devices.kept.mockResolvedValue(KEPT);
     const answer = await routes.post('/api/auth/password/', { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' });
     expect(answer.data).toEqual({ changed: true });
     expect(passwords.change).toHaveBeenCalledWith(expect.objectContaining({ id: PERSON.id }), { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' }, device, KEPT, '127.0.0.1');
@@ -80,9 +78,9 @@ describe('/api/auth/password', () => {
   });
 
   it('keeps the session as it was and says why when the change is refused', async () => {
-    const { passwords, auth, routes } = await set();
+    const { passwords, devices, routes } = await set();
     passwords.change.mockResolvedValue({ ok: false, status: 403, error: 'Enter your current password to change it' });
-    auth.keptSession.mockReturnValue(KEPT);
+    devices.kept.mockResolvedValue(KEPT);
     const answer = await routes.post('/api/auth/password/', { password: 'the-new-one-1' });
     expect(answer.status).toBe(403);
     expect(answer.data).toEqual({ error: 'Enter your current password to change it' });
