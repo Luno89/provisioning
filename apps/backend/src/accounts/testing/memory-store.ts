@@ -6,6 +6,7 @@ import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from '../lib/accou
 import type { InviteLimits } from '../lib/project-invite-limits.js';
 import { RESET_CODES_SENT, type PasswordReset } from '../lib/password-reset.js';
 import type { TwoFactorCode } from '../lib/second-factor.js';
+import type { RememberedBrowser } from '../lib/remembered-browsers.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from '../lib/sign-up.js';
 import { FIRST_ADMIN_INVITE, type AccountsStore } from '../store.js';
 
@@ -21,12 +22,14 @@ export class MemoryAccountsStore implements AccountsStore {
   private readonly pendingSignUps = new Map<string, Omit<PendingSignUp, 'id'>>();
   private readonly passwordResets: Map<string, Omit<PasswordReset, 'id'>>;
   private readonly twoFactorCodes: Map<string, Omit<TwoFactorCode, 'id'>>;
+  private readonly rememberedBrowsers: Map<string, Omit<RememberedBrowser, 'id'>>;
   private limits: InviteLimits | undefined;
 
   constructor(private readonly collections: Collections = new Map()) {
     this.users = new MemoryRecords(collectionIn<UserMetadata>(collections, 'users'));
     this.passwordResets = collectionIn<Omit<PasswordReset, 'id'>>(collections, 'passwordResets');
     this.twoFactorCodes = collectionIn<Omit<TwoFactorCode, 'id'>>(collections, 'twoFactorCodes');
+    this.rememberedBrowsers = collectionIn<Omit<RememberedBrowser, 'id'>>(collections, 'rememberedBrowsers');
   }
 
   async ensureIndexes(): Promise<void> {}
@@ -278,6 +281,20 @@ export class MemoryAccountsStore implements AccountsStore {
 
   async dropTwoFactorCodesOf(ownerId: string): Promise<void> {
     for (const id of this.ownedBy('twoFactorCodes', ownerId)) this.twoFactorCodes.delete(id);
+  }
+
+  async saveRememberedBrowser(browser: RememberedBrowser): Promise<void> {
+    const { id, ...rest } = browser;
+    this.rememberedBrowsers.set(id, copied(rest));
+  }
+
+  async getRememberedBrowser(id: string): Promise<RememberedBrowser | undefined> {
+    const held = this.rememberedBrowsers.get(id);
+    return held ? { id, ownerId: String(held.ownerId), account: String(held.account), expiresAt: copied(held.expiresAt) } : undefined;
+  }
+
+  async forgetBrowsersOf(ownerId: string, except?: string | undefined): Promise<void> {
+    for (const id of this.ownedBy('rememberedBrowsers', ownerId)) if (id !== except) this.rememberedBrowsers.delete(id);
   }
 
   private bump(held: { wrong: number } | undefined): number {

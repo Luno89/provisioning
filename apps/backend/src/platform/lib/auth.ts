@@ -45,7 +45,7 @@ function base64urlDecode(str: string): Record<string, unknown> | null {
 }
 
 type LastingPurpose = 'removal-progress';
-export type TokenPurpose = 'device' | 'oauth-state' | LastingPurpose;
+export type TokenPurpose = 'oauth-state' | LastingPurpose;
 const LASTING: ReadonlySet<TokenPurpose> = new Set<LastingPurpose>(['removal-progress']);
 
 export function signJWT(purpose: Exclude<TokenPurpose, LastingPurpose>, payload: Record<string, unknown>, key: SecretKey, expiresInSeconds: number): string {
@@ -104,26 +104,6 @@ export function generateOTP(): string {
 }
 
 export const cookieNamed = (name: string, secure: boolean): string => (secure ? `__Host-${name}` : name);
-
-export const DEVICE_COOKIE = 'device';
-
-export const DEVICE_SECONDS = 365 * 24 * 60 * 60;
-
-export interface SignedInDevice {
-  account: string;
-  id: string;
-}
-
-export const deviceToken = (account: string, key: SecretKey, id: string = crypto.randomUUID()): string =>
-  signJWT('device', { deviceFor: account.trim().toLowerCase(), device: id }, key, DEVICE_SECONDS);
-
-export function deviceOf(token: string | undefined, key: SecretKey): SignedInDevice | undefined {
-  if (!token) return undefined;
-  const decoded = verifyJWT(token, 'device', key);
-  return decoded && typeof decoded.deviceFor === 'string' && typeof decoded.device === 'string' && decoded.device
-    ? { account: decoded.deviceFor, id: decoded.device }
-    : undefined;
-}
 
 export const removalProgressToken = (account: string, key: SecretKey): string => signed('removal-progress', { progressOf: account }, key);
 

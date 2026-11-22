@@ -11,6 +11,7 @@ export const REVOKED_SAID: Readonly<Record<RevokedBecause, string>> = {
 export interface KeptSession {
   session: string;
   rootSid: string;
+  browser?: string | undefined;
 }
 
 export interface AccessRevoked {

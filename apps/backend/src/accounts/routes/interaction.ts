@@ -53,7 +53,7 @@ export function interactionRouter(deps: InteractionRouterDeps): Router {
   };
 
   const finished = async (req: Request, res: Response, user: UserMetadata): Promise<void> => {
-    deps.devices.remember(req, res, user.email);
+    await deps.devices.remember(req, res, user);
     res.json({ next: await interactions.finishInteraction(req, res, user.id) });
   };
 
@@ -66,7 +66,7 @@ export function interactionRouter(deps: InteractionRouterDeps): Router {
       }
       if (!await goneAnswered(req, res)) return;
       const user = await db.accounts.getUserByEmail(account);
-      const checked = await authService.checkPassword(account, user, password, deps.devices.known(req), req.ip);
+      const checked = await authService.checkPassword(account, user, password, await deps.devices.known(req), req.ip);
       if (checked.kind === 'locked') return res.status(429).json({ error: checked.said });
       if (checked.kind === 'wrong' || !user) return res.status(401).json({ error: 'Invalid email or password' });
       if (user.removal) return res.status(403).json({ error: 'This account is being removed' });

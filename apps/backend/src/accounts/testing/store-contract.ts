@@ -4,6 +4,7 @@ import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { RESET_CODES_SENT, type PasswordReset } from '../lib/password-reset.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from '../lib/sign-up.js';
 import type { TwoFactorCode } from '../lib/second-factor.js';
+import type { RememberedBrowser } from '../lib/remembered-browsers.js';
 import type { AccountsStore } from '../store.js';
 
 const person = (id: string, email = `${id}@example.com`): UserMetadata => ({ id, email, twoFactorEnabled: false, emailVerified: true, createdAt: '2026-10-01T00:00:00.000Z' });
@@ -16,6 +17,7 @@ const nothingRelated = { watermarkKeys: [], ingestIds: [], projectIds: [] };
 const signUp = (id: string): PendingSignUp => ({ id, email: `${id}@example.com`, passwordHash: 'p', inviteHash: 'i', codeHash: 'c1', wrong: 0, sent: 1, expiresAt: later(0) });
 const reset = (id: string): PasswordReset => ({ id, ownerId: 'owner-1', email: 'owner@example.com', codeHash: 'c1', wrong: 0, sent: 1, expiresAt: later(0) });
 const twoFactor = (id: string, ownerId = 'owner-1'): TwoFactorCode => ({ id, ownerId, codeHash: 'h1', expiresAt: later(5) });
+const browser = (id: string, ownerId: string): RememberedBrowser => ({ id, ownerId, account: `${ownerId}@example.com`, expiresAt: later(5) });
 
 interface CodeKind<T extends { id: string; wrong: number; sent: number; codeHash: string; expiresAt: Date }> {
   noun: string;
@@ -349,6 +351,35 @@ export function accountsStoreContract(make: () => Promise<AccountsStore>): void 
     });
   });
 
+  describe('remembered browsers', () => {
+    it('keeps a browser as it was saved, renews it when saved again, and hands back a copy', async () => {
+      const store = await make();
+      await store.saveRememberedBrowser(browser('b1', 'alice'));
+      expect(await store.getRememberedBrowser('b1')).toEqual(browser('b1', 'alice'));
+      expect(await store.getRememberedBrowser('b2')).toBeUndefined();
+      await store.saveRememberedBrowser({ ...browser('b1', 'alice'), expiresAt: later(9) });
+      const read = await store.getRememberedBrowser('b1');
+      expect(read?.expiresAt).toEqual(later(9));
+      read!.expiresAt.setUTCFullYear(1999);
+      expect(await store.getRememberedBrowser('b1')).toEqual({ ...browser('b1', 'alice'), expiresAt: later(9) });
+    });
+
+    it('forgets every browser of one person but the one kept, and no one else\'s', async () => {
+      const store = await make();
+      await store.saveRememberedBrowser(browser('b1', 'alice'));
+      await store.saveRememberedBrowser(browser('b2', 'alice'));
+      await store.saveRememberedBrowser(browser('b3', 'alice'));
+      await store.saveRememberedBrowser(browser('b4', 'bob'));
+      await store.forgetBrowsersOf('alice', 'b2');
+      expect(await store.getRememberedBrowser('b1')).toBeUndefined();
+      expect(await store.getRememberedBrowser('b2')).toEqual(browser('b2', 'alice'));
+      expect(await store.getRememberedBrowser('b3')).toBeUndefined();
+      await store.forgetBrowsersOf('alice');
+      expect(await store.getRememberedBrowser('b2')).toBeUndefined();
+      expect(await store.getRememberedBrowser('b4')).toEqual(browser('b4', 'bob'));
+    });
+  });
+
   describe('removing an account', () => {
     it('finds nothing of the account\'s work among the records it keeps itself', async () => {
       const store = await make();
@@ -363,15 +394,18 @@ export function accountsStoreContract(make: () => Promise<AccountsStore>): void 
       await store.saveTwoFactorCode(twoFactor('sign-in:alice', 'alice'));
       await store.saveTwoFactorCode(twoFactor('confirm:alice', 'alice'));
       await store.saveTwoFactorCode(twoFactor('sign-in:bob', 'bob'));
+      await store.saveRememberedBrowser(browser('b-alice', 'alice'));
+      await store.saveRememberedBrowser(browser('b-bob', 'bob'));
       await store.savePasswordReset(reset('r-alice'));
       await store.savePasswordReset({ ...reset('r-bob'), ownerId: 'bob' });
       await store.savePasswordReset({ id: 'r-nobody', email: 'x@example.com', codeHash: 'c', wrong: 0, sent: 1, expiresAt: later(0) });
       await store.saveInvite(invite('i1', 'code-1', { createdBy: 'alice' }));
       await store.savePendingSignUp(signUp('s1'));
-      expect(await store.accountLeftovers('alice')).toEqual({ twoFactorCodes: 2, users: 1 });
+      expect(await store.accountLeftovers('alice')).toEqual({ rememberedBrowsers: 1, twoFactorCodes: 2, users: 1 });
       expect(await store.accountLeftovers('owner-1')).toEqual({ passwordResets: 1 });
       expect(await store.accountLeftovers('nobody')).toEqual({});
-      expect(await store.removeAccountRecords('alice', nothingRelated)).toEqual({ twoFactorCodes: 2, users: 1 });
+      expect(await store.removeAccountRecords('alice', nothingRelated)).toEqual({ rememberedBrowsers: 1, twoFactorCodes: 2, users: 1 });
+      expect(await store.getRememberedBrowser('b-bob')).toBeDefined();
       expect(await store.accountLeftovers('alice')).toEqual({});
       expect(await store.getUserById('alice')).toBeUndefined();
       expect(await store.getUserById('bob')).toEqual(person('bob'));

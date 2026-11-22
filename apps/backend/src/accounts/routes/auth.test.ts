@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { deviceToken } from '../../platform/lib/auth.js';
+import { browserIdOf, rememberedUntil } from '../lib/remembered-browsers.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { principalOf } from '../../platform/lib/permissions.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
@@ -24,7 +24,6 @@ import { devicesFor } from './device.js';
 import { INTERACTION_GONE } from './interaction.js';
 import { openRoutesOf } from '../../open-routes.js';
 
-const KEY = 'test-secret';
 const CODE_KEY = 'the-data-key-codes-are-kept-with';
 const SETUP = 'the-setup-code';
 const APP = 'http://localhost:5173';
@@ -72,13 +71,13 @@ function set(options: { accounts?: boolean; withProviders?: boolean } = {}) {
     (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(user, { role: 'root' });
     return next();
   });
+  const devices = devicesFor({ auth: root.auth, store: db.accounts, authService, revocations: root.revocations });
   root.mount(app, {
-    authService, appUrl: APP, codeKey: CODE_KEY,
-    devices: devicesFor({ auth: root.auth, sessionKey: KEY, authService }),
+    authService, appUrl: APP, codeKey: CODE_KEY, devices,
     providers: options.withProviders === false ? undefined : providers,
   });
   app.use(PREFIX, authRouter({
-    db, authService, auth: root.auth, sessionKey: KEY, codeKey: CODE_KEY, appUrl: APP, passwords, start: START_PATH, interactionPath: INTERACTION_PATH,
+    db, authService, auth: root.auth, devices, codeKey: CODE_KEY, appUrl: APP, passwords, start: START_PATH, interactionPath: INTERACTION_PATH,
     accounts: options.accounts,
     revocations: root.revocations,
     providers: options.withProviders === false ? undefined : providers,
@@ -445,8 +444,9 @@ describe('signing in', () => {
     const s = set();
     await login(s);
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
-    await loggingIn(s, { email: 'ann@example.com', password: 'p' }, new Map([['device', deviceToken('ann@example.com', KEY, 'phone')]]));
-    expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.anything(), 'p', { account: 'ann@example.com', id: 'phone' }, '127.0.0.1');
+    await s.db.accounts.saveRememberedBrowser({ id: browserIdOf('the-phone'), ownerId: 'ann', account: 'ann@example.com', expiresAt: rememberedUntil(new Date()) });
+    await loggingIn(s, { email: 'ann@example.com', password: 'p' }, new Map([['device', 'the-phone']]));
+    expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.anything(), 'p', { account: 'ann@example.com', id: browserIdOf('the-phone') }, '127.0.0.1');
   });
 
   it('answers a wrong password and an unknown account alike', async () => {

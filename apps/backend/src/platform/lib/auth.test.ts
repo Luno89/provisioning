@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, deviceToken, deviceOf, removalProgressOf, removalProgressToken } from './auth.js';
+import { hashPassword, verifyPassword, passwordMatches, signJWT, verifyJWT, generateOTP, removalProgressOf, removalProgressToken } from './auth.js';
 
 describe('Auth Utilities', () => {
   describe('Password Hashing', () => {
@@ -69,11 +69,8 @@ describe('Auth Utilities', () => {
     it('takes a token only for the purpose it was signed for, and refuses one that names none', () => {
       const challenge = signJWT('oauth-state', { twoFactorFor: 'u1', userId: 'u1' }, secret, 60);
       expect(verifyJWT(challenge, 'oauth-state', secret)).toMatchObject({ twoFactorFor: 'u1' });
-      expect(verifyJWT(challenge, 'device', secret)).toBeNull();
-      const device = deviceToken('ann@example.com', secret, 'd1');
-      expect(verifyJWT(device, 'oauth-state', secret)).toBeNull();
-      expect(deviceOf(device, secret)).toEqual({ account: 'ann@example.com', id: 'd1' });
-      expect(deviceOf(challenge, secret)).toBeUndefined();
+      expect(verifyJWT(challenge, 'removal-progress', secret)).toBeNull();
+      expect(verifyJWT(removalProgressToken('u1', secret), 'oauth-state', secret)).toBeNull();
       const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
       const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ userId: 'u1', exp: Math.floor(Date.now() / 1000) + 60 })}`;
       expect(verifyJWT(`${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`, 'oauth-state', secret)).toBeNull();
@@ -84,10 +81,8 @@ describe('Auth Utilities', () => {
       expect(removalProgressOf(token, secret)).toBe('bob');
       expect(verifyJWT(token, 'removal-progress', secret)).not.toHaveProperty('exp');
       expect(verifyJWT(token, 'oauth-state', secret)).toBeNull();
-      expect(deviceOf(token, secret)).toBeUndefined();
       expect(removalProgressOf(token, 'wrongSecret')).toBeUndefined();
       expect(removalProgressOf(signJWT('oauth-state', { progressOf: 'bob' }, secret, 60), secret)).toBeUndefined();
-      expect(removalProgressOf(deviceToken('bob@example.com', secret, 'd1'), secret)).toBeUndefined();
       expect(removalProgressOf('not-a-token', secret)).toBeUndefined();
     });
   });

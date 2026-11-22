@@ -12,7 +12,7 @@ import { codeHash } from '../lib/codes.js';
 import { takenAddressMail } from '../lib/password-reset.js';
 import type { OfferedProvider } from '../lib/sign-in-providers.js';
 import { confirmWith, twoFactorChangeFrom } from '../lib/second-factor.js';
-import { devicesFor } from './device.js';
+import type { Devices } from './device.js';
 import { INTERACTION_GONE, PROVIDER_INTERACTION_COOKIE } from './interaction.js';
 
 export interface AccountsSignIn {
@@ -24,7 +24,7 @@ export interface AuthRouterDeps {
   db: Database;
   authService: AuthService;
   auth: Auth;
-  sessionKey: SecretKey;
+  devices: Pick<Devices, 'confirmed' | 'kept'>;
   codeKey: SecretKey;
   appUrl: string;
   start: string;
@@ -40,10 +40,9 @@ export const AUTH_OPEN: readonly OpenRoute[] = ['/register', '/register/resend',
 export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
-  const { db, authService, sessionKey, appUrl } = deps;
-  const { keptSession, clearSession, checkAndConsumeInvite, inviteProblem, sessionCookieOptions, getCookie } = deps.auth;
+  const { db, authService, devices, appUrl } = deps;
+  const { clearSession, checkAndConsumeInvite, inviteProblem, sessionCookieOptions, getCookie } = deps.auth;
   const uidCookie = cookieNamed(PROVIDER_INTERACTION_COOKIE, sessionCookieOptions.secure);
-  const devices = devicesFor({ auth: deps.auth, sessionKey, authService });
   const userOf = (req: Request): UserMetadata | undefined => (req as { user?: UserMetadata }).user;
   const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
   const place = { holdsAccounts: deps.accounts !== false };
@@ -160,7 +159,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     try {
       const user = userOf(req);
       if (!user) return res.status(401).json({ error: 'Not authenticated' });
-      await deps.revocations.revoked({ personId: user.id, because: 'signed-out-everywhere', at: new Date().toISOString(), kept: keptSession(req) });
+      await deps.revocations.revoked({ personId: user.id, because: 'signed-out-everywhere', at: new Date().toISOString(), kept: await devices.kept(req) });
       res.json({ ended: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -197,7 +196,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
       await db.accounts.saveUser(user);
-      await deps.revocations.revoked({ personId: user.id, because: 'password-or-2fa', at: new Date().toISOString(), kept: keptSession(req) });
+      await deps.revocations.revoked({ personId: user.id, because: 'password-or-2fa', at: new Date().toISOString(), kept: await devices.kept(req) });
       res.json({
         id: user.id,
         email: user.email,

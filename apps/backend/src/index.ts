@@ -318,7 +318,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
   const auth = createAuth({ db, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, throughRoot: { sessions: browserSessions, signIn: rootSignIn }, ...(signsInThroughRoot(role.role) ? {} : { revocations }), bearer: signsInThroughRoot(role.role) ? runBearersFor(rootSignIn, db, claimSettings) : undefined });
-  const devices = devicesFor({ auth, sessionKey: keys.session, authService });
+  const devices = devicesFor({ auth, store: db.accounts, authService, ...(holdsAccounts(role) ? { revocations } : {}) });
   const { requireOperator } = auth;
 
   app.use('/api', auth.requireAuth);
@@ -337,11 +337,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   for (const problem of [...signInWith.problems, ...(signInReturn.problem ? [signInReturn.problem] : [])]) console.warn(`[sign-in] ${problem}`);
   const signInProviders = new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, accounts: authService });
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, codeKey: keys.data, appUrl: APP_URL, start: START_PATH, interactionPath: INTERACTION_PATH, accounts: holdsAccounts(role), revocations,
+    db, authService, auth, devices, codeKey: keys.data, appUrl: APP_URL, start: START_PATH, interactionPath: INTERACTION_PATH, accounts: holdsAccounts(role), revocations,
     providers: signInProviders, passwords,
   }));
   const interactions = rootProvider ? interactionRouter({ db, authService, auth, devices, codeKey: keys.data, appUrl: APP_URL, interactions: rootProvider, providers: signInProviders }) : undefined;
-  if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));
+  if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, devices }));
   tenant.get('/ingress/verify', asyncRoute(async (req, res) => {
     const domain = String(req.query.domain ?? '');
     if (!domain) return res.status(400).send('domain required');

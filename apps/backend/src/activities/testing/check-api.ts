@@ -61,6 +61,7 @@ import { releaseSettingsRouter } from '../../releases/routes/release-settings.js
 import { releasesRouter } from '../../releases/routes/releases.js';
 import { clientImportRouter } from '../../releases/routes/client-import.js';
 import { authRouter } from '../../accounts/routes/auth.js';
+import { devicesFor } from '../../accounts/routes/device.js';
 import { AuthService } from '../../accounts/services/AuthService.js';
 import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import { INTERACTION_PATH, START_PATH } from '../../instances/lib/oidc.js';
@@ -206,9 +207,10 @@ export async function mountCheckApi(): Promise<CheckApi> {
   const app = express();
   app.use(express.json({ limit: '20mb' }));
   app.use('/api', auth.requireAuth);
-  rootWorld.mount(app, { authService });
+  const devices = devicesFor({ auth, store: db.accounts, authService, revocations: rootWorld.revocations });
+  rootWorld.mount(app, { authService, devices });
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY as never, codeKey: CODE_KEY, appUrl: 'http://localhost:5173', start: START_PATH, interactionPath: INTERACTION_PATH,
+    db, authService, auth, devices, codeKey: CODE_KEY, appUrl: 'http://localhost:5173', start: START_PATH, interactionPath: INTERACTION_PATH,
     revocations: rootWorld.revocations, passwords: { newPasswordProblem: () => undefined },
   }));
   app.use('/api/engine', engineRouter({

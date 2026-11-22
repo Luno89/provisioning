@@ -57,7 +57,7 @@ export function rootAuthOver(db: Database, deps: Pick<AuthDeps, 'open'> & Partia
     const authService = accounts.authService ?? new AuthService(db, { codeKey: ROOT_DATA });
     const interactions = interactionRouter({
       db, auth, codeKey: ROOT_DATA, appUrl: publicUrl,
-      devices: accounts.devices ?? devicesFor({ auth, sessionKey: ROOT_SESSIONS, authService: authService as AuthService }),
+      devices: accounts.devices ?? devicesFor({ auth, store: db.accounts, authService: authService as AuthService, revocations }),
       ...accounts,
       authService,
       interactions: provider,

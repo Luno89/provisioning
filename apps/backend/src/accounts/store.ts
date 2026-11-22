@@ -6,6 +6,7 @@ import type { InviteLimits } from './lib/project-invite-limits.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from './lib/sign-up.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
 import type { TwoFactorCode } from './lib/second-factor.js';
+import type { RememberedBrowser } from './lib/remembered-browsers.js';
 import { RESET_CODES_SENT, type PasswordReset } from './lib/password-reset.js';
 
 export const FIRST_ADMIN_INVITE = 'first-admin';
@@ -38,6 +39,9 @@ export interface AccountsStore extends AreaStore {
   getTwoFactorCode(id: string): Promise<TwoFactorCode | undefined>;
   takeTwoFactorCode(id: string): Promise<boolean>;
   dropTwoFactorCodesOf(ownerId: string): Promise<void>;
+  saveRememberedBrowser(browser: RememberedBrowser): Promise<void>;
+  getRememberedBrowser(id: string): Promise<RememberedBrowser | undefined>;
+  forgetBrowsersOf(ownerId: string, except?: string | undefined): Promise<void>;
   savePasswordReset(reset: PasswordReset): Promise<void>;
   getPasswordReset(id: string): Promise<PasswordReset | undefined>;
   wrongResetCode(id: string): Promise<number>;
@@ -79,6 +83,10 @@ export class MongoAccountsStore implements AccountsStore {
     return this.db().collection('twoFactorCodes');
   }
 
+  private get rememberedBrowsers(): Collection {
+    return this.db().collection('rememberedBrowsers');
+  }
+
   private get pipelineRuns(): Collection {
     return this.db().collection('pipelineRuns');
   }
@@ -99,6 +107,8 @@ export class MongoAccountsStore implements AccountsStore {
     await this.passwordResets.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.twoFactorCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.twoFactorCodes.createIndex({ ownerId: 1 });
+    await this.rememberedBrowsers.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.rememberedBrowsers.createIndex({ ownerId: 1 });
   }
 
   async getInvites(): Promise<InviteMetadata[]> {
@@ -166,6 +176,20 @@ export class MongoAccountsStore implements AccountsStore {
 
   async dropTwoFactorCodesOf(ownerId: string): Promise<void> {
     await this.twoFactorCodes.deleteMany({ ownerId });
+  }
+
+  async saveRememberedBrowser(browser: RememberedBrowser): Promise<void> {
+    const { id, ...rest } = browser;
+    await this.rememberedBrowsers.replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async getRememberedBrowser(id: string): Promise<RememberedBrowser | undefined> {
+    const doc = await this.rememberedBrowsers.findOne({ _id: id as never });
+    return doc ? { id: String(doc._id), ownerId: String(doc.ownerId), account: String(doc.account), expiresAt: doc.expiresAt as Date } : undefined;
+  }
+
+  async forgetBrowsersOf(ownerId: string, except?: string | undefined): Promise<void> {
+    await this.rememberedBrowsers.deleteMany(except ? { ownerId, _id: { $ne: except as never } } : { ownerId });
   }
 
   async savePasswordReset(reset: PasswordReset): Promise<void> {
