@@ -5,7 +5,7 @@ import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
 export interface JoinChange {
-  set?: Partial<Pick<MachineJoinCode, 'deviceId' | 'deviceTokenHash' | 'connectedAt' | 'progress' | 'keptUntil'>> | undefined;
+  set?: Partial<Pick<MachineJoinCode, 'deviceId' | 'connectedAt' | 'progress' | 'keptUntil'>> | undefined;
   unset?: readonly ('keptUntil')[] | undefined;
 }
 

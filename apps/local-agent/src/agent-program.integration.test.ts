@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type RequestListener, type Server as HttpServer, type ServerResponse } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { temporal } from '@temporalio/proto';
@@ -11,7 +11,7 @@ import { deviceQueue } from './engine-worker.js';
 import { startTestTemporal, type TestTemporal, type TestTemporalServer } from '@koala/engine-core/testing/temporal';
 import { makeCertificates, type TestCertificates } from '@koala/engine-core/testing/temporal-tls';
 import { clientKeysFrom, newClientKey } from '@koala/engine-core/root-client';
-import { rootRegistration } from './testing/root-registration.js';
+import { rootRegistration, type RootRegistration } from './testing/root-registration.js';
 
 const MACHINE_KEY = newClientKey();
 const AGENT = path.join(import.meta.dirname, '..');
@@ -38,8 +38,8 @@ afterAll(async () => {
   await fs.rm(home, { recursive: true, force: true });
 });
 
-const listening = async (): Promise<{ io: Server; url: string }> => {
-  const http = createServer();
+const listening = async (handler?: RequestListener): Promise<{ io: Server; url: string }> => {
+  const http = handler ? createServer(handler) : createServer();
   servers.push(http);
   const io = new Server(http);
   await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
@@ -54,28 +54,33 @@ interface RootPlacingKoala {
   toRoot: Array<{ emit(event: string, payload?: unknown): void }>;
 }
 
-const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessage, res: ServerResponse) => boolean = () => false): Promise<RootPlacingKoala> => {
-  const reports: RootPlacingKoala['reports'] = [];
+const registeredDesk = (): RootRegistration => {
   const registration = rootRegistration();
   registration.registered.push({ clientId: 'program-desk', code: 'joined-before', keys: [{ kid: clientKeysFrom(MACHINE_KEY).kid }] });
+  return registration;
+};
+
+const answeredBy = (registration: RootRegistration, rootUrl: () => string, otherwise: (req: IncomingMessage, res: ServerResponse, body: string) => void): RequestListener => (req, res) => {
+  let body = '';
+  req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+  req.on('end', () => void registration.answer(new Request(`${rootUrl()}${req.url}`, { method: req.method ?? 'GET', headers: req.headers as Record<string, string>, ...(req.method === 'POST' ? { body } : {}) })).then(async (answered) => {
+    if (!answered) return otherwise(req, res, body);
+    res.writeHead(answered.status, { 'content-type': answered.headers.get('content-type') ?? 'application/json' }).end(await answered.text());
+  }));
+};
+
+const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessage, res: ServerResponse) => boolean = () => false): Promise<RootPlacingKoala> => {
+  const reports: RootPlacingKoala['reports'] = [];
   let rootUrl = '';
-  const http = createServer((req, res) => {
-    let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-    req.on('end', () => void registration.answer(new Request(`${rootUrl}${req.url}`, { method: req.method ?? 'GET', headers: req.headers as Record<string, string>, ...(req.method === 'POST' ? { body } : {}) })).then(async (answered) => {
-      if (answered) {
-        res.writeHead(answered.status, { 'content-type': answered.headers.get('content-type') ?? 'application/json' }).end(await answered.text());
-        return;
-      }
-      if (req.method === 'POST' && req.url === koalaInstallProgressPath(installId)) {
-        reports.push({ progress: JSON.parse(body) as Record<string, unknown>, auth: req.headers.authorization });
-        res.writeHead(204).end();
-        return;
-      }
-      if (answers(req, res)) return;
-      res.writeHead(404).end('not here');
-    }));
-  });
+  const http = createServer(answeredBy(registeredDesk(), () => rootUrl, (req, res, body) => {
+    if (req.method === 'POST' && req.url === koalaInstallProgressPath(installId)) {
+      reports.push({ progress: JSON.parse(body) as Record<string, unknown>, auth: req.headers.authorization });
+      res.writeHead(204).end();
+      return;
+    }
+    if (answers(req, res)) return;
+    res.writeHead(404).end('not here');
+  }));
   servers.push(http);
   const io = new Server(http);
   await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
@@ -94,12 +99,14 @@ const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessag
 describe('the machine agent\'s own program, on a computer that is only a throwaway home', () => {
   it('reads its machine.json, connects to root, works for the Koala root names, and stops on SIGTERM', async () => {
     const koala = await listening();
-    const root = await listening();
+    let rootUrl = '';
+    const root = await listening(answeredBy(registeredDesk(), () => rootUrl, (_req, res) => { res.writeHead(404).end('not here'); }));
+    rootUrl = root.url;
     const heard: Record<string, unknown> = {};
     const toRoot: Array<{ emit(event: string, payload: unknown): void }> = [];
     root.io.of('/machine-account').on('connection', (socket) => {
       toRoot.push(socket);
-      heard.deviceToken = (socket.handshake.auth as { token?: string }).token;
+      heard.rootToken = (socket.handshake.auth as { token?: string }).token;
       socket.emit('machine:koala', { url: koala.url, workToken: 'program-work-token' });
     });
     koala.io.of('/agent').on('connection', (socket) => {
@@ -141,7 +148,7 @@ describe('the machine agent\'s own program, on a computer that is only a throwaw
     while (child.exitCode === null && !said.join('').includes('could not start') && ((await pollers()).length === 0 || heard.agents === undefined)) await new Promise((done) => setTimeout(done, 100));
     expect(child.exitCode, said.join('')).toBeNull();
     expect(said.join('')).not.toContain('could not start');
-    expect(heard).toMatchObject({ deviceToken: 'program-device-token', workToken: 'program-work-token', agents: { agents: [] } });
+    expect(heard).toMatchObject({ rootToken: 'token-for-program-desk', workToken: 'program-work-token', agents: { agents: [] } });
 
     toRoot[0]!.emit('machine:koala', { url: koala.url, workToken: 'program-work-token-2' });
     while (child.exitCode === null && !said.join('').includes('took a new work token')) await new Promise((done) => setTimeout(done, 100));

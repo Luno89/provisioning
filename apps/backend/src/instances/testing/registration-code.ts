@@ -15,11 +15,11 @@ export const registrationCodeAt = (root: { db: RootDb; url: string; signing: Ide
 
 export const machineSignInKey = (): { jwk: ClientPublicJwk; since: string } => ({ jwk: clientPublicJwkOf(clientKeysFrom(newClientKey())), since: new Date(0).toISOString() });
 
-export async function machineTokenAt(db: RootDb, deviceId: string): Promise<string> {
+export async function machineTokenAt(db: RootDb, deviceId: string, lifetime?: { seconds: number }): Promise<string> {
   const { provider } = providerAt({ db, url: 'http://127.0.0.1:1', signing: identityKeysFrom(generateIdentityKey()) });
   const client = await provider.Client.find(deviceId);
   if (!client) throw new Error(`root keeps no key for the machine ${deviceId}, so it gives it no token`);
-  return new provider.ClientCredentials({ client, scope: MACHINE_SCOPE }).save();
+  return new provider.ClientCredentials({ client, scope: MACHINE_SCOPE, ...(lifetime ? { expiresIn: lifetime.seconds } : {}) }).save();
 }
 
 export const machineClientsAt =(db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller'> => {

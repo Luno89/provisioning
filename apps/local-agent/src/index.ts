@@ -2,7 +2,7 @@ import { mkdir } from 'fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { agentsNotSetUp, configFile, loadMachineConfig } from './machine-config.js';
+import { agentsNotSetUp, loadMachineConfig } from './machine-config.js';
 import { linkToRoot } from './root-link.js';
 import { systemDeps } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
@@ -66,8 +66,7 @@ async function main() {
   const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => client.token(), say, ownValues: ownValuesFile() });
   const root = linkToRoot({
     rootUrl,
-    token: config.token,
-    configFile: configFile(),
+    client,
     meshIp,
     say,
     onRemoved: () => removedHere(() => sessionsOf?.closeAll() ?? Promise.resolve()),

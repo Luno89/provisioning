@@ -7,7 +7,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { serveInProcess } from '../testing/serve-in-process.js';
 import { InstanceReach, type ReachFetchers } from './InstanceReach.js';
-import { rootSignInWorld, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, having, signedByRoot, type Served } from '../testing/root-sign-in-behaviour.js';
+import { machinesThroughRoot, rootSignInWorld, signingInThroughRoot, sessionsThroughRoot,logoutKeptFromAPrivateAddress, having, signedByRoot, type Served } from '../testing/root-sign-in-behaviour.js';
 
 const containing = (text: string): unknown => expect.stringContaining(text);
 const anyText = (): unknown => expect.any(String);
@@ -66,6 +66,10 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
   });
 
   sessionsThroughRoot(world);
+});
+
+describe('machines as clients of root', () => {
+  machinesThroughRoot(world);
 });
 
 describe('what an instance does when the sign-in does not go through', () => {

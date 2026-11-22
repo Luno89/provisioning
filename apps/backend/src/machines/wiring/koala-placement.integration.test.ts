@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { koalaInstallProgressPath, type PlacedKoala } from '@koala/engine-core/koala-install';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { linkToRoot, type RootLink } from '../../../../local-agent/src/root-link.js';
@@ -28,7 +25,6 @@ let db: MongoDB;
 let world: PlacingRoot;
 let url = '';
 let accounts: MachineAccounts;
-let folder = '';
 let temporalDown = false;
 const links: RootLink[] = [];
 
@@ -48,7 +44,6 @@ beforeEach(async () => {
   db = await fresh();
   current = () => db;
   temporalDown = false;
-  folder = await mkdtemp(path.join(tmpdir(), 'koala-placement-'));
   world = await placingRoot({ db, workflows: temporal.workflows(() => temporalDown) });
   ({ url, accounts } = world);
   await deskOf(db);
@@ -57,22 +52,20 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const link of links.splice(0)) link.close();
   await world.close();
-  await rm(folder, { recursive: true, force: true });
 });
 
-const agentOf = (rootUrl: string, onPlaceKoala: (raw: unknown) => boolean, token = TOKEN, onStopKoala?: (raw: unknown) => void) => {
+const keyToken = (store: MongoDB = db) => () => machineTokenAt(store, 'desk');
+const agentOf = (rootUrl: string, onPlaceKoala: (raw: unknown) => boolean, store: MongoDB = db, onStopKoala?: (raw: unknown) => void) => {
   const link = linkToRoot({
-    rootUrl, token, configFile: path.join(folder, 'machine.json'), meshIp: async () => '100.64.0.7',
+    rootUrl, client: { token: keyToken(store) }, meshIp: async () => '100.64.0.7',
     onKoala: () => undefined, onRemoved: () => undefined, onPlaceKoala, onStopKoala, say: () => undefined,
   });
   links.push(link);
   return link;
 };
-const agent = (onPlaceKoala: (raw: unknown) => boolean, token = TOKEN, onStopKoala?: (raw: unknown) => void) => agentOf(url, onPlaceKoala, token, onStopKoala);
+const agent = (onPlaceKoala: (raw: unknown) => boolean, onStopKoala?: (raw: unknown) => void) => agentOf(url, onPlaceKoala, db, onStopKoala);
 
 const handing = (handed: PlacedKoala[]) => (raw: unknown) => { const placed = placedFrom(raw); if (placed) handed.push(placed); return Boolean(placed); };
-const tokenOf = (link: RootLink) => () => (link.socket.auth as { token: string }).token;
-const keyToken = (store: MongoDB = db) => () => machineTokenAt(store, 'desk');
 const reporting = (placed: PlacedKoala, at = url) => rootProgress(`${at}${koalaInstallProgressPath(placed.installId)}`, keyToken(), fetch, { pause: async () => undefined });
 const instanceOf = async () => (await db.instances.getInstances('bo'))[0]!;
 
@@ -130,9 +123,8 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
     const first = agent(handing(handed));
     const placed = await until(async () => handed[0]);
     await reporting(placed).tell({ stage: 'cluster', title: 'Starting this machine\'s cluster', state: 'started' });
-    await until(async () => (tokenOf(first)() !== TOKEN ? true : undefined));
     first.close();
-    agent(handing(handed), tokenOf(first)());
+    agent(handing(handed));
     const again = await until(async () => handed[1]);
     expect(again.installId).toBe(placed.installId);
     await reporting(again).tell({ stage: 'koala', title: 'Putting Koala on this machine', state: 'failed', why: 'job/instance-seed-2 failed: Mongo refused its password' });
@@ -161,12 +153,12 @@ describe('Koala put on a machine by root\'s install workflow, the machine doing 
 
   it('hears only the machine the install is for, with its own token', async () => {
     const handed: PlacedKoala[] = [];
-    const link = agent(handing(handed));
+    agent(handing(handed));
     const placed = await until(async () => handed[0]);
     const TOKEN_NOW = await keyToken()();
     const post = (token: string | undefined, installId: string) => fetch(`${url}${koalaInstallProgressPath(installId)}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ stage: 'koala', title: 'Koala', state: 'started' }) });
     expect((await post(undefined, placed.installId)).status).toBe(401);
-    expect((await post(tokenOf(link)(), placed.installId)).status).toBe(401);
+    expect((await post(TOKEN, placed.installId)).status).toBe(401);
     expect((await post(`${TOKEN_NOW}-not`, placed.installId)).status).toBe(401);
     expect((await post(TOKEN_NOW, 'another-install')).status).toBe(404);
     expect((await post(TOKEN_NOW, placed.installId)).status).toBe(204);
@@ -181,7 +173,7 @@ describe('a machine following its install while root\'s database stops answering
     try {
       await deskOf(own);
       const handed: PlacedKoala[] = [];
-      agentOf(alone.url, handing(handed));
+      agentOf(alone.url, handing(handed), own);
       await until(async () => handed[0]);
       const said: string[] = [];
       const watching = new AbortController();

@@ -23,7 +23,7 @@ import { InstanceSide, wireInstancePresence } from '../../instances/wiring/insta
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
 import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
-import { machineClientsAt } from '../../instances/testing/registration-code.js';
+import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { InstanceReporter } from '../../instances/services/InstanceReporter.js';
 import { AccountRemovalService, temporalKoalaRemovals, temporalRemovalWorkflows } from '../../accounts/services/AccountRemovalService.js';
 import { OwnerRemoval } from '../../accounts/services/OwnerRemoval.js';
@@ -67,6 +67,35 @@ async function listening(app: express.Express): Promise<{ url: string; io: Socke
 }
 
 const mesh = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
+
+type Told = Array<{ url: string; workToken: string } | null>;
+
+async function machineConnected(root: { url: string }, rootDb: Database, deviceId: string, told: Told = []): Promise<ClientSocket> {
+  await rootDb.machines.updateLocalAgentDevice(deviceId, { set: { signIn: machineSignInKey() } });
+  const socket: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: await machineTokenAt(rootDb, deviceId) }, transports: ['websocket'], reconnection: false, forceNew: true });
+  closers.push(async () => { socket.close(); });
+  socket.on('machine:koala', (koala: Told[number]) => told.push(koala));
+  return socket;
+}
+
+async function joinedAndConnected(world: { root: { url: string }; rootDb: Database; rootSide: MachineSides }): Promise<{ deviceId: string; told: Told }> {
+  const accounts = world.rootSide.accounts!;
+  const joined = await accounts.join((await accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
+  if (!joined.ok) throw new Error(joined.error);
+  const told: Told = [];
+  await machineConnected(world.root, world.rootDb, joined.value.deviceId, told);
+  return { deviceId: joined.value.deviceId, told };
+}
+
+async function ownerBrowserHearing(root: { url: string; io: SocketServer }): Promise<unknown[]> {
+  root.io.on('connection', (browser) => { void browser.join('user:bo'); });
+  const heard: unknown[] = [];
+  const browser: ClientSocket = connect(root.url, { transports: ['websocket'], reconnection: false, forceNew: true });
+  closers.push(async () => { browser.close(); });
+  browser.on(MACHINE_JOINS_CHANGED, (said: unknown) => heard.push(said));
+  await until(async () => (browser.connected ? true : undefined));
+  return heard;
+}
 
 async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>, atRoot?: { removal?: AccountRemovalService }) {
   const pem = generateIdentityKey();
@@ -218,28 +247,20 @@ describe('a root and an instance wired as they run, against each other', () => {
   });
 
   it('root names the instance to a connected machine with a work token the instance takes, once the instance connects to root', async () => {
-    const { root, rootSide, instanceSide, instanceId, watch } = await rootAndInstance();
-    const joined = await rootSide.accounts!.join((await rootSide.accounts!.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
-    if (!joined.ok) throw new Error(joined.error);
-    const told: Array<{ url: string; workToken: string } | null> = [];
-    const socket: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: joined.value.env.KOALA_DEVICE_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
-    closers.push(async () => { socket.close(); });
-    socket.on('machine:koala', (koala: { url: string; workToken: string } | null) => told.push(koala));
+    const world = await rootAndInstance();
+    const { instanceSide, instanceId, watch } = world;
+    const { deviceId, told } = await joinedAndConnected(world);
     await until(async () => (told.length ? true : undefined));
     watch();
     await until(async () => (told.length === 2 ? true : undefined));
     const trust = instanceSide.workTokens!;
-    expect(checkWorkToken(told[1]!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: joined.value.deviceId, owner: 'bo', aud: instanceId } });
+    expect(checkWorkToken(told[1]!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: instanceId } });
   });
 
   it('root tells the owner\'s connected machines again each time the instance reports to root that its status changed', async () => {
-    const { root, rootSide, token, instanceId, watch } = await rootAndInstance();
-    const joined = await rootSide.accounts!.join((await rootSide.accounts!.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
-    if (!joined.ok) throw new Error(joined.error);
-    const told: Array<{ url: string; workToken: string } | null> = [];
-    const socket: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: joined.value.env.KOALA_DEVICE_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
-    closers.push(async () => { socket.close(); });
-    socket.on('machine:koala', (koala: { url: string; workToken: string } | null) => told.push(koala));
+    const world = await rootAndInstance();
+    const { root, token, instanceId, watch } = world;
+    const { told } = await joinedAndConnected(world);
     watch();
     await until(async () => (told.length === 2 ? true : undefined));
     const report = async (status: string) => {
@@ -254,13 +275,8 @@ describe('a root and an instance wired as they run, against each other', () => {
   });
 
   it('root tells the owner\'s browsers as a join reports, and ends the join when the machine it made first connects', async () => {
-    const { root, rootSide } = await rootAndInstance();
-    root.io.on('connection', (browser) => { void browser.join('user:bo'); });
-    const heard: unknown[] = [];
-    const browser: ClientSocket = connect(root.url, { transports: ['websocket'], reconnection: false, forceNew: true });
-    closers.push(async () => { browser.close(); });
-    browser.on(MACHINE_JOINS_CHANGED, (said: unknown) => heard.push(said));
-    await until(async () => (browser.connected ? true : undefined));
+    const { root, rootDb, rootSide } = await rootAndInstance();
+    const heard = await ownerBrowserHearing(root);
     const accounts = rootSide.accounts!;
     const { code } = await accounts.createJoinCode('bo');
     expect(await accounts.reportJoinProgress(code, { stage: 'k3s', title: 'Installing k3s', state: 'started' })).toMatchObject({ ok: true });
@@ -268,21 +284,15 @@ describe('a root and an instance wired as they run, against each other', () => {
     const joined = await accounts.join(code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
     expect(await accounts.joins('bo')).toHaveLength(1);
-    const machine: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: joined.value.env.KOALA_DEVICE_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
-    closers.push(async () => { machine.close(); });
+    await machineConnected(root, rootDb, joined.value.deviceId);
     await until(async () => ((await accounts.joins('bo')).length === 0 ? true : undefined));
     await until(async () => (heard.length === 2 ? true : undefined));
     expect(heard).toEqual([{}, {}]);
   });
 
   it('root tells the owner\'s browsers when a machine joins again in its own place and when a join is dismissed, and says the machine is connected once its agent is', async () => {
-    const { root, rootSide } = await rootAndInstance();
-    root.io.on('connection', (browser) => { void browser.join('user:bo'); });
-    const heard: unknown[] = [];
-    const browser: ClientSocket = connect(root.url, { transports: ['websocket'], reconnection: false, forceNew: true });
-    closers.push(async () => { browser.close(); });
-    browser.on(MACHINE_JOINS_CHANGED, (said: unknown) => heard.push(said));
-    await until(async () => (browser.connected ? true : undefined));
+    const { root, rootDb, rootSide } = await rootAndInstance();
+    const heard = await ownerBrowserHearing(root);
     const accounts = rootSide.accounts!;
     const first = await accounts.join((await accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!first.ok) throw new Error(first.error);
@@ -298,8 +308,7 @@ describe('a root and an instance wired as they run, against each other', () => {
     await until(async () => (heard.length === 3 ? true : undefined));
     expect(await accounts.joins('bo')).toEqual([]);
     expect((await accounts.listOnline('bo')).map((machine) => machine.online)).toEqual([false]);
-    const machine: ClientSocket = connect(`${root.url}/machine-account`, { auth: { token: again.value.env.KOALA_DEVICE_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
-    closers.push(async () => { machine.close(); });
+    await machineConnected(root, rootDb, again.value.deviceId);
     expect(await until(async () => ((await accounts.listOnline('bo'))[0]?.online ? true : undefined))).toBe(true);
   });
 });

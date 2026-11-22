@@ -31,6 +31,8 @@ export interface ServiceCaller {
   until: number;
 }
 
+const MACHINE_KEY_CLAIM = 'koala_key';
+
 export interface MachineCaller {
   deviceId: string;
   ownerId: string;
@@ -299,7 +301,8 @@ export class RootProvider {
       interactions: { url: (_ctx, interaction) => `${INTERACTION_PATH}/${interaction.uid}` },
       issueRefreshToken: async (_ctx, client) => client.grantTypeAllowed('refresh_token'),
       expiresWithSession: async () => false,
-      extraTokenClaims: async (_ctx, token) => {
+      extraTokenClaims: async (ctx, token) => {
+        if (token.kind === 'ClientCredentials') return this.machineKeyClaim(ctx, token.clientId);
         if (token.kind !== 'AccessToken' || !token.grantId) return undefined;
         const run = await this.store.instances.oidcFind('KoalaRun', token.grantId);
         if (!run) return undefined;
@@ -384,6 +387,14 @@ export class RootProvider {
     return { clientId: client.clientId, kind: 'instance', until: found.exp * 1000 };
   }
 
+  private async machineKeyClaim(ctx: KoaContextWithOIDC | undefined, clientId: string | undefined): Promise<{ [MACHINE_KEY_CLAIM]: string } | undefined> {
+    const authenticated = ctx?.oidc?.client;
+    const client = authenticated?.clientId === clientId ? authenticated : clientId ? await this.provider.Client.find(clientId) : undefined;
+    if (!client || kindOf(client).kind !== 'machine') return undefined;
+    const kid = registeredKeyOf(client.metadata() as Record<string, unknown>)?.kid;
+    return kid ? { [MACHINE_KEY_CLAIM]: kid } : undefined;
+  }
+
   async machineCaller(token: string): Promise<MachineCaller | undefined> {
     const found = await this.provider.ClientCredentials.find(token);
     if (!found?.clientId || found.exp === undefined || found.isExpired || !found.scopes.has(MACHINE_SCOPE)) return undefined;
@@ -391,6 +402,8 @@ export class RootProvider {
     if (!client) return undefined;
     const kind = kindOf(client);
     if (kind.kind !== 'machine' || !kind.owner) return undefined;
+    const tokenKey = (found.extra as Record<string, unknown> | undefined)?.[MACHINE_KEY_CLAIM];
+    if (!tokenKey || tokenKey !== registeredKeyOf(client.metadata() as Record<string, unknown>)?.kid) return undefined;
     return { deviceId: client.clientId, ownerId: kind.owner, until: found.exp * 1000 };
   }
 

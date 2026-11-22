@@ -18,7 +18,6 @@ export interface MachineJoinCode {
   koalaName?: string | undefined;
   usedAt?: string | undefined;
   deviceId?: string | undefined;
-  deviceTokenHash?: string | undefined;
   connectedAt?: string | undefined;
   progress?: MachineJoinStage | undefined;
 }

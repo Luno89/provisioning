@@ -227,7 +227,6 @@ export interface LocalAgentDeviceMetadata {
   agentUpdate?: AgentUpdateReport | undefined;
   koalaWanted?: { name: string } | undefined;
   koalaRefused?: { reason: string; at: string } | undefined;
-  tokenRenewal?: { reason: string; failedAt: string } | undefined;
   removal?: { startedAt: string } | undefined;
   offSince?: string | undefined;
   signIn?: { jwk: ClientPublicJwk; since: string } | undefined;
