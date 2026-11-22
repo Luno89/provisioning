@@ -117,7 +117,35 @@ export function socketChannels(program: ts.Program): (call: ts.CallExpression) =
     }
   }
 
+  const middlewareHears = (call: ts.CallExpression): ChannelEnd[] | undefined => {
+    if (!ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== 'use') return undefined;
+    if (!isSocket(checker.getTypeAtLocation(call.expression.expression))) return undefined;
+    const callback = call.arguments[0];
+    if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) return undefined;
+    const packet = callback.parameters[0]?.name;
+    if (!packet || !ts.isIdentifier(packet)) return undefined;
+    const packetSymbol = checker.getSymbolAtLocation(packet);
+    const isFirstOfPacket = (node: ts.Expression): boolean => {
+      let inner = node;
+      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+      return ts.isElementAccessExpression(inner) && ts.isIdentifier(inner.expression) && checker.getSymbolAtLocation(inner.expression) === packetSymbol && ts.isNumericLiteral(inner.argumentExpression) && inner.argumentExpression.text === '0';
+    };
+    const ends: ChannelEnd[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken || node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken)) {
+        const other = isFirstOfPacket(node.left) ? node.right : isFirstOfPacket(node.right) ? node.left : undefined;
+        const names = other ? namesOf(other) : undefined;
+        for (const name of names ?? []) if (!RESERVED.has(name)) ends.push({ kind: 'socket', name, side: 'hears', handler: callback });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(callback.body);
+    return ends;
+  };
+
   return (call) => {
+    const middleware = middlewareHears(call);
+    if (middleware) return middleware;
     const side = socketMethod(call);
     if (side) {
       const event = call.arguments[0];
