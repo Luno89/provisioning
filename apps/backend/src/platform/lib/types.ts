@@ -230,6 +230,7 @@ export interface LocalAgentDeviceMetadata {
   removal?: { startedAt: string } | undefined;
   offSince?: string | undefined;
   signIn?: { jwk: ClientPublicJwk; since: string } | undefined;
+  keyReplacement?: { reason: string; failedAt: string } | undefined;
   [key: string]: unknown;
 }
 

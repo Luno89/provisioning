@@ -9,7 +9,7 @@ import {
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   machineClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
-import { MACHINE_SCOPE } from '@koala/engine-core/root-client';
+import { MACHINE_SCOPE, machineKeyEnds, type KeyReplacement } from '@koala/engine-core/root-client';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceReach } from './InstanceReach.js';
@@ -37,6 +37,7 @@ export interface MachineCaller {
   deviceId: string;
   ownerId: string;
   until: number;
+  keyEnds: number;
 }
 
 interface KoalaClient {
@@ -135,6 +136,14 @@ export class RootProvider {
   private async registering(ctx: KoaContextWithOIDC, properties: Record<string, unknown>): Promise<void> {
     const key = registeredKeyOf(properties);
     if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
+    const replacing = ctx.oidc.entities.RegistrationAccessToken;
+    if (replacing) {
+      await replacing.destroy();
+      const device = await this.device(replacing.clientId ?? '');
+      if (!device?.signIn) throw new errors.InvalidToken('root keeps no key for this machine, so there is none to replace');
+      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }));
+      return;
+    }
     const code = ctx.oidc.entities.InitialAccessToken?.jti;
     const taken = code ? await this.store.instances.oidcTakeRegistration(code) : undefined;
     if (!taken) throw new errors.InvalidToken('this registration code was used already, or a newer one replaced it');
@@ -295,6 +304,7 @@ export class RootProvider {
           issueRegistrationAccessToken: false,
           policies: { [REGISTRATION_POLICY]: async (ctx, properties) => this.registering(ctx, properties as Record<string, unknown>) },
         },
+        registrationManagement: { enabled: true, rotateRegistrationAccessToken: false },
         userinfo: { enabled: false },
         pushedAuthorizationRequests: { enabled: false },
       },
@@ -326,6 +336,7 @@ export class RootProvider {
         ClientCredentials: SERVICE_TOKEN_SECONDS,
         IdToken: CLAIMS_SECONDS,
         Interaction: 60 * 60,
+        RegistrationAccessToken: SERVICE_TOKEN_SECONDS,
         RefreshToken: SESSION_SECONDS,
         Session: SESSION_SECONDS,
         Grant: SESSION_SECONDS,
@@ -395,7 +406,7 @@ export class RootProvider {
     return kid ? { [MACHINE_KEY_CLAIM]: kid } : undefined;
   }
 
-  async machineCaller(token: string): Promise<MachineCaller | undefined> {
+  async machineOfKey(token: string): Promise<MachineCaller | undefined> {
     const found = await this.provider.ClientCredentials.find(token);
     if (!found?.clientId || found.exp === undefined || found.isExpired || !found.scopes.has(MACHINE_SCOPE)) return undefined;
     const client = await this.provider.Client.find(found.clientId);
@@ -404,7 +415,21 @@ export class RootProvider {
     if (kind.kind !== 'machine' || !kind.owner) return undefined;
     const tokenKey = (found.extra as Record<string, unknown> | undefined)?.[MACHINE_KEY_CLAIM];
     if (!tokenKey || tokenKey !== registeredKeyOf(client.metadata() as Record<string, unknown>)?.kid) return undefined;
-    return { deviceId: client.clientId, ownerId: kind.owner, until: found.exp * 1000 };
+    const since = (await this.device(client.clientId))?.signIn?.since;
+    if (!since) return undefined;
+    return { deviceId: client.clientId, ownerId: kind.owner, until: found.exp * 1000, keyEnds: machineKeyEnds(since) };
+  }
+
+  async machineCaller(token: string): Promise<MachineCaller | undefined> {
+    const caller = await this.machineOfKey(token);
+    return caller && caller.keyEnds > this.now() ? caller : undefined;
+  }
+
+  async keyReplacement(deviceId: string): Promise<KeyReplacement> {
+    const client = await this.provider.Client.find(deviceId);
+    if (!client || kindOf(client).kind !== 'machine') throw new Error(`root keeps no key for the machine ${deviceId}, so there is none to replace`);
+    const registrationAccessToken = await Object.assign(new this.provider.RegistrationAccessToken(), { clientId: deviceId, policies: [REGISTRATION_POLICY] }).save();
+    return { registrationAccessToken, registrationClientUri: `${this.settings.issuer}/reg/${encodeURIComponent(deviceId)}` };
   }
 
   async revoke(event: AccessRevoked): Promise<void> {

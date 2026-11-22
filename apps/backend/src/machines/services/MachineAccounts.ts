@@ -3,7 +3,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { JOIN_PROGRESS, type MachineJoinView } from '@koala/engine-core/machine-join';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { allowed, asPerson, type LocalAgentDeviceMetadata } from '../../platform/index.js';
-import type { IdentityKeyPair } from '../../instances/index.js';
+import type { IdentityKeyPair, MachineCaller } from '../../instances/index.js';
+import { machineKeyEnds, type KeyReplacement } from '@koala/engine-core/root-client';
+import type { KeyReplaced } from '../lib/machines.js';
 import type { KoalaInstalls } from './KoalaInstalls.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, newDeviceToken, tokenLifetime } from '../lib/device-tokens.js';
@@ -54,7 +56,9 @@ export interface MachineRemovals {
 
 export interface MachineClients {
   machineRegistrationCode(machine: { id: string; ownerId: string }): Promise<string>;
-  machineCaller(token: string): Promise<{ deviceId: string; ownerId: string; until: number } | undefined>;
+  machineCaller(token: string): Promise<MachineCaller | undefined>;
+  machineOfKey(token: string): Promise<MachineCaller | undefined>;
+  keyReplacement(deviceId: string): Promise<KeyReplacement>;
 }
 
 export interface OwnerBrowsers {
@@ -137,13 +141,14 @@ export class MachineAccounts {
     return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId).map(accountMachineOf);
   }
 
-  async listOnline(ownerId: string): Promise<Array<AccountMachine & { online: boolean; koalaWanted: boolean; koalaRefused?: { reason: string; at: string } }>> {
+  async listOnline(ownerId: string): Promise<Array<AccountMachine & { online: boolean; koalaWanted: boolean; koalaRefused?: { reason: string; at: string }; keyReplacement?: { reason: string; failedAt: string; stopsAt: string } }>> {
     return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId)
       .map((device) => ({
         ...accountMachineOf(device),
         online: this.deps.toMachines.online?.(device.id) ?? false,
         koalaWanted: Boolean(device.koalaWanted),
         ...(device.koalaRefused ? { koalaRefused: device.koalaRefused } : {}),
+        ...(device.keyReplacement && device.signIn ? { keyReplacement: { ...device.keyReplacement, stopsAt: new Date(machineKeyEnds(device.signIn.since)).toISOString() } } : {}),
       }));
   }
 
@@ -206,7 +211,7 @@ export class MachineAccounts {
   private async replaced(ownerId: string, machine: { replaces?: unknown; replacesKeyless?: unknown }): Promise<LocalAgentDeviceMetadata | undefined> {
     const own = (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
     if (typeof machine.replaces === 'string' && machine.replaces) {
-      const caller = await this.deps.clients.machineCaller(machine.replaces);
+      const caller = await this.deps.clients.machineOfKey(machine.replaces);
       return caller && caller.ownerId === ownerId ? own.find((device) => device.id === caller.deviceId) : undefined;
     }
     if (typeof machine.replacesKeyless === 'string' && machine.replacesKeyless) return matchDeviceToken(own.filter((device) => !device.signIn), machine.replacesKeyless)?.device;
@@ -354,6 +359,14 @@ export class MachineAccounts {
   async wentOff(deviceId: string): Promise<void> {
     const at = this.now().toISOString();
     await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: at, offSince: at } });
+  }
+
+  async keyReplaced(deviceId: string, outcome: KeyReplaced): Promise<void> {
+    const device = await this.byId(deviceId);
+    if (!device) return;
+    if (outcome.replaced) await this.deps.store.updateLocalAgentDevice(deviceId, { unset: ['keyReplacement'] });
+    else await this.deps.store.updateLocalAgentDevice(deviceId, { set: { keyReplacement: { reason: outcome.problem, failedAt: this.now().toISOString() } } });
+    this.deps.toOwner.machinesChanged(device.ownerId);
   }
 
   async recordMeshIp(deviceId: string, raw: unknown): Promise<void> {

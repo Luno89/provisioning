@@ -12,6 +12,7 @@ import { MachineAccounts, type MachineRemovals } from '../services/MachineAccoun
 import { wireMachineAccounts } from './accounts.js';
 import { closedAfterEach, until } from '../testing/wiring-world.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
+import { keyReplacementFrom } from '@koala/engine-core/root-client';
 
 const DAY = 24 * 3600 * 1000;
 const closers = closedAfterEach();
@@ -66,6 +67,33 @@ function removedLink(world: { url: string; db: Database }, onRemoved: () => Prom
 }
 
 describe('a machine agent\'s link to root, against root\'s real socket', () => {
+  it('replaces its key when root offers it one as its key nears its end, and root records why when it could not', async () => {
+    const now = new Date();
+    const { db, url } = await root(() => now);
+    await machine(db, 'a-token', ISSUED);
+    await db.machines.updateLocalAgentDevice('desk', { set: { signIn: { ...machineSignInKey(), since: new Date(now.getTime() - 70 * DAY).toISOString() } } });
+    const offers: unknown[] = [];
+    let koalas = 0;
+    let firstKoala: () => void = () => undefined;
+    let secondKoala: () => void = () => undefined;
+    const toldOnce = new Promise<void>((done) => { firstKoala = done; });
+    const toldTwice = new Promise<void>((done) => { secondKoala = done; });
+    const link: RootLink = linkToRoot({
+      rootUrl: url, client: keyOf(db),
+      meshIp: async () => undefined, onRemoved: () => undefined, say: () => undefined,
+      onKoala: () => { koalas += 1; if (koalas === 1) firstKoala(); if (koalas === 2) secondKoala(); },
+      onReplaceKey: async (offer) => { offers.push(offer); throw new Error('the disk was full'); },
+    });
+    closers.push(() => link.close());
+    await toldOnce;
+    expect(offers).toHaveLength(1);
+    expect(offers[0]).toMatchObject({ registrationClientUri: 'http://127.0.0.1:1/oidc/reg/desk' });
+    expect(keyReplacementFrom(offers[0])).toBeDefined();
+    link.askKoala();
+    await toldTwice;
+    expect((await db.machines.getLocalAgentDevices())[0]?.keyReplacement?.reason).toBe('the disk was full');
+  });
+
   it('tells root its mesh address, takes the Koala root names when it connects and when root tells it, and asks again without asking forever though root\'s clock is a month behind', async () => {
     const issued = new Date('2026-08-01T00:00:00Z');
     const now = new Date(issued.getTime() + 70 * DAY);

@@ -122,6 +122,7 @@ export interface AccountMachine {
   koalaWanted: boolean
   holdsKoala: boolean
   koalaRefused?: { reason: string; at: string }
+  keyReplacement?: { reason: string; failedAt: string; stopsAt: string }
 }
 
 export interface MyMachinesView {

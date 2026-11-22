@@ -8,6 +8,24 @@ export const rootIssuerOf = (rootUrl: string): string => `${rootUrl.replace(/\/+
 export const CLIENT_SIGNING_ALG = 'Ed25519';
 export const MACHINE_SCOPE = 'koala:machine';
 export const MACHINE_REGISTRATION_REFUSED = 'root refused this machine\'s registration code (it was used, or a newer join replaced it): run the command from My Machines again';
+export const MACHINE_KEY_DAYS = 90;
+export const REPLACE_KEY_WITHIN_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const machineKeyEnds = (since: string): number => Date.parse(since) + MACHINE_KEY_DAYS * DAY_MS;
+export const machineKeyDue = (keyEnds: number, now: number): boolean => keyEnds - now <= REPLACE_KEY_WITHIN_DAYS * DAY_MS;
+export const KEY_REPLACEMENT_REFUSED = 'root refused to replace this machine\'s key with the offer it gave (the offer was used or ran out); root offers again as the machine connects';
+
+export interface KeyReplacement {
+  registrationAccessToken: string;
+  registrationClientUri: string;
+}
+
+export const keyReplacementFrom = (raw: unknown): KeyReplacement | undefined => {
+  const { registrationAccessToken, registrationClientUri } = (raw ?? {}) as Partial<Record<keyof KeyReplacement, unknown>>;
+  return typeof registrationAccessToken === 'string' && registrationAccessToken && typeof registrationClientUri === 'string' && URL.canParse(registrationClientUri)
+    ? { registrationAccessToken, registrationClientUri }
+    : undefined;
+};
 
 export interface ClientKeys {
   kid: string;
@@ -87,9 +105,19 @@ export class OidcClient {
   readonly registered: Promise<void> = new Promise((resolve) => { this.markRegistered = resolve; });
 
   constructor(
-    private readonly parts: OidcClientSettings,
+    private parts: OidcClientSettings,
     private readonly now: () => number = () => Date.now(),
   ) {}
+
+  protected get reach(): typeof fetch {
+    return this.parts.reach ?? fetchNow;
+  }
+
+  protected useKeys(keys: ClientKeys, registration: Record<string, unknown>): void {
+    this.parts = { ...this.parts, keys, registration };
+    this.configured = undefined;
+    this.held = undefined;
+  }
 
   get issuer(): string {
     return this.parts.issuer;
@@ -167,9 +195,25 @@ export interface MachineClientSettings {
   reach?: typeof fetch | undefined;
 }
 
-export function machineClientOf(machine: MachineClientSettings): OidcClient {
+export class MachineClient extends OidcClient {
+  async replaceKey(offer: KeyReplacement, nextKey: string): Promise<void> {
+    const keys = clientKeysFrom(nextKey);
+    const registration = machineRegistration(clientPublicJwkOf(keys));
+    const answer = await this.reach(offer.registrationClientUri, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${offer.registrationAccessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ client_id: this.clientId, ...registration }),
+    });
+    const refused = (said: string): Error => Object.assign(new Error(said), { answered: true });
+    if (answer.status === 401) throw refused(KEY_REPLACEMENT_REFUSED);
+    if (!answer.ok) throw refused(`root did not take this machine's new key (${answer.status}): ${(await answer.text()).trim().slice(0, 300)}`);
+    this.useKeys(keys, registration);
+  }
+}
+
+export function machineClientOf(machine: MachineClientSettings): MachineClient {
   const keys = clientKeysFrom(machine.key);
-  return new OidcClient({
+  return new MachineClient({
     clientId: machine.deviceId,
     issuer: rootIssuerOf(machine.rootUrl),
     keys,

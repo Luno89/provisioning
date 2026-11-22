@@ -8,7 +8,7 @@ import { FOLLOW_GONE, MACHINE_GONE, type InstallFollowing } from '../lib/koala-i
 const NOW = new Date('2026-11-18T10:00:00Z');
 const TOKEN = 'desk-key-token-0123456789-0123456789';
 const desk: LocalAgentDeviceMetadata = { id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: NOW.toISOString(), meshIp: '100.64.0.7' };
-const callers = { machineCaller: async (token: string) => (token === TOKEN ? { deviceId: 'desk', ownerId: 'bo', until: NOW.getTime() + 300_000 } : undefined) };
+const callers = { machineCaller: async (token: string) => (token === TOKEN ? { deviceId: 'desk', ownerId: 'bo', until: NOW.getTime() + 300_000, keyEnds: NOW.getTime() + 90 * 24 * 3600_000 } : undefined) };
 const installOf = (state: 'asked' | 'installing' | 'ready' | 'failed', more: Partial<NonNullable<InstanceRecord['install']>> = {}): InstanceRecord => ({
   id: 'inst-bo', ownerId: 'bo', url: '', createdAt: 't', updatedAt: 't', machine: 'desk', machineId: 'desk', meshIp: '100.64.0.7',
   install: { id: 'install-1', machineId: 'desk', state, at: 't', ...more },

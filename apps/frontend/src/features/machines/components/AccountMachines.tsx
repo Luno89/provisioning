@@ -154,6 +154,11 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                   </button>
                 </p>
               )}
+              {machine.keyReplacement && (
+                <p className="text-[11px] text-amber-300">
+                  {`Its key could not be replaced: ${machine.keyReplacement.reason}; it stops working on ${new Date(machine.keyReplacement.stopsAt).toLocaleDateString()} unless it is`}
+                </p>
+              )}
             </li>
             )
           })}
