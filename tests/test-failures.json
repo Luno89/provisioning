@@ -156,5 +156,8 @@
  ],
  "apps/backend/src/machines/wiring/run-logs.integration.test.ts": [
   "2026-11-22T03:24:15.000Z"
+ ],
+ "apps/backend/src/infrastructure/services/TemporalBridge.memory.integration.test.ts": [
+  "2026-11-22T03:24:15.000Z"
  ]
 }
