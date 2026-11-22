@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryReporter } from '../testing/memory-reporter.js';
+import { scriptedRollout, type Snapshot } from '../testing/scripted-rollout.js';
 import { chartInputs, chartStep, INPUTS_VALUE, releaseRevision, runsInputs, type ChartCluster, type ChartRelease } from './chart.js';
 import { SETUP_LABEL } from './rollout.js';
 import { runSteps, StepFailed } from './steps.js';
@@ -12,15 +13,17 @@ const seed = (status: Record<string, unknown>) => ({ kind: 'Job', metadata: { na
 interface Scripted extends ChartCluster {
   helmRan: string[][];
   kubectlRan: string[][];
+  listed: string[];
 }
 
-function cluster(world: { listed: { status: string; inputs?: string } | undefined; rollouts: unknown[]; logs?: string }): Scripted {
+function cluster(world: { listed: { status: string; inputs?: string } | undefined; rollouts: Snapshot[][]; logs?: string }): Scripted {
   const helmRan: string[][] = [];
   const kubectlRan: string[][] = [];
-  let looked = 0;
+  const rollout = scriptedRollout(world.rollouts.length > 0 ? world.rollouts : [[{ items: [] }]]);
   return {
     helmRan,
     kubectlRan,
+    listed: rollout.listed,
     helm: async (args) => {
       helmRan.push([...args]);
       if (args[0] === 'list') return JSON.stringify(world.listed ? [{ name: 'instance', revision: '2', status: world.listed.status }] : []);
@@ -34,14 +37,12 @@ function cluster(world: { listed: { status: string; inputs?: string } | undefine
     kubectl: async (args) => {
       kubectlRan.push([...args]);
       if (args[0] === 'logs') return world.logs ?? '';
-      const at = Math.min(looked, world.rollouts.length - 1);
-      looked += 1;
-      return JSON.stringify(world.rollouts[at]);
+      return rollout.kubectl(args);
     },
+    watch: (path, heard) => rollout.watch(path, heard),
   };
 }
 
-const noPause = { pause: async () => undefined };
 const step = chartStep({ id: 'koala', title: 'Putting Koala on this machine' }, release);
 
 describe('what a release is made from', () => {
@@ -55,58 +56,72 @@ describe('what a release is made from', () => {
 
   it('is run by the release once helm last applied it, whether or not all it holds is up yet', async () => {
     const rolling = { items: [deployment(0)] };
-    expect(await runsInputs({ cluster: cluster({ listed: undefined, rollouts: [rolling] }) }, release)).toBe(false);
-    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-0' }, rollouts: [rolling] }) }, release)).toBe(false);
-    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [rolling] }) }, release)).toBe(true);
-    expect(await runsInputs({ cluster: cluster({ listed: { status: 'failed', inputs: 'inputs-1' }, rollouts: [rolling] }) }, release)).toBe(true);
+    expect(await runsInputs({ cluster: cluster({ listed: undefined, rollouts: [[rolling]] }) }, release)).toBe(false);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-0' }, rollouts: [[rolling]] }) }, release)).toBe(false);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [[rolling]] }) }, release)).toBe(true);
+    expect(await runsInputs({ cluster: cluster({ listed: { status: 'failed', inputs: 'inputs-1' }, rollouts: [[rolling]] }) }, release)).toBe(true);
   });
 });
 
 describe('applying a chart and following it until everything it holds is up', () => {
   it('is not done while the release is missing, failed, made from other inputs, or still rolling out', async () => {
     const ready = { items: [deployment(1), seed({ succeeded: 1 })] };
-    expect(await step.check({ cluster: cluster({ listed: undefined, rollouts: [ready] }) })).toEqual({ done: false, why: 'instance is not installed in nowrinkles' });
-    expect(await step.check({ cluster: cluster({ listed: { status: 'failed', inputs: 'inputs-1' }, rollouts: [ready] }) })).toEqual({ done: false, why: 'instance is failed' });
-    expect(await step.check({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-0' }, rollouts: [ready] }) })).toEqual({ done: false, why: 'instance runs other settings or another chart than these' });
-    expect(await step.check({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [{ items: [deployment(0)] }] }) })).toEqual({ done: false, why: 'it waits: deployment/instance-backend has 0 of 1 available' });
-    expect(await step.check({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [ready] }) })).toEqual({ done: true });
+    expect(await step.check({ cluster: cluster({ listed: undefined, rollouts: [[ready]] }) })).toEqual({ done: false, why: 'instance is not installed in nowrinkles' });
+    expect(await step.check({ cluster: cluster({ listed: { status: 'failed', inputs: 'inputs-1' }, rollouts: [[ready]] }) })).toEqual({ done: false, why: 'instance is failed' });
+    expect(await step.check({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-0' }, rollouts: [[ready]] }) })).toEqual({ done: false, why: 'instance runs other settings or another chart than these' });
+    expect(await step.check({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [[{ items: [deployment(0)] }]] }) })).toEqual({ done: false, why: 'it waits: deployment/instance-backend has 0 of 1 available' });
+    expect(await step.check({ cluster: cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [[ready]] }) })).toEqual({ done: true });
   });
 
   it('applies the chart without helm waiting or a time limit, then says each change in what it waits on until all is up', async () => {
-    const world = cluster({ listed: undefined, rollouts: [
+    const world = cluster({ listed: undefined, rollouts: [[
       { items: [deployment(0), seed({})] },
-      { items: [deployment(0), seed({})] },
+      { items: [deployment(0), seed({ active: 1 })] },
       { items: [deployment(1), seed({ active: 1 })] },
       { items: [deployment(1), seed({ succeeded: 1 })] },
-    ] });
+    ]] });
     const reporter = memoryReporter();
-    await runSteps([step], { cluster: world, wait: noPause }, reporter);
+    await runSteps([step], { cluster: world }, reporter);
     const upgrade = world.helmRan.find((args) => args[0] === 'upgrade');
     expect(upgrade).toEqual(['upgrade', '--install', 'instance', '/work/instance-chart.tgz', '-n', 'nowrinkles', '--create-namespace', '-f', '/work/values.json', '--set-string', `${INPUTS_VALUE}=inputs-1`]);
     expect(upgrade).not.toContain('--wait');
     expect(upgrade).not.toContain('--timeout');
-    expect(world.kubectlRan[0]).toEqual(['get', 'deployments,statefulsets,daemonsets,replicasets,jobs,pods', '-n', 'nowrinkles', '-l', 'app.kubernetes.io/instance=instance', '-o', 'json']);
-    expect(reporter.linesOf('koala')).toEqual(['waiting for deployment/instance-backend has 0 of 1 available; job/instance-seed-2 has not started', 'waiting for job/instance-seed-2 runs']);
+    const selector = 'labelSelector=app.kubernetes.io%2Finstance%3Dinstance';
+    expect(world.listed.slice(0, 6)).toEqual(['/apis/apps/v1/namespaces/nowrinkles/deployments', '/apis/apps/v1/namespaces/nowrinkles/statefulsets', '/apis/apps/v1/namespaces/nowrinkles/daemonsets', '/apis/apps/v1/namespaces/nowrinkles/replicasets', '/apis/batch/v1/namespaces/nowrinkles/jobs', '/api/v1/namespaces/nowrinkles/pods'].map((path) => `${path}?${selector}`));
+    expect(reporter.linesOf('koala')).toEqual(['waiting for deployment/instance-backend has 0 of 1 available; job/instance-seed-2 has not started', 'waiting for deployment/instance-backend has 0 of 1 available; job/instance-seed-2 runs', 'waiting for job/instance-seed-2 runs']);
     expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'koala' });
   });
 
   it('stops once a setup Job fails, naming it and why, with the end of its log', async () => {
     const world = cluster({
       listed: undefined,
-      rollouts: [{ items: [deployment(1), seed({ conditions: [{ type: 'Failed', status: 'True', message: 'Job has reached the specified backoff limit' }] })] }],
+      rollouts: [[{ items: [deployment(1), seed({ conditions: [{ type: 'Failed', status: 'True', message: 'Job has reached the specified backoff limit' }] })] }]],
       logs: 'seeding app specs\nMongoServerError: not primary\n',
     });
     const reporter = memoryReporter();
-    const failed = await runSteps([step], { cluster: world, wait: noPause }, reporter).then(() => undefined, (err: unknown) => err);
+    const failed = await runSteps([step], { cluster: world }, reporter).then(() => undefined, (err: unknown) => err);
     expect(failed).toBeInstanceOf(StepFailed);
     expect((failed as StepFailed).why).toBe('Putting Koala on this machine: job/instance-seed-2 failed: Job has reached the specified backoff limit\nthe end of its log:\nseeding app specs\nMongoServerError: not primary');
     expect(world.kubectlRan.find((args) => args[0] === 'logs')).toEqual(['logs', 'job/instance-seed-2', '-n', 'nowrinkles', '--all-containers', '--tail', '20']);
   });
 
+  it('stops once a container of the new pods can never be created, naming the pod and the runtime\'s reason', async () => {
+    const message = 'failed to create containerd container: mount source "/data/missing" does not exist';
+    const set = { kind: 'ReplicaSet', metadata: { name: 'instance-backend-1', annotations: { 'deployment.kubernetes.io/revision': '1' }, ownerReferences: [{ kind: 'Deployment', name: 'instance-backend' }] } };
+    const pod = (state: object) => ({ kind: 'Pod', metadata: { name: 'instance-backend-1-a', ownerReferences: [{ kind: 'ReplicaSet', name: 'instance-backend-1' }] }, status: { phase: 'Pending', containerStatuses: [{ name: 'backend', ready: false, restartCount: 0, state }] } });
+    const world = cluster({ listed: undefined, rollouts: [[
+      { items: [deployment(0), set, pod({ waiting: { reason: 'ContainerCreating' } })] },
+      { items: [deployment(0), set, pod({ waiting: { reason: 'CreateContainerError', message } })] },
+    ]] });
+    const failed = await runSteps([step], { cluster: world }, memoryReporter()).then(() => undefined, (err: unknown) => err);
+    expect(failed).toBeInstanceOf(StepFailed);
+    expect((failed as StepFailed).why).toBe(`Putting Koala on this machine: instance-backend-1-a: CreateContainerError: ${message}`);
+  });
+
   it('is already done when the release runs these inputs and everything is up, so a repeated request changes nothing', async () => {
-    const world = cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [{ items: [deployment(1), seed({ succeeded: 1 })] }] });
+    const world = cluster({ listed: { status: 'deployed', inputs: 'inputs-1' }, rollouts: [[{ items: [deployment(1), seed({ succeeded: 1 })] }]] });
     const reporter = memoryReporter();
-    await runSteps([step], { cluster: world, wait: noPause }, reporter);
+    await runSteps([step], { cluster: world }, reporter);
     expect(reporter.reported).toEqual([{ kind: 'started', id: 'koala' }, { kind: 'already-done', id: 'koala' }]);
     expect(world.helmRan.some((args) => args[0] === 'upgrade')).toBe(false);
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Streams } from '@koala/engine-core/processes';
 import { recordingProcesses } from '@koala/engine-core/testing/processes';
 import { runOver } from './agent-bundle.js';
 import { systemInstallDeps } from './agent-install.js';
@@ -26,6 +27,29 @@ describe('a program the machine host runs', () => {
     const host = hostCluster(async () => undefined, { machineRoot: '/srv/machine', processes });
     expect(await host.run('/usr/local/bin/k3s', ['kubectl', '--kubeconfig', '/etc/rancher/k3s/k3s.yaml', 'get', 'nodes'])).toBe('active\n');
     expect(processes.ran[0]).toMatchObject({ command: '/srv/machine/usr/local/bin/k3s', args: ['kubectl', '--kubeconfig', '/srv/machine/etc/rancher/k3s/k3s.yaml', 'get', 'nodes'] });
+  });
+
+  it('follows a program inside the machine root, passing on what it prints as it prints it, until it is stopped', async () => {
+    const followed: Array<{ command: string; args: readonly string[] }> = [];
+    let stopped = '';
+    let end: (result: { code: number; stdout: string; stderr: string }) => void = () => undefined;
+    const streams: Streams = {
+      pipe: async () => { throw new Error('the host pipes nothing here'); },
+      start: () => { throw new Error('the host starts nothing here'); },
+      follow: (run, onOutput) => {
+        followed.push({ command: run.command, args: run.args });
+        onOutput('{"type":"ADDED"}\n');
+        return { pid: 7, stop: (signal) => { stopped = signal ?? 'SIGKILL'; end({ code: 137, stdout: '', stderr: 'killed' }); }, exited: new Promise(() => undefined), ended: new Promise((resolve) => { end = resolve; }) };
+      },
+    };
+    const heard: string[] = [];
+    const host = hostCluster(async () => undefined, { machineRoot: '/srv/machine', streams });
+    const watch = await host.follow('/usr/local/bin/k3s', ['kubectl', '--kubeconfig', '/etc/rancher/k3s/k3s.yaml', 'get', '--raw=/api/v1/pods?watch=1'], (chunk) => heard.push(chunk));
+    expect(followed).toEqual([{ command: '/srv/machine/usr/local/bin/k3s', args: ['kubectl', '--kubeconfig', '/srv/machine/etc/rancher/k3s/k3s.yaml', 'get', '--raw=/api/v1/pods?watch=1'] }]);
+    expect(heard).toEqual(['{"type":"ADDED"}\n']);
+    watch.stop();
+    expect(await watch.ended).toEqual({ code: 137, stderr: 'killed' });
+    expect(stopped).toBe('SIGKILL');
   });
 
   it('fails a program that exited badly, naming it and what it said', async () => {

@@ -13,5 +13,7 @@ export { processProvider, type ProcessProvider, type ProcessSpec } from './proce
 export { serviceStep, type Provider, type Service, type ServiceContext } from './service.js';
 export { composeCommand, composeProvider, composeStep, type ComposeContext, type ComposeProject, type ComposeService } from './compose.js';
 export { releaseRollout, ROLLOUT_KINDS, rolloutAcross, rolloutOf, rolloutOfOne, SETUP_LABEL, stuckHook, type ReleaseRollout, type Rollout, type RolloutOptions } from './rollout.js';
+export { informer, informers, kubectlFailure, listedOnce, type ClusterWatch, type Item, type Listed, type Resource, type Watch } from './informer.js';
+export { rolledOut, workloadResources } from './rolled-out.js';
 export { chartInputs, chartStep, followRelease, INPUTS_VALUE, releaseRevision, runsInputs, type ChartCluster, type ChartContext, type ChartRelease } from './chart.js';
 export { assessWorkload, reconciledStatus, RECENT_RESTART_MS, type WorkloadHealth, type WorkloadStatus } from './workload-health.js';

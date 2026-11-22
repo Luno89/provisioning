@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import type { ChartCluster } from '@koala/provision';
+import type { ChartCluster, Watch } from '@koala/provision';
 import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
 import { helmArgsFor } from '../lib/chart-sources.js';
@@ -108,6 +108,7 @@ export class ClusterAccess {
     return {
       helm: (args) => this.helm(target, args),
       kubectl: (args) => this.kubectl(target, args),
+      watch: (path, heard) => this.watch(target, path, heard),
     };
   }
 
@@ -144,6 +145,11 @@ export class ClusterAccess {
 
   async follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
     return this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput);
+  }
+
+  async watch(target: Target, path: string, heard: (chunk: string) => void): Promise<Watch> {
+    const followed = await this.follow(target, ['get', `--raw=${path}`], heard);
+    return { stop: () => followed.stop(), ended: followed.ended.then(({ code, stderr }) => ({ code, stderr })) };
   }
 
   private async run(target: Target, command: string, args: readonly string[], input?: string): Promise<ProcessRun> {

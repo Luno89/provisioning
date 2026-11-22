@@ -48,6 +48,14 @@ describe('a workload that has settled into failing', () => {
     expect(r.reason).toContain('CrashLoopBackOff');
   });
 
+  it('catches a container its runtime cannot create, naming the runtime\'s reason, which was waited on forever', () => {
+    const message = 'failed to create containerd container: mount source "/data/missing" does not exist';
+    expect(assessWorkload(pods([{ ready: false, restartCount: 0, state: { waiting: { reason: 'CreateContainerError', message } } }]))).toEqual({
+      health: 'unhealthy',
+      reason: `pod-0: CreateContainerError: ${message}`,
+    });
+  });
+
   it('catches an image that cannot be pulled', () => {
     expect(assessWorkload(pods([{ ready: false, restartCount: 0, state: { waiting: { reason: 'ImagePullBackOff' } } }])).health)
       .toBe('unhealthy');

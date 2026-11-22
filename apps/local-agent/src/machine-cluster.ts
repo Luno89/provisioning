@@ -1,10 +1,10 @@
 import { passedOn, PERSON_SESSION } from '@koala/engine-core/child-env';
-import { nodeProcesses } from '@koala/engine-core/node-processes';
-import { ProcessFailed, succeeded, type Processes } from '@koala/engine-core/processes';
+import { nodeProcesses, nodeStreams } from '@koala/engine-core/node-processes';
+import { ProcessFailed, succeeded, type Processes, type Streams } from '@koala/engine-core/processes';
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { allReporters, k3sStep, runSteps, type ChartCluster, type Provider, type ServiceContext } from '@koala/provision';
+import { allReporters, k3sStep, runSteps, type ChartCluster, type Provider, type ServiceContext, type Watch } from '@koala/provision';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { GpuProbe } from './machine-gpus.js';
 import { configFile, metricsClientFile } from './machine-config.js';
@@ -17,6 +17,7 @@ export const K3S_MARKER = '/etc/koala/machine-k3s';
 
 export interface ClusterHost extends GpuProbe {
   run(file: string, args: string[]): Promise<string>;
+  follow(file: string, args: string[], heard: (chunk: string) => void): Promise<Watch>;
   wanted(running: boolean): Promise<void>;
   isWanted(): Promise<boolean>;
   holdKoala(instanceId: string, installId: string, readyAt?: string): Promise<void>;
@@ -54,11 +55,15 @@ const present = (file: string) => access(file).then(() => true, (err: NodeJS.Err
 
 export const onMachine = (machineRoot: string) => (file: string): string => (machineRoot === '/' || !path.isAbsolute(file) ? file : path.join(machineRoot, file));
 
-export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), metricsClientAt = metricsClientFile(configFile()), machineRoot = '/', processes = nodeProcesses }: { wantedAt?: string; koalaHere?: string; metricsClientAt?: string; machineRoot?: string; processes?: Processes } = {}): MachineHost => {
+export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), metricsClientAt = metricsClientFile(configFile()), machineRoot = '/', processes = nodeProcesses, streams = nodeStreams }: { wantedAt?: string; koalaHere?: string; metricsClientAt?: string; machineRoot?: string; processes?: Processes; streams?: Streams } = {}): MachineHost => {
   const at = onMachine(machineRoot);
   return {
   platform: process.platform,
   run: (file, args) => succeeded(processes, { command: at(file), args: args.map(at), env: passedOn(PERSON_SESSION) }),
+  follow: async (file, args, heard) => {
+    const followed = streams.follow({ command: at(file), args: args.map(at), env: passedOn(PERSON_SESSION) }, heard);
+    return { stop: () => followed.stop(), ended: followed.ended.then(({ code, stderr }) => ({ code, stderr })) };
+  },
   exists: (file) => access(at(file)).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
   read: (file) => readFile(at(file), 'utf8'),
   list: (dir) => readdir(at(dir)),
@@ -90,6 +95,7 @@ const kubectl = (host: ClusterHost, args: string[]) => host.run(K3S_BINARY, ['ku
 export const machineChartCluster = (host: ClusterHost, helm: string): ChartCluster => ({
   helm: (args) => host.run(helm, [...args, '--kubeconfig', K3S_KUBECONFIG]),
   kubectl: (args) => kubectl(host, [...args]),
+  watch: (path, heard) => host.follow(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, 'get', `--raw=${path}`], heard),
 });
 
 export const stoppedPause = (pause: (ms: number) => Promise<void>, stop: AbortSignal) => async (ms: number): Promise<void> => {
@@ -112,6 +118,15 @@ export function stoppableHost(host: MachineHost, stop: AbortSignal): MachineHost
     run: async (file, args) => {
       stop.throwIfAborted();
       return host.run(file, args);
+    },
+    follow: async (file, args, heard) => {
+      stop.throwIfAborted();
+      const watch = await host.follow(file, args, heard);
+      const quit = (): void => watch.stop();
+      stop.addEventListener('abort', quit, { once: true });
+      void watch.ended.finally(() => stop.removeEventListener('abort', quit));
+      if (stop.aborted) watch.stop();
+      return watch;
     },
     exists: (file) => host.exists(file),
     read: (file) => host.read(file),

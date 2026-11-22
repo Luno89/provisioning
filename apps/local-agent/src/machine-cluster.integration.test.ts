@@ -75,6 +75,16 @@ describe('Koala\'s chart reaches this machine\'s own k3s, as the install runs it
     expect(await machine.cluster.helm(['status', 'instance', '-n', 'nowrinkles'])).toBe('status instance -n nowrinkles against this machine\'s k3s\n');
   });
 
+  it('watches through k3s\'s kubectl, its API path left as the path it is, hearing what it prints as it goes', async () => {
+    const machine = await throwawayMachine();
+    mkdirSync(dirname(machine.on(K3S_KUBECONFIG)), { recursive: true });
+    writeFileSync(machine.on(K3S_KUBECONFIG), 'this machine\'s k3s');
+    let heard = '';
+    const watch = await machine.cluster.watch('/api/v1/namespaces/nowrinkles/pods?watch=1', (chunk) => { heard += chunk; });
+    expect(await watch.ended).toEqual({ code: 0, stderr: '' });
+    expect(heard).toBe('kubectl get --raw=/api/v1/namespaces/nowrinkles/pods?watch=1 against this machine\'s k3s\n');
+  });
+
   it('fails with what k3s said when this machine has no kubeconfig of k3s\'s yet', async () => {
     const machine = await throwawayMachine();
     await expect(machine.cluster.kubectl(['get', 'pods'])).rejects.toThrow(`k3s: no kubeconfig at ${machine.on(K3S_KUBECONFIG)}`);

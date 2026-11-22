@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { reopening, untilAnswered, type Reopening } from '@koala/engine-core/reopening';
-import { chartInputs, chartStep, followRelease, releaseRevision, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Progress, type Reporter, type WaitOptions } from '@koala/provision';
+import { chartInputs, chartStep, followRelease, releaseRevision, runSteps, StepFailed, type ChartCluster, type ChartRelease, type Progress, type Reporter } from '@koala/provision';
 import { InstanceReporter, RootClient, UPGRADE_WORDS, withWhy, type InstanceStatus } from '../instances/index.js';
 import { clusterAccessFrom } from '../infrastructure/index.js';
 import { selfUpgradeSettingsFrom } from '../platform/index.js';
@@ -14,7 +14,6 @@ export interface SelfUpgradeDeps {
   cluster: ChartCluster;
   fetch?: typeof fetch;
   wait?: Reopening;
-  watch?: WaitOptions;
   log?: (line: string) => void;
 }
 
@@ -38,7 +37,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const headers = async () => ({ 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${await deps.root.token()}` });
   const { name, namespace, current, dataVersion: installed } = deps.release;
   const wait = deps.wait ?? reopening();
-  const ctx = { cluster: deps.cluster, ...(deps.watch ? { wait: deps.watch } : {}) };
+  const ctx = { cluster: deps.cluster };
   const progress: Progress = { line: log };
   const ofRoot = (doing: string, ask: () => Promise<Response>): Promise<Response> =>
     untilAnswered(ask, wait, (why, seconds) => log(`root isn't answering when this instance ${doing} (${why}); asking again in ${seconds} s`));
