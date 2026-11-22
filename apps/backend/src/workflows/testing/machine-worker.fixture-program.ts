@@ -18,8 +18,6 @@ const blobs: BlobReach = {
 };
 
 async function main(at: MachineWorkerAt): Promise<void> {
-  process.stdin.on('end', () => process.exit(0));
-  process.stdin.resume();
   const connection = await NativeConnection.connect({ address: at.address });
   const worker = await createWorker({
     connection,

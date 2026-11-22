@@ -115,6 +115,10 @@
       "types": "./testing/processes.ts",
       "default": "./testing/processes.ts"
     },
+    "./testing/kept": {
+      "types": "./testing/kept.ts",
+      "default": "./testing/kept.ts"
+    },
     "./testing/processes-contract": {
       "types": "./testing/processes-contract.ts",
       "default": "./testing/processes-contract.ts"

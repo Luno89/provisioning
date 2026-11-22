@@ -10,6 +10,7 @@ export const REPORTERS = ['default', here('./failure-reporter.ts'), here('./timi
 const UNIT_GUARD = here('./unit-guard.ts');
 export const STATUS_SETUP = here('./status-setup.ts');
 const OWN_HOME = here('./home.ts');
+export const OWN_PROCESSES = here('./own-processes.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
 const WORLD = here('../../packages/provision/testing/world-setup.ts');
 const UNIT_WORLD = here('../../packages/provision/testing/unit-world-setup.ts');
@@ -57,7 +58,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         globalSetup: [WORLD, ...(options.integration?.globalSetup ?? []), ...optional.map((setup) => setup.globalSetup)],
         ...(options.integration?.env ? { env: options.integration.env } : {}),
         ...(options.integration?.environment ? { environment: options.integration.environment } : {}),
-        setupFiles: [OWN_HOME, STATUS_SETUP, ...setup, ...(options.integration?.setupFiles ?? []), ...optional.flatMap((one) => one.setupFiles ?? []), COUPLING],
+        setupFiles: [OWN_PROCESSES, OWN_HOME, STATUS_SETUP, ...setup, ...(options.integration?.setupFiles ?? []), ...optional.flatMap((one) => one.setupFiles ?? []), COUPLING],
       },
     },
   ];

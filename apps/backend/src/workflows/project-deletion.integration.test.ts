@@ -2,7 +2,8 @@ import { Context } from '@temporalio/activity';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { nodeStreams } from '@koala/engine-core/node-processes';
 import { resolve } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { childEnv } from '@koala/engine-core/child-env';
+import { startKept } from '@koala/engine-core/testing/kept';
 import { describe, expect, inject, it } from 'vitest';
 import { stopWorkOf } from '@koala/engine-core';
 import { deviceQueue } from '../engine-host/temporal/contracts.js';
@@ -99,11 +100,11 @@ describe('a project being deleted while a step of its release is still writing',
     const hearing = (line: string) => new Promise<void>((done) => { hears.set(line, done); });
     const started = hearing(MACHINE_STEP_STARTED);
     const askedToStop = hearing(MACHINE_STEP_ASKED_TO_STOP);
-    const machine = nodeStreams.start({
+    const machine = startKept({
       command: process.execPath,
       args: ['--import', import.meta.resolve('tsx'), resolve(import.meta.dirname, 'testing', 'machine-worker.fixture-program.ts'), JSON.stringify({ address: inject('temporalAddress'), namespace: world.env.namespace, taskQueue: deviceQueue(deviceId), ring: world.env.payloads.ring })],
+      env: childEnv(),
     }, {
-      input: new PassThrough(),
       heard: { stdout: (chunk) => { for (const line of chunk.split('\n')) hears.get(line)?.(); } },
     });
     const beforeTheMachineEnds = <T>(wait: Promise<T>): Promise<T> => Promise.race([wait, machine.ended.then((ended) => { throw new Error(`the machine's program ended first: ${ended.stderr.trim() || `exit ${ended.code}`}`); })]);

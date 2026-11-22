@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { ignore } from '@koala/engine-core/failures';
+import { startKept } from '@koala/engine-core/testing/kept';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const run = promisify(execFile);
@@ -110,21 +111,18 @@ export async function startRealGitea(): Promise<RealGitea> {
   await cli(['migrate']);
   await cli(['admin', 'user', 'create', '--username', ADMIN, '--password', adminPassword, '--email', 'bot@provisioning.local', '--admin', '--must-change-password=false']);
   const said: string[] = [];
-  const server: ChildProcess = spawn(gitea, ['web', '--config', config, '--work-path', work], { env, cwd: work, stdio: ['ignore', 'pipe', 'pipe'] });
-  const keep = (chunk: Buffer) => { said.push(chunk.toString('utf8')); if (said.length > 400) said.splice(0, said.length - 400); };
-  server.stdout!.on('data', keep);
-  server.stderr!.on('data', keep);
-  const exited = new Promise<void>((done) => server.once('exit', () => done()));
+  const keep = (chunk: string) => { said.push(chunk); if (said.length > 400) said.splice(0, said.length - 400); };
+  const server = startKept({ command: gitea, args: ['web', '--config', config, '--work-path', work], env, cwd: work }, { heard: { stdout: keep, stderr: keep } });
+  let gone = false;
+  void server.exited.then(() => { gone = true; });
   const url = `http://127.0.0.1:${port}`;
   const close = async () => {
-    if (server.exitCode === null && server.signalCode === null) {
-      server.kill('SIGTERM');
-      await exited;
+    if (!gone) {
+      server.stop('SIGTERM');
+      await server.exited;
     }
     await fs.rm(work, { recursive: true, force: true });
   };
-  let gone = false;
-  void exited.then(() => { gone = true; });
   while (!(await answers(url))) {
     if (gone) {
       await close();
