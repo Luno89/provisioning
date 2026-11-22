@@ -62,7 +62,7 @@ async function main() {
   const service = serviceManagerOf(process.platform, process.env, await readCgroup());
   void startIfWanted(machineCluster, say).catch((err: Error) => say(`this machine's cluster could not start again: ${err.message}`));
   let sessionsOf: ExternalAgentSessions | undefined;
-  let working: { url: string; setToken(token: string): Promise<void> } | undefined;
+  let working: { url: string } | undefined;
   const client = await heldMachineKey(configFile(), (key) => machineClientOf({ rootUrl, deviceId: config.deviceId, key }));
   const placements = koalaPlacements({ cluster: machineCluster, helm: helmBinary(), fetch, token: () => client.token(), say, ownValues: ownValuesFile() });
   linkToRoot({
@@ -87,9 +87,7 @@ async function main() {
         say(`this machine's Koala is now at ${koala.url}`);
         if (service) process.exit(0);
         say('start the agent again to work for it there');
-        return;
       }
-      void working.setToken(koala.workToken);
     },
   });
 }

@@ -8,14 +8,12 @@ import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice, un
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
-import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 
 const DATA_KEY = 'test-secret';
 const URL_OF_KOALA = 'https://koala.example';
 
-const signing = identityKeysFrom(generateIdentityKey());
 let service: MachineService | undefined;
 let accounts: MachineAccounts | undefined;
 const meshRemoved: { ownerId: string; meshIp: string }[] = [];
@@ -29,7 +27,6 @@ const machinesOf = (db: Database, mesh = 'https://mesh.koala.test', now?: () => 
   const made: MachineAccounts = new MachineAccounts({
     ...(now ? { now } : {}),
     store: db.machines,
-    signing,
     clients: machineClientsAt(db),
     settings: { url: URL_OF_KOALA, meshLoginServer: mesh },
     koala: { of: async () => ({ url: URL_OF_KOALA, audience: 'inst-1' }) },

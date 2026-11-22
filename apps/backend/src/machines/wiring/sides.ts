@@ -11,7 +11,6 @@ import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
 import { MachineClusters } from '../services/MachineClusters.js';
 import { wireMachineAccounts, type AccountSockets } from './accounts.js';
-import type { WorkTokenTrust } from '../lib/work-tokens.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import { MACHINE_UNINSTALLED_SIGNAL, removeAccountWorkflowId } from '../../accounts/index.js';
 
@@ -73,7 +72,6 @@ export interface MachineSides {
   machines: MachineService;
   clusters?: MachineClusters | undefined;
   mirror?: MachineMirror | undefined;
-  workTokens?: WorkTokenTrust | undefined;
   syncMachines?: (() => Promise<void>) | undefined;
   instanceCaller: (instanceId: string, credential: string) => Promise<{ ownerId: string } | undefined>;
   instanceArrived: (instance: Pick<InstanceRecord, 'id' | 'ownerId'>) => void;
@@ -102,7 +100,6 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   }) : undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
-    signing: role.signing,
     clients: clientsOf(),
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
     koala: { of: async (ownerId) => deps.instances()?.service?.koalaOf(ownerId) },
@@ -155,7 +152,6 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     mirror,
     syncMachines,
     watched,
-    workTokens: tenants && role.trusted && role.instance ? { keys: role.trusted, audience: role.instance.id } : undefined,
     instanceCaller: async (instanceId, credential) => deps.instances()?.service?.caller(instanceId, credential),
     instanceArrived: (instance) => {
       void accounts?.tellKoala(instance.ownerId).catch((err: Error) => console.warn(`[machines] ${instance.id}'s owner's machines could not be told where it is: ${err.message}`));

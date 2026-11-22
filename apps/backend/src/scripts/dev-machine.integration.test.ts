@@ -185,7 +185,7 @@ describe('dev joining this computer to root as a machine', () => {
     path0 = process.env.PATH;
     process.env.PATH = `${bin}:${path0 ?? ''}`;
     const db = await testDatabase();
-    const accounts = new MachineAccounts({ ...quietAccountSides(), store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db) });
+    const accounts = new MachineAccounts({ ...quietAccountSides(), store: db.machines, clients: machineClientsAt(db) });
     const app = await harnessApp({ prefix: '/api', router: () => Router().use('/my-machines', myMachinesRouter({ accounts, koalaOf: async () => undefined })) }, db, () => TEST_USER);
     const server = await listen(app, 0);
     return { db, out, config: path.join(place, 'config'), folder: path.join(place, 'koala'), rootApi: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };

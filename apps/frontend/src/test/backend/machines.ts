@@ -7,7 +7,7 @@ import { KoalaInstalls } from '../../../../backend/src/machines/services/KoalaIn
 import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice } from '../../../../backend/src/machines/lib/local-agent-registry'
 import { ProjectRepoService } from '../../../../backend/src/projects/services/ProjectRepoService'
 import { InstanceService } from '../../../../backend/src/instances/services/InstanceService'
-import { generateIdentityKey, identityKeysFrom } from '../../../../backend/src/instances/lib/identity-token'
+import { generateIdentityKey } from '../../../../backend/src/instances/lib/identity-token'
 import type { GiteaService } from '../../../../backend/src/projects/services/GiteaService'
 import type { LocalAgentDeviceMetadata } from '../../../../backend/src/platform/lib/types'
 import { machineSides, type MachineSides } from '../../../../backend/src/machines/wiring/sides'
@@ -77,7 +77,6 @@ export function machinesOf({ db, origin }: Site): Machines {
   })
   const accounts: MachineAccounts = new MachineAccounts({
     store: db.machines,
-    signing: identityKeysFrom(generateIdentityKey()),
     clients: machineClientsAt(db),
     settings: { url: origin, meshLoginServer: 'https://mesh.koala.test' },
     mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },

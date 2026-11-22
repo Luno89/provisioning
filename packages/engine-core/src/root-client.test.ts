@@ -67,10 +67,12 @@ describe('a client of root', () => {
       { clientId: 'desk-1', issuer: 'https://koala.example/oidc', keys: clientKeysFrom(newClientKey()), registrationCode: '', registration: {}, refused: '', scope: MACHINE_SCOPE, reach },
       () => now,
     );
+    expect(machine.renewsAt('urn:koala:instance:inst-1')).toBeUndefined();
     expect(await machine.token('urn:koala:instance:inst-1')).toBe('token-1-for-urn:koala:instance:inst-1');
+    expect(machine.renewsAt('urn:koala:instance:inst-1')).toBe(270_000);
     expect(await machine.token()).toBe('token-2-for-root');
     expect(await machine.token('urn:koala:instance:inst-1')).toBe('token-1-for-urn:koala:instance:inst-1');
-    now = 271_000;
+    now = 270_000;
     expect(await machine.token('urn:koala:instance:inst-1')).toBe('token-3-for-urn:koala:instance:inst-1');
     expect(await machine.freshToken('urn:koala:instance:inst-1')).toBe('token-4-for-urn:koala:instance:inst-1');
     expect(asked).toEqual(['urn:koala:instance:inst-1', null, 'urn:koala:instance:inst-1', 'urn:koala:instance:inst-1']);

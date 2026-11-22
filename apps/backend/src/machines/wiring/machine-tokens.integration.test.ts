@@ -1,4 +1,5 @@
 import { testKeys } from '../../platform/testing/keys.js';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import http2 from 'node:http2';
 import { readFileSync } from 'node:fs';
@@ -10,10 +11,11 @@ import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
+import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { machineAccessAt, machineAccessCheckedAt, machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { runResourceOf } from '../../instances/lib/oidc.js';
-import { issueWorkToken, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
+import { temporal as proto } from '@temporalio/proto';
+import { deviceQueueOf, frame } from '../lib/temporal-gateway.js';
 import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE } from '@koala/engine-core/machine-join';
 import { keyReplacementFrom } from '@koala/engine-core/root-client';
 import { dropDevice, localAgentStatus } from '../lib/local-agent-registry.js';
@@ -23,8 +25,7 @@ import { MachineService } from '../services/MachineService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { wireMachineAccounts } from './accounts.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
-import { deviceByWorkToken } from './machines.js';
-import { deviceByMachineToken } from './machine-admission.js';
+import { deviceByMachineToken, machineAdmission } from './machine-admission.js';
 import { wireSockets } from './sockets.js';
 import { agentSockets, hearing, until } from '../testing/wiring-world.js';
 
@@ -38,7 +39,6 @@ const POLL_PATH = '/temporal.api.workflowservice.v1.WorkflowService/PollActivity
 const keys = testKeys('machine-tokens-test-secret');
 const root = identityKeysFrom(generateIdentityKey());
 const otherRoot = identityKeysFrom(generateIdentityKey());
-const trust = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
 const ROOT_URL = 'http://127.0.0.1:1';
 
 let db: MongoDB;
@@ -52,7 +52,6 @@ let url = '';
 
 const accountsOn = (store: MongoDB['machines'], toMachines: MachineMessages): MachineAccounts => new MachineAccounts({
   store,
-  signing: root,
   clients: machineClientsAt(db),
   settings: { url: 'http://root.test' },
   koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
@@ -81,8 +80,11 @@ const access = (over: { deviceId?: string; koala?: string; by?: typeof root; sec
 const koalaOf = (id: string, ownerId: string) => db.instances.saveInstance({ id, ownerId, url: `http://${id}.test`, createdAt: 'then', updatedAt: 'then', status: 'ready' });
 
 const seconds = () => Math.floor(clock.getTime() / 1000);
-const workToken = (over: { by?: typeof root; audience?: string; machineId?: string; at?: number } = {}) =>
-  issueWorkToken(over.by ?? root, { machineId: over.machineId ?? 'desk', ownerId: 'owner-1', audience: over.audience ?? 'inst-1' }, over.at ?? seconds());
+const oldWorkToken = () => {
+  const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const signed = `${part({ alg: 'EdDSA', typ: 'nowrinkles-machine', kid: root.kid })}.${part({ sub: 'desk', owner: 'owner-1', aud: 'inst-1', iat: seconds(), exp: seconds() + 30 * 24 * 3600 })}`;
+  return `${signed}.${crypto.sign(null, Buffer.from(signed), root.privateKey).toString('base64url')}`;
+};
 
 function connectTo(namespace: string, token: string): Promise<{ socket: ClientSocket; error?: string }> {
   const socket = connect(`${url}${namespace}`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
@@ -100,22 +102,32 @@ const cutOrStill = (socket: ClientSocket, answered: () => Promise<void>) => {
   return () => Promise.race([cut, answered().then(() => 'still connected: Koala answered the machine after it should have been cut off')]);
 };
 
-function gatewayAnswer(token: string): Promise<string | undefined> {
+const pollOf = (queue: string) => frame(Buffer.from(proto.api.workflowservice.v1.PollActivityTaskQueueRequest.encode({ namespace: 'default', taskQueue: { name: queue }, identity: 'desk' }).finish()));
+const gatewaySessions: http2.ClientHttp2Session[] = [];
+
+function gatewayConnection() {
   const session = http2.connect(`https://${gatewayAddress}`, { ca: readFileSync(path.join(TLS_DIR, 'ca.crt')), servername: 'temporal' });
-  return new Promise((resolve) => {
+  gatewaySessions.push(session);
+  session.on('error', () => undefined);
+  const ended = new Promise<string>((done) => session.once('close', () => done('cut')));
+  const poll = (token: string, queue = deviceQueueOf('desk')): Promise<string> => new Promise((resolve) => {
+    if (session.closed || session.destroyed) return resolve('cut');
     const stream = session.request({ ':method': 'POST', ':path': POLL_PATH, 'content-type': 'application/grpc', authorization: `Bearer ${token}` });
     const settle = (headers: http2.IncomingHttpHeaders) => {
-      if (headers['grpc-status'] === undefined) return;
-      resolve(String(headers['grpc-message'] ?? headers['grpc-status']));
-      session.close();
+      if (headers['grpc-status'] !== undefined) resolve(String(headers['grpc-message'] ?? headers['grpc-status']));
     };
     stream.on('response', settle);
     stream.on('trailers', settle);
-    stream.on('error', () => { resolve(undefined); session.close(); });
+    stream.on('error', () => resolve('cut'));
+    stream.on('close', () => resolve('cut'));
     stream.resume();
-    stream.end();
+    stream.end(pollOf(queue));
   });
+  const cutOrAnswered = (token: string) => Promise.race([ended, poll(token).then((answer) => (answer === 'cut' ? 'cut' : `still connected: ${answer}`))]);
+  return { poll, cutOrAnswered };
 }
+
+const gatewayAnswer = (token: string, queue?: string) => gatewayConnection().poll(token, queue);
 
 const git = () => new MachineGitService({
   deviceFor: deviceByMachineToken(db, machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime()), 'owner-1'),
@@ -158,7 +170,8 @@ beforeEach(async () => {
     namespace: 'default',
     tls: { cert: readFileSync(path.join(TLS_DIR, 'server.crt')), key: readFileSync(path.join(TLS_DIR, 'server.key')) },
     keys: () => ['the-key'],
-    deviceOf: deviceByWorkToken(db, trust, () => clock),
+    admit: machineAdmission(db, machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime()), 'owner-1'),
+    now: () => clock.getTime(),
     handed: async () => undefined,
   });
   forgotten.listener = (deviceId) => gateway.forget(deviceId);
@@ -167,6 +180,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
+  for (const session of gatewaySessions.splice(0)) session.destroy();
   await watching().close();
   await io.close();
   await new Promise<void>((done) => server.close(() => done()));
@@ -222,14 +236,13 @@ describe('a machine\'s connection to root, on tokens of its own key', () => {
     expect(await cut()).toBe('io server disconnect');
   });
 
-  it('hands the machine its Koala, the resource root gives it tokens for there, and a work token on connecting, and again when it asks', async () => {
+  it('hands the machine its Koala and the resource root gives it tokens for there, and nothing else, on connecting, and again when it asks', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const socket = connect(`${url}/machine-account`, { auth: { token: await keyToken() }, transports: ['websocket'], reconnection: false, forceNew: true });
     clients.push(socket);
-    const told = hearing<{ url: string; resource: string; workToken: string } | null>(socket, 'machine:koala');
+    const told = hearing<{ url: string; resource: string } | null>(socket, 'machine:koala');
     const [first] = await told.saidTimes(1);
-    expect(first).toMatchObject({ url: 'http://inst.test', resource: runResourceOf('inst-1') });
-    expect(await gatewayAnswer(first!.workToken)).not.toMatch(/not known here/);
+    expect(first).toEqual({ url: 'http://inst.test', resource: runResourceOf('inst-1') });
     socket.emit('machine:koala?');
     const again = await told.saidTimes(2);
     expect(again).toHaveLength(2);
@@ -346,7 +359,7 @@ describe('a machine\'s token from root for its Koala, at the Koala\'s git', () =
     await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: ISSUED }), id: 'lap', ownerId: 'owner-2' });
     expect(await gitAnswer(await access({ deviceId: 'lap', koala: 'inst-2' }))).toBe(401);
     expect(await gitAnswer(await access({ by: otherRoot }))).toBe(401);
-    expect(await gitAnswer(workToken())).toBe(401);
+    expect(await gitAnswer(oldWorkToken())).toBe(401);
     const short = await access({ seconds: 60 });
     expect(await gitAnswer(short)).toBe(404);
     clock = new Date(clock.getTime() + 2 * 60 * 1000);
@@ -357,36 +370,77 @@ describe('a machine\'s token from root for its Koala, at the Koala\'s git', () =
   });
 });
 
-describe('a machine\'s work token at its Koala', () => {
-  it('lets the machine in at the gateway', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    expect(await gatewayAnswer(workToken())).not.toMatch(/not known here/);
+describe('a machine\'s token from root for its Koala, at the gateway to its Koala\'s Temporal', () => {
+  const saveDesk = () => db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+
+  it('serves the machine its own queue on a token root gave it for this Koala, and no other machine\'s queue', async () => {
+    await saveDesk();
+    expect(await gatewayAnswer(await access())).toBe('answered by Temporal');
+    expect(await gatewayAnswer(await access(), deviceQueueOf('other'))).toBe('a machine takes work only from its own queue, device-desk');
   });
 
-  it('is refused for another Koala, from another root, past its expiry, and for a machine this Koala does not have', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    for (const token of [
-      workToken({ audience: 'inst-2' }),
-      workToken({ by: otherRoot }),
-      workToken({ at: seconds() - WORK_TOKEN_TTL_SECONDS - 1 }),
-      OLD_TOKEN,
-      workToken({ machineId: 'other' }),
-    ]) {
-      expect(await gitAnswer(token)).toBe(401);
-      expect(await gatewayAnswer(token)).toMatch(/not known here/);
-    }
+  it('refuses none, one for another Koala, one another key signed, one that ran out, the old work token, and one of a machine this Koala does not have', async () => {
+    await saveDesk();
+    await koalaOf('inst-2', 'owner-2');
+    await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: ISSUED }), id: 'lap', ownerId: 'owner-2' });
+    expect(await gatewayAnswer('')).toBe('Unauthorized: send a token root gave this machine for this Koala');
+    expect(await gatewayAnswer(await access({ deviceId: 'lap', koala: 'inst-2' }))).toMatch(/^Unauthorized: the machine's token could not be checked: .*aud/);
+    expect(await gatewayAnswer(await access({ by: otherRoot }))).toMatch(/^Unauthorized: the machine's token could not be checked/);
+    const short = await access({ seconds: 60 });
+    const old = oldWorkToken();
+    const gone = await access();
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect(await gatewayAnswer(short)).toMatch(/^Unauthorized: the machine's token could not be checked: .*exp/);
+    expect(await gatewayAnswer(old)).toMatch(/^Unauthorized: the machine's token could not be checked/);
+    expect(await gatewayAnswer(OLD_TOKEN)).toMatch(/^Unauthorized: the machine's token could not be checked/);
+    await db.machines.deleteLocalAgentDevice('desk');
+    expect(await gatewayAnswer(gone)).toBe('this machine is not one of this Koala\'s: run the command from My Machines again');
   });
 
-  it('stops working at the gateway the moment the machine leaves, though the gateway had just let it in', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const token = workToken();
-    expect(await gatewayAnswer(token)).not.toMatch(/not known here/);
+  it('cuts the machine\'s connection at its first call once its token has run out', async () => {
+    await saveDesk();
+    const token = await access({ seconds: 60 });
+    const connection = gatewayConnection();
+    expect(await connection.poll(token)).toBe('answered by Temporal');
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect(await connection.poll(token)).toBe('Unauthorized: this machine\'s token from root ended; it takes a fresh one and connects again');
+    expect(await connection.cutOrAnswered(await access({ seconds: 600 }))).toBe('cut');
+  });
+
+  it('keeps the machine\'s connection past that once its next call carries a fresh token of its own, until that one runs out too', async () => {
+    await saveDesk();
+    const connection = gatewayConnection();
+    expect(await connection.poll(await access({ seconds: 60 }))).toBe('answered by Temporal');
+    const fresh = await access({ seconds: 600 });
+    clock = new Date(clock.getTime() + 2 * 60 * 1000);
+    expect(await connection.poll(fresh)).toBe('answered by Temporal');
+    clock = new Date(clock.getTime() + 10 * 60 * 1000);
+    expect(await connection.poll(fresh)).toMatch(/^Unauthorized: /);
+    expect(await connection.cutOrAnswered(await access({ seconds: 6000 }))).toBe('cut');
+  });
+
+  it('cuts the machine\'s connection when its next call carries another machine\'s token', async () => {
+    await saveDesk();
+    await db.machines.saveLocalAgentDevice({ ...device({ issuedAt: ISSUED, expiresAt: ISSUED }), id: 'other' });
+    const connection = gatewayConnection();
+    expect(await connection.poll(await access())).toBe('answered by Temporal');
+    expect(await connection.poll(await access({ deviceId: 'other' }))).toMatch(/^Unauthorized: /);
+    expect(await connection.cutOrAnswered(await access())).toBe('cut');
+  });
+
+  it('cuts the machine\'s connection the moment the machine leaves, and lets it in no more', async () => {
+    await saveDesk();
+    const token = await access();
+    const connection = gatewayConnection();
+    expect(await connection.poll(token)).toBe('answered by Temporal');
     await db.machines.deleteLocalAgentDevice('desk');
     await machines.forget({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/x', createdAt: 'then' });
-    expect(await gatewayAnswer(token)).toMatch(/not known here/);
-    expect(await gitAnswer(token)).toBe(401);
+    expect(await connection.cutOrAnswered(token)).toBe('cut');
+    expect(await gatewayAnswer(token)).toBe('this machine is not one of this Koala\'s: run the command from My Machines again');
   });
+});
 
+describe('a machine root removed, at its Koala', () => {
   it('closes the machine\'s connection the moment its Koala forgets the machine root removed', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const { socket, error } = await work(await access());

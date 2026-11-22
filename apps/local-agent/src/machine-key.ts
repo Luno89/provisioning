@@ -40,6 +40,7 @@ export async function replaceMachineKey(client: { replaceKey(offer: KeyReplaceme
 export interface MachineKeyClient {
   token(resource?: string): Promise<string>;
   freshToken(resource?: string): Promise<string>;
+  renewsAt(resource?: string): number | undefined;
   tokenIfKnown(): Promise<string | undefined>;
   replaceKey(offer: KeyReplacement, key: string): Promise<MetricsClient>;
 }
@@ -47,6 +48,7 @@ export interface MachineKeyClient {
 export interface HeldMachineKey {
   token(resource?: string): Promise<string>;
   freshToken(resource?: string): Promise<string>;
+  renewsAt(resource?: string): number | undefined;
   replaceKey(offer: KeyReplacement): Promise<void>;
 }
 
@@ -69,6 +71,7 @@ export async function heldMachineKey(file: string, clientOf: (key: string) => Ma
   return {
     token: (resource) => taken((from) => from.token(resource)),
     freshToken: (resource) => taken((from) => from.freshToken(resource)),
+    renewsAt: (resource) => client.renewsAt(resource),
     replaceKey: async (offer) => { key = await replaceMachineKey(client, offer, file); },
   };
 }

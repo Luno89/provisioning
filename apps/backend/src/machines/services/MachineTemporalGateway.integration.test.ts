@@ -64,7 +64,10 @@ beforeAll(async () => {
     upstreamKey: temporalApiKey(TEMPORAL_KEY, { subject: 'koala-machine-gateway', namespace: env.namespace ?? 'default', role: 'write' }),
     namespace: env.namespace ?? 'default',
     keys: () => ['the-key'],
-    deviceOf: async (token) => ({ 'token-d1': { id: 'd1' }, 'token-d2': { id: 'd2' } } as Record<string, { id: string }>)[token],
+    admit: async (token) => {
+      const deviceId = ({ 'token-d1': 'd1', 'token-d2': 'd2' } as Record<string, string>)[token];
+      return deviceId ? { device: { id: deviceId }, until: Number.MAX_SAFE_INTEGER } : 'Unauthorized: the machine\'s token could not be checked: not root\'s';
+    },
     handed: async (workflowId, deviceId) => {
       for (const blob of await stored()) if (blob.workflowId === workflowId) handedBlobs.add(blob.id);
       await blobs.handTo(workflowId, deviceId);
@@ -150,8 +153,8 @@ describe('a machine reaching Temporal through the gateway', () => {
     await refusedWith(client.workflow.start('askMachine', { taskQueue: 'gateway-test', workflowId: 'not-allowed', args: ['d1', 'x'] }), /machine asks Temporal only for its own work|UNIMPLEMENTED/);
     await refusedWith(client.workflow.getHandle('anything').signal('cancelRun'), /machine asks Temporal only for its own work|UNIMPLEMENTED/);
     await refusedWith(client.activity.complete(Buffer.from('a-forged-task-token'), 'done'), /tasks it was handed|PERMISSION_DENIED/);
-    await refusedWith(Connection.connect({ address, tls: overTls, metadata: { authorization: 'Bearer not-a-machine' } }), /this machine is not known here; add it again from My Machines/);
-    await refusedWith(Connection.connect({ address, tls: overTls }), /this machine is not known here/);
+    await refusedWith(Connection.connect({ address, tls: overTls, metadata: { authorization: 'Bearer not-a-machine' } }), /Unauthorized: the machine's token could not be checked/);
+    await refusedWith(Connection.connect({ address, tls: overTls }), /Unauthorized: send a token root gave this machine for this Koala/);
   });
 
   it('answers a machine only over TLS, refusing one that speaks to it in plaintext', async () => {

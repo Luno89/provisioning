@@ -1,5 +1,4 @@
 import { io, type Socket } from 'socket.io-client';
-import { workTokenExpiry } from './machine-token.js';
 import { PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
 import { MACHINE_CLIENT_TOKEN, MACHINE_KEY_REPLACE } from '@koala/engine-core/machine-join';
 import { keyReplacementFrom, type KeyReplacement } from '@koala/engine-core/root-client';
@@ -7,7 +6,6 @@ import { keyReplacementFrom, type KeyReplacement } from '@koala/engine-core/root
 export interface Koala {
   url: string;
   resource: string;
-  workToken: string;
 }
 
 export interface RootLinkOptions {
@@ -21,7 +19,6 @@ export interface RootLinkOptions {
   onStopKoala?: ((raw: unknown) => void) | undefined;
   onReplaceKey?: ((offer: KeyReplacement) => Promise<void>) | undefined;
   say: (line: string) => void;
-  renewBeforeSeconds?: number | undefined;
   connect?: ((url: string, options: Parameters<typeof io>[1]) => Socket) | undefined;
 }
 
@@ -33,13 +30,12 @@ export interface RootLink {
 
 export const koalaFrom = (raw: unknown): Koala | undefined => {
   if (!raw || typeof raw !== 'object') return undefined;
-  const { url, resource, workToken } = raw as { url?: unknown; resource?: unknown; workToken?: unknown };
-  return typeof url === 'string' && url && typeof resource === 'string' && resource && typeof workToken === 'string' && workToken ? { url, resource, workToken } : undefined;
+  const { url, resource } = raw as { url?: unknown; resource?: unknown };
+  return typeof url === 'string' && url && typeof resource === 'string' && resource ? { url, resource } : undefined;
 };
 
 export function linkToRoot(options: RootLinkOptions): RootLink {
   const { say } = options;
-  const renewBefore = options.renewBeforeSeconds ?? 7 * 24 * 3600;
   let held: string | undefined;
   const auth = (answer: (data: { token?: string }) => void): void => {
     options.client.freshToken().then((token) => {
@@ -61,19 +57,7 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
       socket.emit(event, ...args);
     }, (err: Error) => say(`root was not told ${event}: this machine could not take a token from root (${err.message})`));
   };
-  let renewal: NodeJS.Timeout | undefined;
-  let renewing: number | undefined;
   const askKoala = () => { if (socket.connected) send('machine:koala?'); };
-  const renewFor = (token: string) => {
-    const exp = workTokenExpiry(token);
-    if (exp === undefined || (renewing !== undefined && exp <= renewing)) return;
-    if (renewal) clearTimeout(renewal);
-    renewal = setTimeout(() => {
-      renewing = exp;
-      askKoala();
-    }, Math.max(0, (exp - renewBefore) * 1000 - Date.now()));
-    renewal.unref();
-  };
 
   socket.on('connect', () => {
     say(`connected to root at ${options.rootUrl}`);
@@ -126,7 +110,6 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
       say('root names no Koala for this machine yet; it waits until there is one');
       return;
     }
-    renewFor(koala.workToken);
     options.onKoala(koala);
   });
   socket.on('disconnect', (reason) => say(`root disconnected: ${reason}`));
@@ -134,9 +117,6 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
   return {
     socket,
     askKoala,
-    close: () => {
-      if (renewal) clearTimeout(renewal);
-      socket.close();
-    },
+    close: () => { socket.close(); },
   };
 }

@@ -4,7 +4,6 @@ import { settingsFingerprint, type EngineSettings } from './remote-blobs.js';
 export interface RunningWorker {
   run(): Promise<void>;
   shutdown(): void;
-  setToken?(token: string): Promise<void>;
 }
 
 interface Current {
@@ -15,7 +14,7 @@ interface Current {
 
 export type After = (ms: number, then: () => void) => () => void;
 
-const realAfter: After = (ms, then) => {
+export const realAfter: After = (ms, then) => {
   const timer = setTimeout(then, ms);
   timer.unref?.();
   return () => clearTimeout(timer);
@@ -41,10 +40,6 @@ export class DeviceWorkerHost {
 
   get fingerprint(): string | undefined {
     return this.current?.fingerprint;
-  }
-
-  async setToken(token: string): Promise<void> {
-    await this.current?.worker.setToken?.(token);
   }
 
   connected(settingsOf: () => Promise<EngineSettings>): Promise<void> {

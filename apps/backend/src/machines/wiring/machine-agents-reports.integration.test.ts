@@ -18,7 +18,6 @@ import { agentsNotSetUp } from '../../../../local-agent/src/machine-config.js';
 import { testKeys } from '../../platform/testing/keys.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { runResourceOf } from '../../instances/lib/oidc.js';
 import { machineAccessCheckedByServedRoot, machineSignInKey } from '../../instances/testing/registration-code.js';
 import { machineClientOf } from '@koala/engine-core/root-client';
@@ -31,7 +30,6 @@ import { agentAccess, closedAfterEach, connectedSocket, until, quietAccountSides
 
 const closers = closedAfterEach();
 
-const signing = identityKeysFrom(generateIdentityKey());
 const keys = testKeys('machine-agents-reports-secret');
 
 const finding = (...commands: string[]): DiscoveryDeps => ({
@@ -62,7 +60,7 @@ async function koala() {
   await db.instances.saveInstance({ id: 'inst-1', ownerId: 'bo', url: 'http://inst-1.test', createdAt: 'then', updatedAt: 'then', status: 'ready' });
   const accounts = new MachineAccounts({
     ...quietAccountSides(rootUrl),
-    store: db.machines, signing, clients: root.provider,
+    store: db.machines, clients: root.provider,
   });
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
