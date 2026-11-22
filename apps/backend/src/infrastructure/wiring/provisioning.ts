@@ -1,6 +1,6 @@
 import type { WorkflowClient } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
-import { PROVISIONING_CHANGED } from '@koala/engine-core/koala-install';
+import { PROVISIONING_CHANGED, type ProvisionPieceKey } from '@koala/engine-core/koala-install';
 import { isOff, type Database, type Off } from '../../platform/index.js';
 import { engineProvisionRuns } from '../../engine-host/provision-runs.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -18,6 +18,7 @@ export interface ProvisioningWiringDeps {
   client: () => Pick<WorkflowClient, 'getHandle'> | undefined;
   connected: () => Promise<void>;
   root: ProvisionRoot;
+  up: (piece: ProvisionPieceKey) => void;
   koala: { ownerId: string; clusterId: string; revision: number } | Off;
 }
 
@@ -34,6 +35,7 @@ export function wireProvisioning(deps: ProvisioningWiringDeps): Provisioning | O
     koala,
     changed: (ownerId, view) => { deps.io.to(userRoom(ownerId)).emit(PROVISIONING_CHANGED, view); },
     log: (line) => console.warn(line),
+    up: deps.up,
   });
   deps.tenant.use('/api/infrastructure/provisioning', provisioningRouter({ provisioning }));
   void provisioning.start().catch((err: Error) => console.error(`[provisioning] Koala could not start setting itself up for chart revision ${koala.revision}: ${err.message}`));

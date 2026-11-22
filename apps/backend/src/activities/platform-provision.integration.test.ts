@@ -1,19 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { nodeProcesses, nodeStreams } from '../platform/index.js';
-import { ClusterAccess, InfrastructureService, PLATFORM_PLAN, terraformPlacesFor, type Reach } from '../infrastructure/index.js';
+import type { ClusterAccess, InfrastructureService, Reach } from '../infrastructure/index.js';
 import { INGRESS_WEBHOOK } from '../infrastructure/lib/platform-provision.js';
-import { privateCluster, type PrivateCluster } from '../infrastructure/testing/private-cluster.js';
-import { CLUSTER_TOOL_PATHS } from '../infrastructure/index.js';
-import { testDataDir } from '../platform/testing/data-dir.js';
+import type { PrivateCluster } from '../infrastructure/testing/private-cluster.js';
 import { CannotRollOut } from './watched-apply.js';
 import { provisionPlatformService, type PlatformPlace } from './platform-provision.js';
+import { platformCluster, platformPlan as service, quickly } from './testing/platform-cluster.js';
 
 const PROXY_MANIFEST = resolve(import.meta.dirname, '../../../../k8s/koala-egress/egress-proxy.yaml');
-const service = (key: string) => PLATFORM_PLAN.find((each) => each.key === key)!;
-const quickly = (ms: number): Promise<void> => new Promise((done) => { setTimeout(done, Math.min(ms, 500)); });
 
 let k3s: PrivateCluster;
 let access: ClusterAccess;
@@ -22,17 +17,7 @@ let place: PlatformPlace;
 let infra: InfrastructureService;
 
 beforeAll(async () => {
-  k3s = await privateCluster(import.meta.filename);
-  access = new ClusterAccess({
-    here: { koalaMachineId: 'desk', root: false },
-    folder: mkdtempSync(join(tmpdir(), 'koala-platform-')),
-    processes: nodeProcesses, streams: nodeStreams, tools: CLUSTER_TOOL_PATHS, serviceAccount: k3s.account,
-  });
-  own = access.own();
-  const dataDir = testDataDir();
-  mkdirSync(dataDir, { recursive: true });
-  place = { reach: own, koalaNamespace: 'nowrinkles', pool: false, dataDir, crawl4aiToken: 'crawlToken40', qdrantApiKey: 'qdrantKey40' };
-  infra = new InfrastructureService(terraformPlacesFor({ kind: 'local' }, dataDir));
+  ({ k3s, access, own, place, infra } = await platformCluster(import.meta.filename));
 }, 0);
 
 afterAll(async () => { await k3s?.stop(); }, 0);

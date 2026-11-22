@@ -97,6 +97,9 @@ export function pieceProgress(record: ProvisioningRecord, key: ProvisionPieceKey
   return { stage: key, title, state: change.state };
 }
 
+export const piecesUp = (record: ProvisioningRecord): ProvisionPieceKey[] =>
+  record.pieces.filter((piece) => piece.state === 'up').map((piece) => piece.key);
+
 export const setUpProgress = (): MachineProgress => ({ stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, state: 'done' });
 
 const withPiece = (record: ProvisioningRecord, piece: ProvisionPieceView): ProvisionPieceView[] =>
