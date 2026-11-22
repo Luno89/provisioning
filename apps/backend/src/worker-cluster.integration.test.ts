@@ -14,7 +14,7 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
   ...(role === 'root' ? { ROOT_IDENTITY_KEY: testIdentityKey() } : { INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, POD_NAMESPACE: 'nowrinkles', CRAWL4AI_API_TOKEN: 'crawlToken40', QDRANT_API_KEY: 'qdrantKey40', KOALA_RELEASE_REVISION: '1', INSTANCE_CLIENT_KEY: testIdentityKey(), INSTANCE_REGISTRATION_TOKEN: 'code', POD_NAME: 'luno-worker-cluster-7d9f-abcde' }),
 });
 
-const EXPECTED = ['AwaitProjectWorkActivity', 'CheckWorkloadActivity', 'DeployAppActivity', 'DestroyAppActivity', 'DownloadModelActivity', 'ProvisionPieceActivity', 'ResizeDiskActivity', 'RestartWorkerActivity', 'RunPipelineActivity', 'SyncConfigActivity', 'VerifyGpuRuntimeActivity'];
+const EXPECTED = ['AwaitMachineRemovedActivity', 'AwaitProjectWorkActivity','CheckWorkloadActivity', 'DeployAppActivity', 'DestroyAppActivity', 'DownloadModelActivity', 'ProvisionPieceActivity', 'ResizeDiskActivity', 'RestartWorkerActivity', 'RunPipelineActivity', 'SyncConfigActivity', 'VerifyGpuRuntimeActivity'];
 
 describe('the cluster worker, started the way its entry starts it', () => {
   it('on an instance polls the cluster queue with every cluster activity, the shared interceptors and the refusal of work being deleted', async () => {

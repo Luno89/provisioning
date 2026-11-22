@@ -25,7 +25,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
     const worker = await testWorker(env, { taskQueue, workflows: 'testing/project-probe-workflow.ts', workflowInterceptors: ['telemetry-interceptors.ts'], activities: {} });
     const restarts: string[] = [];
     const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: mock<ProjectArchive>(), told: firstTry });
-    const frozen = createFrozenWorkActivities({ work: temporalProjectWork(async () => client), workers: { restart: async (identity) => { restarts.push(identity); return 'restarted'; } }, machines: async () => [] });
+    const frozen = createFrozenWorkActivities({ work: temporalProjectWork(async () => client), workers: { restart: async (identity) => { restarts.push(identity); return 'restarted'; } }, machines: async () => [], machineGone: async () => { throw new Error('no machine is off in this test'); } });
     const going = uniqueName('run');
     const staying = uniqueName('run');
     await worker.runUntil(async () => {

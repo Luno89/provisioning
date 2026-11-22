@@ -42,6 +42,7 @@ export interface FrozenWorkDeps {
   work: ProjectWork;
   workers: { restart(identity: string): Promise<'restarted' | 'not-here'> };
   machines(): Promise<readonly MachineOff[]>;
+  machineGone(deviceId: string, stop: AbortSignal): Promise<'removed' | 'stopped'>;
 }
 
 export interface SweepPass {
@@ -54,6 +55,7 @@ export interface SweepPass {
 export interface FrozenWorkActivities {
   AwaitProjectWorkActivity(args: { workflowId: string }): Promise<{ frozen: string[]; killed: string[]; machines: MachineOff[] }>;
   RestartWorkerActivity(args: { worker: string }): Promise<'restarted' | 'not-here'>;
+  AwaitMachineRemovedActivity(args: { deviceId: string }): Promise<void>;
 }
 
 export interface ProjectDeletionActivities extends ProjectRemovalSteps {
@@ -82,6 +84,10 @@ export function createFrozenWorkActivities(deps: FrozenWorkDeps): FrozenWorkActi
       return { frozen: frozenWorkersIn(events), killed: killedIn(details.flat()), machines };
     },
     RestartWorkerActivity: ({ worker }) => deps.workers.restart(worker),
+    async AwaitMachineRemovedActivity({ deviceId }) {
+      const stop = Context.current().cancellationSignal;
+      if ((await deps.machineGone(deviceId, stop)) === 'stopped') throw stop.reason;
+    },
   };
 }
 

@@ -24,6 +24,7 @@ export const fakeRemovalSteps = (seen: string[], over: Partial<AccountRemovalAct
 export const nothingFrozen = (seen: string[] = []): FrozenWorkActivities => ({
   AwaitProjectWorkActivity: async ({ workflowId }) => { seen.push(`await ${workflowId}`); return { frozen: [], killed: [], machines: [] }; },
   RestartWorkerActivity: async ({ worker }) => { seen.push(`restart ${worker}`); return 'restarted'; },
+  AwaitMachineRemovedActivity: async ({ deviceId }) => { throw new Error(`no machine is off in this test, yet ${deviceId}'s removal was waited on`); },
 });
 
 export async function removingAccounts(env: TestTemporal, activities: AccountRemovalActivities, body: (workflows: ReturnType<typeof temporalRemovalWorkflows>) => Promise<void>, cluster: FrozenWorkActivities = nothingFrozen()): Promise<void> {
