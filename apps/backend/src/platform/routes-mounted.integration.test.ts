@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { sessionFrom } from './testing/handoff.js';
+import { interactionAt } from '../accounts/testing/interaction-driver.js';
+import { signInWithPassword } from '../accounts/services/sign-in/password-at-root.js';
 import { startThreeRoles, type ThreeRoles } from './testing/three-roles.js';
 
 type Role = 'root' | 'instance';
@@ -117,7 +118,8 @@ describe('every router answers where it is mounted, and what is public answers b
     for (const role of ACCOUNTS) {
       const providers = await call(`${urls[role]}/api/auth/sign-in`);
       expect(Array.isArray((providers.body as { providers?: unknown }).providers), `${role}: ${providers.text}`).toBe(true);
-      expect((await call(`${urls[role]}/api/auth/provider/no-such-provider`)).status, role).toBe(404);
+      const interaction = await interactionAt(urls[role]);
+      expect((await interaction.ask(`${interaction.path}/provider/no-such-provider`)).status, role).toBe(404);
     }
   });
 
@@ -147,9 +149,8 @@ describe('every router answers where it is mounted, and what is public answers b
     const invite = await call(`${roles.root.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: roles.operator.cookie });
     expect(invite.status, invite.text).toBe(201);
     const throwaway = await roles.signUp(`throwaway-${stamp}@routes.test`, (invite.body as { code: string }).code);
-    const login = await fetch(`${roles.root.url}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: throwaway.email, password: throwaway.password }) });
-    const cookie = sessionFrom(login.headers.getSetCookie());
-    expect(login.status === 200 && cookie, await login.clone().text()).toBeTruthy();
+    const { cookie } = await signInWithPassword(roles.root.url, { email: throwaway.email, password: throwaway.password });
+    expect(cookie).toMatch(/^(__Host-)?koala_sid=s%3A/);
     expect(((await call(`${roles.root.url}/api/auth/me`, { cookie })).body as { email?: string }).email).toBe(throwaway.email);
     Object.assign(sessions, { root: roles.owner.cookie, instance: await roles.ownerOnInstance() });
   });

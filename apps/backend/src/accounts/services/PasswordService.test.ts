@@ -13,6 +13,7 @@ import type { AuthService } from './AuthService.js';
 import { PasswordService } from './PasswordService.js';
 
 const NOW = new Date('2026-11-02T12:00:00.000Z');
+const KEPT = { session: 'the-session-the-change-was-made-in', rootSid: 'its-session-at-root' };
 
 type Auth = Pick<AuthService, 'codeDelivery' | 'mailInBackground' | 'passwordChangeProblem' | 'forgetPasswordFailures'>;
 
@@ -227,24 +228,24 @@ describe('resetting a password with the emailed code', () => {
 describe('changing a password while signed in', () => {
   const NEW = 'a-long-unusual-passphrase';
 
-  it('asks the account for the proof it wants and replaces the password once it has it', async () => {
+  it('asks the account for the proof it wants and replaces the password once it has it, keeping the browser it was changed in signed in', async () => {
     const s = set();
     await s.db.accounts.saveUser(ann());
     const device = { account: 'ann@example.com', id: 'phone' };
     s.auth.passwordChangeProblem.mockResolvedValue(undefined);
-    const answer = await s.service.change(ann(), { password: NEW, current: 'the-old-one', code: ' 123456 ' }, device, '198.51.100.4');
+    const answer = await s.service.change(ann(), { password: NEW, current: 'the-old-one', code: ' 123456 ' }, device, KEPT, '198.51.100.4');
     expect(answer).toMatchObject({ ok: true, user: { id: 'ann' } });
-    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString() }]);
+    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString(), kept: KEPT }]);
     expect(s.auth.passwordChangeProblem).toHaveBeenCalledWith(expect.objectContaining({ id: 'ann' }), { current: 'the-old-one', code: '123456' }, device, '198.51.100.4');
     expect(await passwordMatches(NEW, (await s.db.accounts.getUserById('ann'))?.passwordHash)).toBe(true);
-    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString() }]);
+    expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: NOW.toISOString(), kept: KEPT }]);
   });
 
   it('passes on no proof that was not given', async () => {
     const s = set();
     await s.db.accounts.saveUser(ann());
     s.auth.passwordChangeProblem.mockResolvedValue({ status: 403, error: 'Enter your current password to change it' });
-    expect(await s.service.change(ann(), { password: NEW, current: '', code: 7 }, undefined)).toEqual({ ok: false, status: 403, error: 'Enter your current password to change it' });
+    expect(await s.service.change(ann(), { password: NEW, current: '', code: 7 }, undefined, KEPT)).toEqual({ ok: false, status: 403, error: 'Enter your current password to change it' });
     expect(s.auth.passwordChangeProblem).toHaveBeenCalledWith(expect.anything(), {}, undefined, undefined);
     expect(s.revoked).toEqual([]);
     expect((await s.db.accounts.getUserById('ann'))?.passwordHash).toBe('old');
@@ -252,15 +253,15 @@ describe('changing a password while signed in', () => {
 
   it('refuses an account that is gone or being removed', async () => {
     const s = set();
-    expect(await s.service.change(ann(), { password: NEW, current: 'x', code: undefined }, undefined)).toEqual({ ok: false, status: 401, error: 'Sign in first' });
+    expect(await s.service.change(ann(), { password: NEW, current: 'x', code: undefined }, undefined, KEPT)).toEqual({ ok: false, status: 401, error: 'Sign in first' });
     await s.db.accounts.saveUser(ann({ removal: { startedAt: 't', requestedBy: 'ann' } }));
-    expect(await s.service.change(ann(), { password: NEW, current: 'x', code: undefined }, undefined)).toMatchObject({ ok: false, status: 401 });
+    expect(await s.service.change(ann(), { password: NEW, current: 'x', code: undefined }, undefined, KEPT)).toMatchObject({ ok: false, status: 401 });
   });
 
   it('refuses a weak new password before it asks for any proof', async () => {
     const s = set();
     await s.db.accounts.saveUser(ann());
-    expect(await s.service.change(ann(), { password: 'short', current: 'x', code: undefined }, undefined)).toMatchObject({ ok: false, status: 400 });
+    expect(await s.service.change(ann(), { password: 'short', current: 'x', code: undefined }, undefined, KEPT)).toMatchObject({ ok: false, status: 400 });
     expect(s.auth.passwordChangeProblem).not.toHaveBeenCalled();
   });
 });

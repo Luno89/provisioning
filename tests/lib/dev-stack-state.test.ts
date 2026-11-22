@@ -15,12 +15,17 @@ let sentCookie: string | null = null;
 let setCookie = '__Host-koala_sid=s%3Athe-session.signed; Path=/; HttpOnly';
 
 interceptHttp(
-  http.post(`${ROOT}/api/auth/login`, async ({ request }) => {
+  http.get(`${ROOT}/api/auth/oidc/start`, () => {
     if (!rootUp) return HttpResponse.error();
+    return new HttpResponse(null, { status: 302, headers: { location: `/?resume=${encodeURIComponent('/oidc/interaction/u1')}` } });
+  }),
+  http.post(`${ROOT}/oidc/interaction/u1/login`, async ({ request }) => {
     expect(await request.json()).toEqual(OWNER);
     if (login.status !== 200) return new HttpResponse(login.body, { status: login.status });
-    return new HttpResponse('{}', { status: 200, headers: { 'set-cookie': setCookie } });
+    return HttpResponse.json({ next: `${ROOT}/oidc/auth/u1` });
   }),
+  http.get(`${ROOT}/oidc/auth/u1`, () => new HttpResponse(null, { status: 302, headers: { location: `${ROOT}/api/auth/oidc/callback?code=c` } })),
+  http.get(`${ROOT}/api/auth/oidc/callback`, () => new HttpResponse(null, { status: 302, headers: { location: '/#/', 'set-cookie': setCookie } })),
   http.get(`${ROOT}/api/instances/mine`, ({ request }) => {
     sentCookie = request.headers.get('cookie');
     return HttpResponse.json({ instance });

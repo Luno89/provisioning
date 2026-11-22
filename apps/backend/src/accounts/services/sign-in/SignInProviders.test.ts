@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { carriedByOAuthState, newOAuthState } from '../../../platform/lib/oauth-state.js';
 import type { UserMetadata } from '../../../platform/lib/types.js';
 import { providerCallbackUrl, type SignInChecks, type SignInClient, type SignInProvider } from '../../lib/sign-in-providers.js';
 import type { AuthService } from '../AuthService.js';
@@ -8,7 +7,6 @@ import { githubSignIn } from './github.js';
 import { oidcSignIn } from './oidc.js';
 import { SIGN_IN_CLIENTS, SignInProviders } from './SignInProviders.js';
 
-const KEY = 'sign-in-test-key';
 const PUBLIC = 'https://app.example.test';
 
 const provider = (id: string, kind: SignInProvider['kind'] = 'oidc'): SignInProvider => ({
@@ -26,7 +24,7 @@ function set(providers: SignInProvider[] = [provider('google'), provider('oidc')
     clients.set(which.id, one);
     return one;
   };
-  const service = new SignInProviders({ providers, publicUrl: PUBLIC, returnUrl, sessionKey: KEY, accounts, clients: { oidc: build, github: build } });
+  const service = new SignInProviders({ providers, publicUrl: PUBLIC, returnUrl, accounts, clients: { oidc: build, github: build } });
   return { service, clients, made, accounts };
 }
 
@@ -50,20 +48,21 @@ describe('starting a sign-in', () => {
     expect(await service.start('nowhere', '')).toEqual({ kind: 'unknown' });
   });
 
-  it('asks the provider for an address to send the person to, holding the checks in a cookie that carries the invite', async () => {
+  it('asks the provider for an address to send the person to, handing back the checks to hold with the sign-in, the invite carried', async () => {
     const { service, clients } = set();
     const started = await service.start('google', 'INVITE');
     expect(started.kind).toBe('started');
     if (started.kind !== 'started') return;
     const url = new URL(started.url);
     expect(url.searchParams.get('redirect_uri')).toBe(providerCallbackUrl(PUBLIC, 'google'));
-    const held = carriedByOAuthState(started.cookie, url.searchParams.get('state'), KEY);
-    expect(held?.carried).toBe('INVITE');
-    expect(held?.held.provider).toBe('google');
-    expect(held?.held.verifier).toMatch(/^[\w-]{43,}$/);
-    expect(held?.held.nonce).toMatch(/^[\w-]{16,}$/);
+    const { held } = started;
+    expect(held.state).toBe(url.searchParams.get('state'));
+    expect(held.invite).toBe('INVITE');
+    expect(held.provider).toBe('google');
+    expect(held.verifier).toMatch(/^[\w-]{43,}$/);
+    expect(held.nonce).toMatch(/^[\w-]{16,}$/);
     const [, checks] = clients.get('google')!.authorizationUrl.mock.calls.at(-1)!;
-    expect(checks).toEqual({ state: held?.state, verifier: held?.held.verifier, nonce: held?.held.nonce });
+    expect(checks).toEqual({ state: held.state, verifier: held.verifier, nonce: held.nonce });
   });
 
   it('makes each provider\'s client once however many times it is used', async () => {
@@ -96,7 +95,8 @@ describe('finishing a sign-in', () => {
 
   async function begun(s: ReturnType<typeof set>, id = 'google', invite = 'INVITE') {
     await s.service.start(id, invite);
-    const { state, cookie } = newOAuthState(invite, KEY, { provider: id, verifier: 'a-verifier-of-sufficient-length-for-pkce-123', nonce: 'a-nonce' });
+    const state = 'a-state-held-with-the-sign-in';
+    const cookie = { provider: id, state, verifier: 'a-verifier-of-sufficient-length-for-pkce-123', nonce: 'a-nonce', invite };
     return { state, cookie, callback: new URL(`${PUBLIC}/api/auth/provider/${id}/callback?code=c&state=${state}`) };
   }
 
@@ -124,10 +124,10 @@ describe('finishing a sign-in', () => {
     expect(s.accounts.signInWithProvider.mock.calls[0]?.[1]).toBeUndefined();
   });
 
-  it('refuses a sign-in that did not start here: no cookie, another state, or another provider\'s', async () => {
+  it('refuses a sign-in that did not start here: nothing held, another state, or another provider\'s', async () => {
     const s = set();
     const { cookie, callback } = await begun(s);
-    const notStarted = { kind: 'refused', why: 'This sign-in did not start here, or took longer than ten minutes; start it again' };
+    const notStarted = { kind: 'refused', why: 'This sign-in did not start here, or took longer than an hour; start it again' };
     expect(await s.service.finish('google', callback, undefined, consume)).toEqual(notStarted);
     expect(await s.service.finish('google', new URL(`${PUBLIC}/callback?code=c&state=another`), cookie, consume)).toEqual(notStarted);
     expect(await s.service.finish('google', new URL(`${PUBLIC}/callback?code=c`), cookie, consume)).toEqual(notStarted);
@@ -136,11 +136,11 @@ describe('finishing a sign-in', () => {
     expect(s.accounts.signInWithProvider).not.toHaveBeenCalled();
   });
 
-  it('refuses a cookie that holds no verifier or nonce', async () => {
+  it('refuses what was held when it has no verifier or nonce', async () => {
     const s = set();
     await s.service.start('google', '');
-    const { state, cookie } = newOAuthState('', KEY, { provider: 'google' });
-    const refused = await s.service.finish('google', new URL(`${PUBLIC}/callback?state=${state}`), cookie, consume);
+    const state = 'a-state-held-with-the-sign-in';
+    const refused = await s.service.finish('google', new URL(`${PUBLIC}/callback?state=${state}`), { provider: 'google', state, invite: '' }, consume);
     expect(refused).toMatchObject({ kind: 'refused' });
   });
 

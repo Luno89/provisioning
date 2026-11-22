@@ -9,6 +9,8 @@ import { rootAuthOver } from '../testing/root-auth.js';
 import { serveInProcess } from '../../instances/testing/serve-in-process.js';
 import { inviteCodeHash } from '../lib/invite-codes.js';
 import { openRoutesOf } from '../../open-routes.js';
+import { injectedFetch } from '../testing/injected-fetch.js';
+import { signedInWithPassword } from '../../accounts/testing/password-sign-in.js';
 
 describe('parseCookie', () => {
   it('finds a cookie among others regardless of spacing', () => {
@@ -46,13 +48,7 @@ function fakeCall(headers: Record<string, string> = {}) {
 function rootServed(db: Database, publicUrl = 'http://localhost:3001') {
   const world = rootAuthOver(db, { publicUrl, open: openRoutesOf('root') });
   const app = express();
-  app.post('/hold/:id', (req, res, next) => {
-    db.accounts.getUserById(String(req.params.id)).then(async (user) => {
-      if (!user) throw new Error(`no account ${String(req.params.id)} to sign in`);
-      await world.auth.holdAccount(req, user);
-      res.json({ held: true });
-    }).catch(next);
-  });
+  world.mount(app);
   app.post('/out', (req, res, next) => { world.auth.endSession(req).then(() => { world.auth.clearSession(res); res.json({}); }, next); });
   app.get('/socket', world.auth.sessionHandle, (req, res, next) => { world.auth.sessionOf(req).then((held) => res.json({ id: held?.user.id ?? null }), next); });
   app.use('/api', world.auth.requireAuth);
@@ -62,11 +58,13 @@ function rootServed(db: Database, publicUrl = 'http://localhost:3001') {
     const set = answer.headers.getSetCookie();
     return { status: answer.status, body: await answer.json() as Record<string, unknown>, set, cookie: set[0]?.split(';')[0] };
   };
-  const signIn = async (id: string): Promise<string> => {
-    const held = await ask('POST', `/hold/${id}`);
-    if (!held.cookie) throw new Error(`signing ${id} in set no cookie`);
-    return held.cookie;
+  const inApp = injectedFetch(app);
+  const browser: typeof fetch = (url, init) => {
+    const headers = new Headers(init?.headers);
+    if (publicUrl.startsWith('https://')) headers.set('x-forwarded-proto', 'https');
+    return inApp(url, { ...init, headers });
   };
+  const signIn = async (id: string): Promise<string> => (await signedInWithPassword(publicUrl, db.accounts, id, browser)).cookie;
   return { ...world, ask, signIn };
 }
 
@@ -238,7 +236,8 @@ describe('what is open without a session, by role', () => {
   });
 
   it('keeps root\'s sign-in and public keys open, and an instance\'s exchange closed', async () => {
-    expect(await opens('root', '/auth/login')).toBe(true);
+    for (const path of ['/auth/oidc/start', '/auth/oidc/callback']) expect(await opens('root', path), path).toBe(true);
+    expect(await opens('root', '/auth/login')).toBe(false);
     expect(await opens('root', '/identity/keys')).toBe(true);
     expect(await opens('root', '/identity/go')).toBe(true);
     expect(await opens('instance', '/identity/go')).toBe(false);
@@ -247,7 +246,8 @@ describe('what is open without a session, by role', () => {
 
   it('lets anyone start and finish a provider sign-in where accounts are held, and ask which providers there are', async () => {
     for (const role of ['root'] as const) {
-      for (const path of ['/auth/sign-in', '/auth/provider/google', '/auth/provider/google/callback', '/auth/provider/oidc/callback']) expect(await opens(role, path), `${role} ${path}`).toBe(true);
+      for (const path of ['/auth/sign-in', '/auth/oidc/start', '/auth/provider/google/callback', '/auth/provider/oidc/callback']) expect(await opens(role, path), `${role} ${path}`).toBe(true);
+      expect(await opens(role, '/auth/provider/google')).toBe(false);
       expect(await opens(role, '/auth/github')).toBe(false);
       expect(await opens(role, '/auth/google/callback')).toBe(false);
     }

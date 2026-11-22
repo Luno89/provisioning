@@ -29,7 +29,8 @@ import { hearAlso, PRESENCE_NAMESPACE, PRESENCE_RENEW, PRESENCE_TOKEN, presenceA
 import type { EdgeSettings } from '../lib/edge-settings.js';
 import type { ClusterAccess, InstanceEdge, HeadscaleService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
-import { signInRouter } from '../routes/sign-in.js';
+import { rootClientRouter, signInRouter } from '../routes/sign-in.js';
+import type { Router } from 'express';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import type { RootProvider } from '../services/RootProvider.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
@@ -119,6 +120,7 @@ export interface InstancesWiringDeps {
   side: InstanceSide;
   syncExposedApps: () => Promise<void>;
   provider?: RootProvider | undefined;
+  interactions?: Router | undefined;
   signIn?: RootSignIn | undefined;
   browserSessions?: BrowserSessions | undefined;
   rootToken?: (() => Promise<string>) | undefined;
@@ -147,7 +149,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   }));
   if (deps.provider) {
     const provider = deps.provider;
-    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userOf(req) }));
+    if (!deps.interactions || !deps.signIn || !deps.browserSessions) throw new Error('root\'s provider is mounted with the forms that sign people in and root\'s own web app as its client');
+    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userOf(req), interactions: deps.interactions }));
+    app.use('/api/auth', rootClientRouter({ signIn: deps.signIn, sessions: deps.browserSessions, publicUrl, landing: '/' }));
     provider.keepDelivering();
   }
   if (signsInThroughRoot(role.role) && deps.signIn && deps.browserSessions) {

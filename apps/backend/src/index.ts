@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter, AuthService, devicesFor, loadBreachedPasswords, OwnerRemoval, passwordRouter, PasswordService, SignInProviders, temporalRemovalWorkflows, wireOwnerRemoval } from './accounts/index.js';
+import { authRouter, AuthService, devicesFor, interactionRouter, loadBreachedPasswords, OwnerRemoval, passwordRouter, PasswordService, SignInProviders, temporalRemovalWorkflows, wireOwnerRemoval } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
@@ -31,7 +31,7 @@ import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { InstanceSide, wireInstances } from './instances/wiring/instances.js';
-import { rootProviderFor, rootSignInFor, rootTokenOf, runBearersFor } from './instances/wiring/sign-in.js';
+import { rootProviderFor, rootSignInFor, rootTokenOf, rootWebSignInFor, runBearersFor, toOwnProvider } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { refuseWebhookOfDeletingProjects, refuseWorkOfDeletingProjects } from './projects/wiring/deleting-refusals.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
@@ -45,7 +45,7 @@ import { onKoalasCluster } from './engine-host/sandboxes/kube.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
 import { machineSides } from './machines/wiring/sides.js';
-import { IdentityService, InstanceReach, InstanceReporter } from './instances/index.js';
+import { generateIdentityKey, identityKeysFrom, IdentityService, INTERACTION_PATH, InstanceReach, InstanceReporter, OIDC_PATH, START_PATH } from './instances/index.js';
 import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHttp, ToolCallParsers, toolCallParsersRouter } from './models/index.js';
 
 import {
@@ -125,10 +125,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const revocations = new AccessRevocations();
   const instanceReach = new InstanceReach(settings.reach);
-  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach });
+  const webKeys = identityKeysFrom(generateIdentityKey());
+  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach, webKeys });
   if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
   const browserSessions = browserSessionsFor(role.role, PUBLIC_URL, { store: db.platform, secret: keys.session });
-  const rootSignIn = signsInThroughRoot(role.role) ? rootSignInFor({ role, client: settings.instance?.client, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies }) : undefined;
+  const servedAt = (): string => {
+    const address = httpServer.address();
+    if (!address || typeof address === 'string') throw new Error('root reaches its own provider only once it is listening');
+    return `http://127.0.0.1:${address.port}`;
+  };
+  const instanceSignIn = (): ReturnType<typeof rootWebSignInFor> => {
+    const made = rootSignInFor({ role, client: settings.instance?.client, keys, db, revocations, publicUrl: PUBLIC_URL, sessions: browserSessions, dependency: dependencies });
+    if (!made) throw new Error('this instance was given no client of root to sign people in with');
+    return made;
+  };
+  const rootSignIn = signsInThroughRoot(role.role)
+    ? instanceSignIn()
+    : rootWebSignInFor({ publicUrl: PUBLIC_URL, webKeys, keys, db, revocations, reach: toOwnProvider(servedAt), sessions: browserSessions, dependency: dependencies });
   const rootToken = rootTokenOf(rootSignIn);
   const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
   const mail = new MailService({
@@ -232,7 +245,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const passwords = new PasswordService({ db, codeKey: keys.data, auth: authService, breached: loadBreachedPasswords(), revocations });
   const sessionSockets = new SessionSockets();
   browserSessions.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
-  revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
+  revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at), except: revoked.kept?.session }); });
   app.set('trust proxy', settings.trustProxy);
   app.use(inFlightLimit());
   app.use(cors({
@@ -281,7 +294,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (line) console.warn(`[csp] ${line}`);
     res.status(204).end();
   });
-  app.use('/api', ...RATE_LIMITS.map((rule) => rateLimit({
+  const limited = RATE_LIMITS.map((rule) => rateLimit({
     windowMs: rule.windowMs,
     limit: rule.max,
     standardHeaders: 'draft-8',
@@ -289,18 +302,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     message: { error: rule.said },
     skipSuccessfulRequests: rule.countsOnlyFailures,
     skip: (req) => ruleFor(req.path)?.name !== rule.name,
-  })));
-  app.use('/api', (req, res, next) => {
+  }));
+  app.use('/api', ...limited);
+  app.use(OIDC_PATH, ...limited);
+  const sameSiteOnly: express.RequestHandler = (req, res, next) => {
     const refused = crossSiteRefusal(req.method, { host: req.headers.host, origin: req.headers.origin, fetchSite: req.get('sec-fetch-site') }, ours);
     if (refused) return res.status(403).json({ error: `Refused: ${refused}` });
     next();
-  });
+  };
+  app.use('/api', sameSiteOnly);
+  app.use(INTERACTION_PATH, sameSiteOnly);
   const credentialService = new CredentialService(db, keys.data, { claims: claimSettings, credentials: settings.operator });
   const vpsCatalogService = new VpsCatalogService(vpsCatalogAdapters(() => ovhSubsidiaryOf(settings.operator.ovhSubsidiary)));
 
   const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, ...(rootSignIn ? { throughRoot: { sessions: browserSessions, signIn: rootSignIn } } : { own: { sessions: browserSessions, revocations } }), bearer: runBearersFor(rootSignIn, db, claimSettings) });
+  const auth = createAuth({ db, publicUrl: PUBLIC_URL, role: role.role, open: openRoutesOf(role.role), instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, throughRoot: { sessions: browserSessions, signIn: rootSignIn }, ...(signsInThroughRoot(role.role) ? {} : { revocations }), bearer: signsInThroughRoot(role.role) ? runBearersFor(rootSignIn, db, claimSettings) : undefined });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
@@ -318,10 +335,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const signInWith = settings.root ? settings.root.signIn : { providers: [], problems: [] };
   const signInReturn = settings.root ? settings.root.signInReturn : {};
   for (const problem of [...signInWith.problems, ...(signInReturn.problem ? [signInReturn.problem] : [])]) console.warn(`[sign-in] ${problem}`);
+  const signInProviders = new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, accounts: authService });
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, codeKey: keys.data, appUrl: APP_URL, accounts: holdsAccounts(role), revocations,
-    providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, sessionKey: keys.session, accounts: authService }), passwords,
+    db, authService, auth, sessionKey: keys.session, codeKey: keys.data, appUrl: APP_URL, start: START_PATH, interactionPath: INTERACTION_PATH, accounts: holdsAccounts(role), revocations,
+    providers: signInProviders, passwords,
   }));
+  const interactions = rootProvider ? interactionRouter({ db, authService, auth, devices, codeKey: keys.data, appUrl: APP_URL, interactions: rootProvider, providers: signInProviders }) : undefined;
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));
   tenant.get('/ingress/verify', asyncRoute(async (req, res) => {
     const domain = String(req.query.domain ?? '');
@@ -334,7 +353,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const instancesWiring = await wireInstances({
     role, settings, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
-    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, browserSessions, rootToken, io,
+    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, interactions, signIn: rootSignIn, browserSessions, rootToken, io,
     instanceArrived, installs: koalaInstalls,
     ownerRemoval: { removing: (ownerId) => accountRemoval().ownerRemoving(ownerId), told: (ownerId, progress) => accountRemoval().koalaTold(ownerId, progress) },
   });
@@ -485,17 +504,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use(errorResponder);
 
-  if (!settings.underTest) {
-    httpServer.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`❌ Port ${port} is already in use by another process. Stop what holds it, or run npm run dev:reset.`);
-        process.exit(1);
-      }
-      console.error(`Provisioning Server Error: ${err.message}`);
-      process.exit(1);
+  await new Promise<void>((listening, refused) => {
+    httpServer.once('error', (err: NodeJS.ErrnoException) => {
+      refused(err.code === 'EADDRINUSE' ? new Error(`Port ${port} is already in use by another process. Stop what holds it, or run npm run dev:reset.`) : err);
     });
-    httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
-  }
+    httpServer.listen(port, () => listening());
+  });
+  console.log(`🚀 Provisioning Server Active on ${servedAt()}`);
 
   void dependencies.start();
 

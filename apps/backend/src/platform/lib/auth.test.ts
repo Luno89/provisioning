@@ -31,9 +31,9 @@ describe('Auth Utilities', () => {
 
     it('should sign and verify a token successfully', () => {
       const payload = { userId: 'user-123', email: 'test@example.com' };
-      const token = signJWT('two-factor', payload, secret, 3600);
+      const token = signJWT('oauth-state', payload, secret, 3600);
 
-      const verified = verifyJWT(token, 'two-factor', secret);
+      const verified = verifyJWT(token, 'oauth-state', secret);
       expect(verified).not.toBeNull();
       expect(verified!.userId).toBe('user-123');
       expect(verified!.email).toBe('test@example.com');
@@ -42,17 +42,17 @@ describe('Auth Utilities', () => {
 
     it('should fail verification with wrong secret', () => {
       const payload = { userId: 'user-123' };
-      const token = signJWT('two-factor', payload, secret, 3600);
+      const token = signJWT('oauth-state', payload, secret, 3600);
 
-      const verified = verifyJWT(token, 'two-factor', 'wrongSecret');
+      const verified = verifyJWT(token, 'oauth-state', 'wrongSecret');
       expect(verified).toBeNull();
     });
 
     it('should fail verification for expired token', () => {
       const payload = { userId: 'user-123' };
-      const token = signJWT('two-factor', payload, secret, -10);
+      const token = signJWT('oauth-state', payload, secret, -10);
 
-      const verified = verifyJWT(token, 'two-factor', secret);
+      const verified = verifyJWT(token, 'oauth-state', secret);
       expect(verified).toBeNull();
     });
 
@@ -62,31 +62,31 @@ describe('Auth Utilities', () => {
         const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part(payload)}`;
         return `${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`;
       };
-      expect(verifyJWT(token({ userId: 'user-123', purpose: 'two-factor', exp: Math.floor(Date.now() / 1000) + 60 }), 'two-factor', secret)).toMatchObject({ userId: 'user-123' });
-      expect(verifyJWT(token({ userId: 'user-123', purpose: 'two-factor' }), 'two-factor', secret)).toBeNull();
+      expect(verifyJWT(token({ userId: 'user-123', purpose: 'oauth-state', exp: Math.floor(Date.now() / 1000) + 60 }), 'oauth-state', secret)).toMatchObject({ userId: 'user-123' });
+      expect(verifyJWT(token({ userId: 'user-123', purpose: 'oauth-state' }), 'oauth-state', secret)).toBeNull();
     });
 
     it('takes a token only for the purpose it was signed for, and refuses one that names none', () => {
-      const challenge = signJWT('two-factor', { twoFactorFor: 'u1', userId: 'u1' }, secret, 60);
-      expect(verifyJWT(challenge, 'two-factor', secret)).toMatchObject({ twoFactorFor: 'u1' });
-      expect(verifyJWT(challenge, 'oauth-state', secret)).toBeNull();
+      const challenge = signJWT('oauth-state', { twoFactorFor: 'u1', userId: 'u1' }, secret, 60);
+      expect(verifyJWT(challenge, 'oauth-state', secret)).toMatchObject({ twoFactorFor: 'u1' });
+      expect(verifyJWT(challenge, 'device', secret)).toBeNull();
       const device = deviceToken('ann@example.com', secret, 'd1');
-      expect(verifyJWT(device, 'two-factor', secret)).toBeNull();
+      expect(verifyJWT(device, 'oauth-state', secret)).toBeNull();
       expect(deviceOf(device, secret)).toEqual({ account: 'ann@example.com', id: 'd1' });
       expect(deviceOf(challenge, secret)).toBeUndefined();
       const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
       const signed = `${part({ alg: 'HS256', typ: 'JWT' })}.${part({ userId: 'u1', exp: Math.floor(Date.now() / 1000) + 60 })}`;
-      expect(verifyJWT(`${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`, 'two-factor', secret)).toBeNull();
+      expect(verifyJWT(`${signed}.${createHmac('sha256', secret).update(signed).digest('base64url')}`, 'oauth-state', secret)).toBeNull();
     });
 
     it('signs a token for reading one account\'s removal progress that lasts as long as the removal, and reads nothing else', () => {
       const token = removalProgressToken('bob', secret);
       expect(removalProgressOf(token, secret)).toBe('bob');
       expect(verifyJWT(token, 'removal-progress', secret)).not.toHaveProperty('exp');
-      expect(verifyJWT(token, 'two-factor', secret)).toBeNull();
+      expect(verifyJWT(token, 'oauth-state', secret)).toBeNull();
       expect(deviceOf(token, secret)).toBeUndefined();
       expect(removalProgressOf(token, 'wrongSecret')).toBeUndefined();
-      expect(removalProgressOf(signJWT('two-factor', { progressOf: 'bob' }, secret, 60), secret)).toBeUndefined();
+      expect(removalProgressOf(signJWT('oauth-state', { progressOf: 'bob' }, secret, 60), secret)).toBeUndefined();
       expect(removalProgressOf(deviceToken('bob@example.com', secret, 'd1'), secret)).toBeUndefined();
       expect(removalProgressOf('not-a-token', secret)).toBeUndefined();
     });

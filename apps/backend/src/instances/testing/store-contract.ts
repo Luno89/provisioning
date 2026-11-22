@@ -385,6 +385,24 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       expect(await store.oidcForgetAccount('p1')).toEqual([]);
     });
 
+    it('keeps, when forgetting an account, the one root session named by its sign-in to root\'s own web app, with that grant and its tokens', async () => {
+      const store = await make();
+      await store.oidcUpsert('Session', 'kept', { accountId: 'p1', authorizations: { 'root-web': { sid: 'sid-here', grantId: 'g-web' }, c1: { sid: 'sid-c1', grantId: 'g1' } } });
+      await store.oidcUpsert('Session', 'other', { accountId: 'p1', authorizations: { 'root-web': { sid: 'sid-there', grantId: 'g-web-2' } } });
+      await store.oidcUpsert('Grant', 'g-web', { accountId: 'p1', clientId: 'root-web' });
+      await store.oidcUpsert('RefreshToken', 'r-web', { accountId: 'p1', grantId: 'g-web' });
+      await store.oidcUpsert('Grant', 'g-web-2', { accountId: 'p1', clientId: 'root-web' });
+      await store.oidcUpsert('Grant', 'g1', { accountId: 'p1', clientId: 'c1' });
+      await store.oidcUpsert('AccessToken', 'a1', { grantId: 'g1' });
+      expect((await store.oidcForgetAccount('p1', 'sid-here')).sort()).toEqual(['c1', 'root-web']);
+      for (const [model, id] of [['Session', 'kept'], ['Grant', 'g-web'], ['RefreshToken', 'r-web']] as const) {
+        expect(await store.oidcFind(model, id)).toBeDefined();
+      }
+      for (const [model, id] of [['Session', 'other'], ['Grant', 'g-web-2'], ['Grant', 'g1'], ['AccessToken', 'a1']] as const) {
+        expect(await store.oidcFind(model, id)).toBeUndefined();
+      }
+    });
+
     it('binds a registration code to one instance, hands it over once, and drops the older code when a newer one is bound', async () => {
       const store = await make();
       await store.oidcUpsert('InitialAccessToken', 'code-1', { jti: 'code-1', policies: ['koala-instance'] });

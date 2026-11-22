@@ -4,6 +4,7 @@ import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Si
 import { startThreeRoles, until, waiting, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { providerCallbackUrl } from '../accounts/lib/sign-in-providers.js';
 import { startStandInIssuer, type StandInIssuer } from '../accounts/testing/stand-in-issuer.js';
+import { interactionAt } from '../accounts/testing/interaction-driver.js';
 import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import type { SmtpSink } from '../platform/testing/smtp-sink.js';
 
@@ -64,24 +65,27 @@ describe('signing in across root and an instance, each its own process', () => {
     const offered = (await call(`${root.url}/api/auth/sign-in`)).body as { providers: { id: string; label: string }[] };
     expect(offered.providers.find((provider) => provider.id === 'oidc')).toEqual({ id: 'oidc', label: 'Stand-in' });
     expect(offered.providers.some((provider) => provider.id === 'github')).toBe(false);
-    expect((await call(`${root.url}/api/auth/provider/github`)).status).toBe(404);
+    const offeredNot = await interactionAt(root.url);
+    expect((await offeredNot.ask(`${offeredNot.path}/provider/github`)).status).toBe(404);
     const throughProvider = async (invite?: string): Promise<{ session?: string | undefined; landed: string }> => {
-      const started = await fetch(`${root.url}/api/auth/provider/oidc${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`, { redirect: 'manual' });
+      const interaction = await interactionAt(root.url);
+      const started = await interaction.ask(`${interaction.path}/provider/oidc${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`);
       expect(started.status).toBe(302);
       const sentTo = new URL(started.headers.get('location')!);
       expect(sentTo.origin).toBe(issuer.issuer);
       expect(sentTo.searchParams.get('code_challenge_method')).toBe('S256');
       expect(sentTo.searchParams.get('nonce') && sentTo.searchParams.get('state')).toBeTruthy();
-      const stateCookie = started.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?oauth_state=/.test(pair))!;
       const back = await issuer.authorize(sentTo.href);
       expect(`${back.origin}${back.pathname}`).toBe(providerCallbackUrl(root.url, 'oidc'));
-      const finished = await fetch(back, { redirect: 'manual', headers: { cookie: stateCookie } });
+      const finished = await interaction.ask(`${back.pathname}${back.search}`);
       expect(finished.status).toBe(302);
-      return { session: sessionFrom(finished.headers.getSetCookie()), landed: finished.headers.get('location') ?? '' };
+      const landed = await interaction.onward(finished, (location) => location.searchParams.has('authError') || location.hash.startsWith('#'));
+      const held = [...interaction.jar].find(([name]) => /^(__Host-)?koala_sid$/.test(name));
+      return { session: held ? `${held[0]}=${held[1]}` : undefined, landed: landed.href };
     };
     issuer.signInAs(person);
     const uninvited = await throughProvider();
-    expect(uninvited.session).toBeUndefined();
+    expect((await call(`${root.url}/api/auth/me`, { cookie: uninvited.session })).status).toBe(401);
     expect(new URL(uninvited.landed).searchParams.get('authError')).toMatch(/invite code is required/);
     const invite = await call(`${root.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: owner.cookie });
     const invited = await throughProvider((invite.body as { code: string }).code);
@@ -132,9 +136,10 @@ describe('signing in across root and an instance, each its own process', () => {
     expect(asked.status, JSON.stringify(asked.body)).toBe(200);
     const codeMail = await until(`the sign-up code mail to ${strangerEmail}`, async () => mail.received.find((message) => message.to.includes(strangerEmail) && /sign-up code/i.test(mail.subjectOf(message) ?? '')) ?? waiting(`${mail.received.length} mails received, subjects: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ').slice(0, 200)}`));
     const code = /\b(\d{6})\b/.exec(codeMail.data)?.[1];
-    const verified = await fetch(`${root.url}/api/auth/register/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: (asked.body as { verify: string }).verify, code }) });
+    const signingUp = await interactionAt(root.url);
+    const verified = await signingUp.signUp((asked.body as { verify: string }).verify, code);
     expect(verified.status, await verified.clone().text()).toBe(200);
-    const strangerCookie = sessionFrom(verified.headers.getSetCookie())!;
+    const strangerCookie = (await signingUp.followed(((await verified.json()) as { next: string }).next)).cookie;
     expect(strangerCookie).toBeTruthy();
     expect((await call(`${root.url}/api/identity/go`, { cookie: strangerCookie })).status).toBe(404);
     const atTheDoor = await followSignIn(fetchSide(root.url, strangerCookie), fetchSide(instance.url), new URL(`${instance.url}/api/auth/oidc/start`)).catch((err: Error) => err);

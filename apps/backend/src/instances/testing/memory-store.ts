@@ -2,7 +2,7 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import { stampServed, type InstanceRecord } from '../lib/instances.js';
 import type { InstanceRelease, Withdrawal } from '../lib/instance-updates.js';
-import type { SignInKey } from '../lib/oidc.js';
+import { keptRootSession, type SignInKey } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from '../lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from '../lib/dependency-findings.js';
@@ -244,12 +244,15 @@ export class MemoryInstancesStore implements InstancesStore {
     return found.instanceId;
   }
 
-  async oidcForgetAccount(accountId: string): Promise<string[]> {
-    const grants = [...this.artifacts].filter(([, artifact]) => artifact.model === 'Grant' && artifact.accountId === accountId);
+  async oidcForgetAccount(accountId: string, keepRootSid?: string): Promise<string[]> {
+    const sessions = [...this.artifacts].filter(([, artifact]) => artifact.model === 'Session' && artifact.accountId === accountId);
+    const keep = keptRootSession(sessions.map(([key, artifact]) => ({ id: key, payload: JSON.parse(artifact.payload) as Record<string, unknown> })), keepRootSid);
+    const grants = [...this.artifacts].filter(([key, artifact]) => artifact.model === 'Grant' && artifact.accountId === accountId && key !== keep?.grant);
     const grantIds = grants.map(([key]) => key.slice('Grant:'.length));
     const clientIds = grants.map(([, artifact]) => (JSON.parse(artifact.payload) as Record<string, unknown>).clientId).filter((id): id is string => typeof id === 'string');
     for (const [key, artifact] of [...this.artifacts]) {
-      if (artifact.accountId === accountId || (artifact.grantId !== undefined && grantIds.includes(artifact.grantId))) this.artifacts.delete(key);
+      if (key === keep?.session || key === keep?.grant) continue;
+      if ((artifact.accountId === accountId && (!keep || artifact.grantId !== keep.grantId)) || (artifact.grantId !== undefined && grantIds.includes(artifact.grantId))) this.artifacts.delete(key);
     }
     return [...new Set(clientIds)];
   }

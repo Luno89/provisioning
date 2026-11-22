@@ -21,8 +21,8 @@ export function jsonLimitFor(path: string, signedIn: boolean): keyof typeof JSON
 export const RATE_LIMITS: readonly RateLimitRule[] = [
   {
     name: 'sign-in',
-    paths: ['/auth/login', '/auth/register', '/auth/register/verify', '/auth/register/resend', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in', '/auth/password/reset'],
-    prefixes: ['/auth/provider/'],
+    paths: ['/auth/register', '/auth/register/resend', '/auth/handoff', '/auth/sign-in', '/auth/password/reset'],
+    prefixes: ['/auth/provider/', '/interaction/'],
     windowMs: 15 * MINUTES,
     max: 30,
     said: 'Too many sign-in attempts from this address; wait fifteen minutes and try again.',

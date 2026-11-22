@@ -4,7 +4,7 @@ import { fieldChanges } from '../platform/lib/collection.js';
 import { keepWrittenDocuments, watchDeletes, watchDocument, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
-import type { SignInKey } from './lib/oidc.js';
+import { keptRootSession, type SignInKey } from './lib/oidc.js';
 import type { LogoutDelivery } from './lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from './lib/dependency-findings.js';
@@ -27,7 +27,7 @@ export interface InstancesStore extends AreaStore {
   oidcConsume(model: string, id: string): Promise<void>;
   oidcDestroy(model: string, id: string): Promise<void>;
   oidcRevokeGrant(grantId: string): Promise<void>;
-  oidcForgetAccount(accountId: string): Promise<string[]>;
+  oidcForgetAccount(accountId: string, keepRootSid?: string): Promise<string[]>;
   oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]>;
   oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void>;
   oidcTakeRegistration(code: string): Promise<string | undefined>;
@@ -249,11 +249,14 @@ export class MongoInstancesStore implements InstancesStore {
     return typeof taken?.instanceId === 'string' ? taken.instanceId : undefined;
   }
 
-  async oidcForgetAccount(accountId: string): Promise<string[]> {
-    const grants = await this.oidcArtifacts.find({ model: 'Grant', accountId }).toArray();
+  async oidcForgetAccount(accountId: string, keepRootSid?: string): Promise<string[]> {
+    const sessions = keepRootSid ? await this.oidcArtifacts.find({ model: 'Session', accountId }).toArray() : [];
+    const keep = keptRootSession(sessions.map((session) => ({ id: String(session._id), payload: asStored(session) })), keepRootSid);
+    const grants = (await this.oidcArtifacts.find({ model: 'Grant', accountId }).toArray()).filter((grant) => String(grant._id) !== keep?.grant);
     const grantIds = grants.map((grant) => String(grant._id).slice('Grant:'.length));
     const clientIds = grants.map((grant) => asStored(grant)?.clientId).filter((id): id is string => typeof id === 'string');
-    await this.oidcArtifacts.deleteMany({ $or: [{ accountId }, { grantId: { $in: grantIds } }] });
+    const kept = keep ? [keep.session, keep.grant] : [];
+    await this.oidcArtifacts.deleteMany({ _id: { $nin: kept as never[] }, $or: [{ accountId, ...(keep ? { grantId: { $ne: keep.grantId } } : {}) }, { grantId: { $in: grantIds } }] });
     return [...new Set(clientIds)];
   }
 

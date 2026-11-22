@@ -10,27 +10,11 @@ import * as credentialsApi from '../features/infrastructure/api/credentials';
 import * as groveApi from '../features/projects/api/grove';
 import * as identityApi from '../features/instances/api/identity';
 
-vi.mock('../features/platform/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof authApi>()),
-  getMe: vi.fn(),
-  logout: vi.fn(),
-}));
-vi.mock('../features/instances/api/identity', async (importOriginal) => ({
-  ...(await importOriginal<typeof identityApi>()),
-  getMyInstance: vi.fn().mockResolvedValue({ instance: null, servesTenants: true }),
-}));
-vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => ({
-  ...(await importOriginal<typeof clustersApi>()),
-  listClusters: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => ({
-  ...(await importOriginal<typeof deploymentsApi>()),
-  listDeployments: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => ({
-  ...(await importOriginal<typeof credentialsApi>()),
-  listProviders: vi.fn().mockResolvedValue([]),
-}));
+vi.mock('../features/platform/api', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof authApi>, 'getMe', 'logout'));
+vi.mock('../features/instances/api/identity', async (importOriginal) => (await import('../test/mocked-module')).withResolved(importOriginal<typeof identityApi>, { getMyInstance: { instance: null, servesTenants: true } }));
+vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => (await import('../test/mocked-module')).withResolved(importOriginal<typeof clustersApi>, { listClusters: [] }));
+vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => (await import('../test/mocked-module')).withResolved(importOriginal<typeof deploymentsApi>, { listDeployments: [] }));
+vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => (await import('../test/mocked-module')).withResolved(importOriginal<typeof credentialsApi>, { listProviders: [] }));
 vi.mock('../features/projects/api/grove', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
   listTrees: vi.fn().mockResolvedValue([]),

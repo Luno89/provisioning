@@ -20,12 +20,13 @@ async function serve(failing = false) {
   const db = await testDatabase();
   await db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
   const sessionSockets = new SessionSockets();
-  const { auth: real, sessions, revocations } = rootAuthOver(db, { open: openRoutesOf('root') });
+  const world = rootAuthOver(db, { open: openRoutesOf('root') });
+  const { auth: real, sessions, revocations } = world;
   sessions.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   const auth = failing ? { ...real, sessionOf: async () => { throw new Error('the database did not answer'); } } : real;
   const app = express();
-  app.post('/hold', (req, res, next) => { real.holdAccount(req, { id: 'ann' }).then(() => res.json({}), next); });
+  world.mount(app);
   app.post('/out', (req, res, next) => { real.endSession(req).then(() => res.json({}), next); });
   const server = http.createServer(app);
   const io = new SocketServer(server);
@@ -33,12 +34,7 @@ async function serve(failing = false) {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   closing.push(async () => { await Promise.all([io.close(), new Promise<void>((resolve) => server.close(() => resolve()))]); });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const signIn = async (): Promise<string> => {
-    const held = await fetch(`${url}/hold`, { method: 'POST' });
-    const cookie = held.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('koala_sid='));
-    if (!cookie) throw new Error(`signing in set no session cookie (${held.status})`);
-    return cookie;
-  };
+  const signIn = async (): Promise<string> => (await world.signedIn('ann')).cookie;
   const signOut = async (cookie: string): Promise<void> => {
     const out = await fetch(`${url}/out`, { method: 'POST', headers: { cookie } });
     if (out.status !== 200) throw new Error(`signing out answered ${out.status}`);

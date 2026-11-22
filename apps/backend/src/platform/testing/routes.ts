@@ -35,7 +35,7 @@ export interface InProcessRoutes {
   delete: <T = unknown>(path: string, request?: RouteRequest) => Promise<RouteAnswer<T>>;
 }
 
-const keptThroughExpress = (target: object): void => {
+export const keptThroughExpress = (target: object): void => {
   const own = Object.getPrototypeOf(target) as Record<string, unknown>;
   for (const name of Object.getOwnPropertyNames(own)) {
     if (name !== 'constructor' && typeof own[name] === 'function') Object.defineProperty(target, name, { value: own[name], writable: true, configurable: true });

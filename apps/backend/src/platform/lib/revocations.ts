@@ -8,10 +8,16 @@ export const REVOKED_SAID: Readonly<Record<RevokedBecause, string>> = {
   'account-removed': 'their account is being removed',
 };
 
+export interface KeptSession {
+  session: string;
+  rootSid: string;
+}
+
 export interface AccessRevoked {
   personId: string;
   because: RevokedBecause;
   at: string;
+  kept?: KeptSession | undefined;
 }
 
 export const revocationShaped = (value: unknown): value is AccessRevoked => {

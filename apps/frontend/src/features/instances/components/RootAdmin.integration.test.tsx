@@ -7,7 +7,6 @@ import type { ReactNode } from 'react'
 import { DependenciesSection } from './DependenciesSection'
 import { MailSection } from './MailSection'
 import { getMailReputation, mailReputationKeys } from '../api/mail-reputation'
-import { logout } from '../../platform'
 import { startBackend } from '../../../test/backend/site'
 import { shown } from '../../../test/backend/hooks'
 import { outsideThisTier } from '../../../test/backend/outside'
@@ -72,7 +71,7 @@ describe('root\'s admin sections, as an operator reads them against root\'s own 
     await client.prefetchQuery({ queryKey: mailReputationKeys.root(), queryFn: getMailReputation })
     const page = render(<QueryClientProvider client={client}><MailSection /></QueryClientProvider>)
     expect(screen.getByText('Not checked yet')).toBeTruthy()
-    await logout()
+    await backend.signOut()
     await userEvent.click(screen.getByRole('button', { name: /Check now/ }))
     expect((await shown(() => screen.queryByRole('alert'))).textContent).toBe('Unauthorized: Session missing')
     page.unmount()

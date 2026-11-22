@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import ExtensionsView from './Studio/ExtensionsView'
 import { RunSignals } from './EngineRun/PoisoningSignals'
-import { logout } from '../../platform'
 import { startBackend } from '../../../test/backend/site'
 import { mountEngine } from '../../../test/backend/engine'
 import { shown } from '../../../test/backend/hooks'
@@ -22,7 +21,7 @@ describe('the engine\'s pages, once the person\'s session has ended elsewhere', 
   it('says why a finding in a run could not be dismissed, and leaves it open', async () => {
     const page = opened(<RunSignals runId="run-poisoned" />)
     const finding = await shown(() => screen.queryByTestId('poisoning-signal'))
-    await logout()
+    await backend.signOut()
     await userEvent.click(within(finding).getByRole('button', { name: 'Dismiss' }))
     expect((await shown(() => within(finding).queryByRole('alert'))).textContent).toBe('Unauthorized: Session missing')
     expect(within(finding).getByRole('button', { name: 'Dismiss' })).toBeTruthy()

@@ -20,7 +20,8 @@ import { PasswordService } from '../../../../backend/src/accounts/services/Passw
 import { loadBreachedPasswords } from '../../../../backend/src/accounts/services/breached-passwords'
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
-import { getMe, login, verifySignUp, type SessionUser } from '../../features/platform'
+import { getMe, logout, register, signIn as signInAt, verifySignUp, type SessionUser } from '../../features/platform'
+import { INTERACTION_PATH, START_PATH } from '../../../../backend/src/instances/lib/oidc'
 import { openRoutesOf } from '../../../../backend/src/open-routes'
 import { InstanceReach } from '../../../../backend/src/instances/services/InstanceReach'
 import { SESSION_ID_COOKIE, servedThroughRoot, signInThroughRoot, type Served } from '../../../../backend/src/instances/testing/through-root'
@@ -58,12 +59,16 @@ export interface Backend {
   turnedAway: (email: string) => Promise<string>
   invite: () => Promise<string>
   codeMailedTo: (email: string) => string
+  resumeAt: () => Promise<string>
+  landedFrom: (next: string) => Promise<URL>
+  signedOutAtRoot: (endSession: string) => Promise<string>
+  signOut: () => Promise<void>
 }
 
 interface Page {
   reconfigure: (settings: { url: string }) => void
   window: { _origin: string }
-  cookieJar: { setCookieSync: (cookie: string, url: string) => unknown }
+  cookieJar: { setCookieSync: (cookie: string, url: string) => unknown; getCookieStringSync: (url: string) => string }
 }
 
 const thePage = (): Page => {
@@ -115,9 +120,8 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
     })
     : undefined
   if (throughRoot) await throughRoot.signIn.register()
-  const auth = throughRoot
-    ? throughRoot.instanceAuth
-    : rootAuthOver(db, { publicUrl: origin, open: openRoutesOf('root'), setupCode: SETUP_CODE, revocations }).auth
+  const world = throughRoot ? undefined : rootAuthOver(db, { publicUrl: origin, open: openRoutesOf('root'), setupCode: SETUP_CODE, revocations })
+  const auth = throughRoot ? throughRoot.instanceAuth : world!.auth
   const mailbox: Mail[] = []
   const authService = new AuthService(db, { codeKey: CODE_KEY, mail: { available: () => ({ ok: true }), toAddress: async (to, message) => { mailbox.push({ to, ...message }) } } })
   const passwords = new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: loadBreachedPasswords(), revocations })
@@ -125,7 +129,8 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
 
   app.use('/api', auth.requireAuth)
   app.use(express.json({ limit: JSON_LIMITS.signedIn }))
-  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: origin, accounts: !asInstance, revocations, passwords }))
+  if (world) world.mount(app, { authService, codeKey: CODE_KEY, devices })
+  app.use('/api/auth', authRouter({ db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: origin, start: START_PATH, interactionPath: INTERACTION_PATH, accounts: !asInstance, revocations, passwords }))
   if (!asInstance) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }))
   refuseWorkOfDeletingProjects(app, db)
   const api = express.Router()
@@ -147,10 +152,70 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
       if (!me) throw new Error(`the instance did not take ${email}'s session from root`)
       return me
     }
-    if ((await db.accounts.getUsers()).length === 0) await login({ email, password: PASSWORD, inviteCode: SETUP_CODE }, { register: true })
-    const signedIn = await login({ email, password: PASSWORD })
-    if (!signedIn.user) throw new Error(`signing in as ${email} answered ${JSON.stringify(signedIn)}`)
-    return signedIn.user
+    if ((await db.accounts.getUsers()).length === 0) await register({ email, password: PASSWORD, inviteCode: SETUP_CODE })
+    await signedOutHere()
+    const signedIn = await signInAt(await resumeAt(), { email, password: PASSWORD })
+    if (!signedIn.next) throw new Error(`signing in as ${email} answered ${JSON.stringify(signedIn)}`)
+    return signedInAfter(signedIn.next, email)
+  }
+
+  const hop = async (url: URL, form?: URLSearchParams): Promise<Response> => {
+    const jar = thePage().cookieJar
+    const answer = await fetch(url, {
+      redirect: 'manual',
+      headers: { cookie: jar.getCookieStringSync(url.href), ...(form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) },
+      ...(form ? { method: 'POST', body: form.toString() } : {}),
+    })
+    for (const line of answer.headers.getSetCookie()) jar.setCookieSync(line, url.href)
+    return answer
+  }
+
+  const signedOutAtRoot = async (endSession: string): Promise<string> => {
+    const at = new URL(endSession, origin)
+    const shown = await hop(at)
+    const page = await shown.text()
+    const form = /<form[^>]*id="op\.logoutForm"[^>]*>/.exec(page)?.[0]
+    const action = form && /action="([^"]+)"/.exec(form)?.[1]
+    const submitsItself = /<body[^>]*onload="document\.forms\['op\.logoutForm'\]\.submit\(\)"/.test(page)
+    if (!action || !submitsItself || /<button/.test(page)) throw new Error(`root's sign-out page asked instead of signing this browser out: ${shown.status} ${page.slice(0, 300)}`)
+    const fields = new URLSearchParams([...page.matchAll(/<input[^>]*type="hidden"[^>]*>/g)].map(([input]) => [/name="([^"]+)"/.exec(input)?.[1] ?? '', /value="([^"]*)"/.exec(input)?.[1] ?? '']))
+    const ended = await hop(new URL(action, at), fields)
+    const location = ended.headers.get('location')
+    if (ended.status !== 303 || !location) throw new Error(`root did not sign this browser out: ${ended.status} ${(await ended.text()).slice(0, 300)}`)
+    return new URL(location, at).href
+  }
+
+  const signedOutHere = async (): Promise<void> => {
+    if (!(await getMe())) return
+    const ending = await logout()
+    if (ending) await signedOutAtRoot(ending)
+  }
+
+  const followed = async (path: string, until: (at: URL) => boolean): Promise<URL> => {
+    let at = new URL(path, origin)
+    let answer = await hop(at)
+    for (;;) {
+      const location = answer.headers.get('location')
+      if (answer.status < 300 || answer.status >= 400 || !location) throw new Error(`the sign-in stopped at ${at.pathname}: ${answer.status} ${await answer.text()}`)
+      at = new URL(location, at)
+      if (until(at)) return at
+      answer = await hop(at)
+    }
+  }
+
+  const resumeAt = async (): Promise<string> => {
+    const resume = (await followed(START_PATH, (at) => at.searchParams.has('resume'))).searchParams.get('resume')
+    if (!resume) throw new Error('root sent the page back with no sign-in to resume')
+    return resume
+  }
+
+  const landedFrom = (next: string): Promise<URL> => followed(next, (at) => at.hash.startsWith('#'))
+
+  const signedInAfter = async (next: string, email: string): Promise<SessionUser> => {
+    await landedFrom(next)
+    const me = await getMe()
+    if (!me) throw new Error(`root signed ${email} in but the page holds no session`)
+    return me
   }
 
   const invite = async (): Promise<string> => {
@@ -178,12 +243,14 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
 
   const signInAnother = async (email: string): Promise<SessionUser> => {
     if (root) throw new Error(`an instance signs in only its owner, and root turns ${email} away: use turnedAway`)
-    const pending = await login({ email, password: PASSWORD, inviteCode: await invite() }, { register: true })
+    await signedOutHere()
+    const resume = await resumeAt()
+    const pending = await register({ email, password: PASSWORD, inviteCode: await invite() })
     if (!pending.verify) throw new Error(`signing up ${email} answered ${JSON.stringify(pending)}`)
-    const made = await verifySignUp({ id: pending.verify, code: codeMailedTo(email) })
-    if (!made.user) throw new Error(`confirming ${email} answered ${JSON.stringify(made)}`)
-    return made.user
+    const made = await verifySignUp(resume, { id: pending.verify, code: codeMailedTo(email) })
+    if (!made.next) throw new Error(`confirming ${email} answered ${JSON.stringify(made)}`)
+    return signedInAfter(made.next, email)
   }
 
-  return { db, origin, rootUrl: root?.url ?? origin, mailbox, signIn, signInAnother, turnedAway, invite, codeMailedTo }
+  return { db, origin, rootUrl: root?.url ?? origin, mailbox, signIn, signInAnother, turnedAway, invite, codeMailedTo, resumeAt, landedFrom, signedOutAtRoot, signOut: signedOutHere }
 }

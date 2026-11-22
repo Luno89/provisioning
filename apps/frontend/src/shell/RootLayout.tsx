@@ -99,10 +99,11 @@ export function RootLayout() {
     const resume = user ? resumePathFrom(window.location.search) : undefined;
     if (resume) window.location.assign(resume);
   }, [user]);
+  const resume = resumePathFrom(window.location.search);
   useEffect(() => {
     const signIn = safeHref(signInUrl.data);
-    if (!user && signIn) window.location.assign(signIn);
-  }, [user, signInUrl.data]);
+    if (!user && !resume && signIn) window.location.assign(signIn);
+  }, [user, resume, signInUrl.data]);
   const adminPage = (location.pathname === '/admin' && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail' || location.pathname === '/monitoring') && can('administer'));
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
@@ -193,7 +194,7 @@ export function RootLayout() {
     setLogTab(type === 'app' ? 'general' : 'provision');
   };
 
-  if (authLoading || (!user && signInUrl.isPending) || (signInUrl.data && !user) || (user && placement.isPending)) {
+  if (authLoading || (!user && signInUrl.isPending) || (!user && !resume && signInUrl.data) || (user && placement.isPending)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans">
         <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
@@ -201,8 +202,22 @@ export function RootLayout() {
     );
   }
 
+  if (!user && resume && signInUrl.data) {
+    return <Login resume={resume} start={signInUrl.data} />;
+  }
+
   if (!user) {
-    return <Login onSuccess={setUser} />;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans p-6">
+        <div className="max-w-md space-y-4 text-center">
+          <AlertTriangle className="mx-auto w-8 h-8 text-amber-400" />
+          <p className="text-sm">Koala could not find where to sign in: {signInUrl.isError ? errorMessage(signInUrl.error) : 'the server named no place'}</p>
+          <div className="flex justify-center">
+            <button type="button" onClick={() => void signInUrl.refetch()} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800">Try again</button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (placement.isError) {

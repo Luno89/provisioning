@@ -1,12 +1,12 @@
 import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
-import Provider, { errors, type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
+import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type InteractionResults, type KoaContextWithOIDC } from 'oidc-provider';
 import { SignJWT } from 'jose';
 import { reopening, type AccessRevoked, type Database, type Reopening, type Watching } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
-  logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
+  logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   type ClientAt, type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
@@ -20,11 +20,12 @@ export interface RootProviderSettings {
   cookieKey: string;
   proxied: boolean;
   reach: InstanceReach;
+  web: { publicUrl: string; key: PublicJwk };
 }
 
 export interface ServiceCaller {
   clientId: string;
-  kind: ClientKind;
+  kind: 'instance';
   until: number;
 }
 
@@ -36,8 +37,16 @@ interface KoalaClient {
 
 const kindOf = (client: unknown): { kind: ClientKind; owner?: string | undefined } => {
   const known = client as KoalaClient;
-  return { kind: 'instance', owner: known.koala_owner };
+  if (known.koala_kind !== 'instance' && known.koala_kind !== 'root-web') throw new errors.InvalidClient(`root does not know what kind of client ${known.clientId} is`);
+  return { kind: known.koala_kind, owner: known.koala_owner };
 };
+
+export type InteractionHeld = Record<string, unknown>;
+
+export interface PendingInteraction {
+  uid: string;
+  held: InteractionHeld;
+}
 
 export class RootProvider {
   readonly provider: Provider;
@@ -194,14 +203,14 @@ export class RootProvider {
     return {
       adapter: (name: string) => this.adapterFor(name),
       fetch: (url, options) => this.providerFetch(url, options),
-      clients: [],
+      clients: [rootWebMetadata(this.settings.web.publicUrl, this.settings.web.key) as ClientMetadata],
       findAccount: async (ctx, sub) => {
         const user = await this.store.accounts.getUserById(sub);
         if (!user || user.removal) return undefined;
-        const client = kindOf(ctx.oidc.client);
+        const client = ctx.oidc.client ? kindOf(ctx.oidc.client) : undefined;
         return {
           accountId: sub,
-          claims: async () => ({ sub, email: user.email, email_verified: user.emailVerified !== false, [KOALA_CLAIMS]: claimsFor(user, client) }),
+          claims: async () => ({ sub, email: user.email, email_verified: user.emailVerified !== false, ...(client ? { [KOALA_CLAIMS]: claimsFor(user, client) } : {}) }),
         };
       },
       claims: { openid: ['sub'], email: ['email', 'email_verified'], [KOALA_SCOPE]: [KOALA_CLAIMS] },
@@ -217,6 +226,7 @@ export class RootProvider {
       cookies: { keys: [this.settings.cookieKey], long: { httpOnly: true, sameSite: 'lax' }, short: { httpOnly: true, sameSite: 'lax' } },
       features: {
         devInteractions: { enabled: false },
+        claimsParameter: { enabled: true },
         clientCredentials: { enabled: true },
         revocation: { enabled: true },
         backchannelLogout: { enabled: true },
@@ -224,6 +234,10 @@ export class RootProvider {
           enabled: true,
           logoutSource: async (ctx, form) => {
             ctx.type = 'html';
+            if (ctx.oidc.client && kindOf(ctx.oidc.client).kind === 'root-web') {
+              ctx.body = `<!doctype html><meta charset="utf-8"><title>Signing out of Koala</title><body onload="document.forms['op.logoutForm'].submit()" style="font-family:system-ui;padding:2rem">${form.replace('</form>', '<input type="hidden" name="logout" value="yes"/></form>')}<p>Signing this browser out of Koala…</p></body>`;
+              return;
+            }
             ctx.body = `<!doctype html><meta charset="utf-8"><title>Sign out of Koala</title><body style="font-family:system-ui;padding:2rem">${form}<p>You signed out of your Koala. Sign this browser out of Koala everywhere too?</p><button autofocus type="submit" form="op.logoutForm" name="logout" value="yes">Sign out everywhere in this browser</button></body>`;
           },
           postLogoutSuccessSource: async (ctx) => {
@@ -287,36 +301,58 @@ export class RootProvider {
     };
   }
 
-  async continueInteraction(req: IncomingMessage, res: ServerResponse, accountId: string | undefined): Promise<{ resume: string } | undefined> {
-    const details = await this.provider.interactionDetails(req, res);
-    if (!accountId) return { resume: `${INTERACTION_PATH}/${details.uid}` };
+  private async resultFor(details: Awaited<ReturnType<Provider['interactionDetails']>>, accountId: string): Promise<{ result: InteractionResults; merge: boolean }> {
     const client = await this.provider.Client.find(String(details.params.client_id ?? ''));
     const refusal = client ? signInRefusal(kindOf(client), accountId) : 'root does not know what is asking you to sign in';
-    if (refusal) {
-      await this.provider.interactionFinished(req, res, { error: 'access_denied', error_description: refusal }, { mergeWithLastSubmission: false });
-      return undefined;
-    }
-    if (details.prompt.name === 'login') {
-      await this.provider.interactionFinished(req, res, { login: { accountId } }, { mergeWithLastSubmission: false });
-      return undefined;
-    }
+    if (refusal) return { result: { error: 'access_denied', error_description: refusal }, merge: false };
+    if (details.prompt.name === 'login') return { result: { login: { accountId } }, merge: false };
     const grant = (details.grantId ? await this.provider.Grant.find(details.grantId) : undefined) ?? new this.provider.Grant({ clientId: client!.clientId, accountId });
     grant.addOIDCScope(SIGN_IN_SCOPES.filter((scope) => scope !== 'offline_access').join(' '));
     grant.addOIDCClaims(['email', 'email_verified', KOALA_CLAIMS]);
-    await this.provider.interactionFinished(req, res, { consent: { grantId: await grant.save() } }, { mergeWithLastSubmission: true });
+    return { result: { consent: { grantId: await grant.save() } }, merge: true };
+  }
+
+  async continueInteraction(req: IncomingMessage, res: ServerResponse, accountId: string | undefined): Promise<{ resume: string } | undefined> {
+    const details = await this.provider.interactionDetails(req, res);
+    if (!accountId) return { resume: `${INTERACTION_PATH}/${details.uid}` };
+    const { result, merge } = await this.resultFor(details, accountId);
+    await this.provider.interactionFinished(req, res, result, { mergeWithLastSubmission: merge });
     return undefined;
+  }
+
+  async pendingInteraction(req: IncomingMessage, res: ServerResponse): Promise<PendingInteraction | undefined> {
+    try {
+      const details = await this.provider.interactionDetails(req, res);
+      const held = (details.result as { koala?: unknown } | undefined)?.koala;
+      return { uid: details.uid, held: held && typeof held === 'object' ? held as InteractionHeld : {} };
+    } catch (err) {
+      if (err instanceof errors.SessionNotFound) return undefined;
+      throw err;
+    }
+  }
+
+  async holdInInteraction(req: IncomingMessage, res: ServerResponse, held: InteractionHeld): Promise<void> {
+    const details = await this.provider.interactionDetails(req, res);
+    details.result = { koala: held };
+    await details.persist();
+  }
+
+  async finishInteraction(req: IncomingMessage, res: ServerResponse, accountId: string): Promise<string> {
+    const details = await this.provider.interactionDetails(req, res);
+    const { result, merge } = await this.resultFor(details, accountId);
+    return this.provider.interactionResult(req, res, result, { mergeWithLastSubmission: merge });
   }
 
   async serviceCaller(token: string): Promise<ServiceCaller | undefined> {
     const found = await this.provider.ClientCredentials.find(token);
     if (!found?.clientId || found.exp === undefined || found.isExpired || !found.scopes.has(SERVICE_SCOPE)) return undefined;
     const client = await this.provider.Client.find(found.clientId);
-    if (!client) return undefined;
-    return { clientId: client.clientId, kind: kindOf(client).kind, until: found.exp * 1000 };
+    if (!client || kindOf(client).kind !== 'instance') return undefined;
+    return { clientId: client.clientId, kind: 'instance', until: found.exp * 1000 };
   }
 
   async revoke(event: AccessRevoked): Promise<void> {
-    const clientIds = await this.store.instances.oidcForgetAccount(event.personId);
+    const clientIds = await this.store.instances.oidcForgetAccount(event.personId, event.kept?.rootSid);
     const own = (await this.store.instances.getInstances(event.personId)).filter((instance) => instance.signIn).map((instance) => instance.id);
     for (const clientId of new Set([...clientIds, ...own])) {
       const client = await this.registration(clientId);

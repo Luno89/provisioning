@@ -17,12 +17,12 @@ vi.mock('../../platform/api', async (importOriginal) => ({
   signInPlace: vi.fn(),
 }))
 
-const show = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><Login onSuccess={() => {}} /></QueryClientProvider>)
+const show = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><Login resume="/oidc/interaction/u1" start="/api/auth/oidc/start" /></QueryClientProvider>)
 
 describe('forgetting a password', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(authApi.signInPlace).mockResolvedValue({ url: null, providers: [] })
+    vi.mocked(authApi.signInPlace).mockResolvedValue({ url: '/api/auth/oidc/start', providers: [] })
   })
 
   it('asks for the address, then the emailed code with a new password typed twice, and goes back to sign in once reset', async () => {

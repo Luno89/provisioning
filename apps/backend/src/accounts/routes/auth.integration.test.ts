@@ -14,6 +14,9 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { deviceToken, hashPassword } from '../../platform/lib/auth.js';
+import { INTERACTION_PATH, START_PATH } from '../../instances/lib/oidc.js';
+import type { CookieJar } from '../services/sign-in/password-at-root.js';
+import { interactionAt } from '../testing/interaction-driver.js';
 import { openRoutesOf } from '../../open-routes.js';
 
 const fresh = await emptiedEachTime();
@@ -26,15 +29,21 @@ const SETUP_CODE = 'the-setup-code';
 const CODE_KEY = 'the-data-key-codes-are-kept-with';
 
 async function serve(db: Database, options: { mail?: CodeMail; production?: boolean } = {}) {
+  const app = express();
+  const server = http.createServer(app);
+  await new Promise<void>((r) => server.listen(0, r));
+  const port = (server.address() as { port: number }).port;
+  const at = `http://127.0.0.1:${port}`;
   const revoked: AccessRevoked[] = [];
-  const { auth, revocations } = rootAuthOver(db, { open: openRoutesOf('root'), setupCode: SETUP_CODE });
+  const root = rootAuthOver(db, { publicUrl: at, open: openRoutesOf('root'), setupCode: SETUP_CODE });
+  const { auth, revocations } = root;
   revocations.listen(async (event: AccessRevoked) => { revoked.push(event); });
   const authService = new AuthService(db, { ...options, codeKey: CODE_KEY });
   const passwords = new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: breachedFrom('password1234\n'), revocations });
   const devices = devicesFor({ auth, sessionKey: JWT_SECRET, authService });
-  const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
+  root.mount(app, { authService, devices, codeKey: CODE_KEY, appUrl: 'http://localhost:5173' });
   app.use('/api/auth', authRouter({
     db,
     authService,
@@ -42,14 +51,13 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
     sessionKey: JWT_SECRET,
     codeKey: CODE_KEY,
     appUrl: 'http://localhost:5173',
+    start: START_PATH,
+    interactionPath: INTERACTION_PATH,
     revocations,
     passwords,
   }));
   app.use('/api/auth/password', passwordRouter({ passwords, auth, devices }));
-  const server = http.createServer(app);
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as { port: number }).port;
-  return { server, authService, revoked, url: (p: string) => `http://127.0.0.1:${port}${p}` };
+  return { server, authService, revoked, at, url: (p: string) => `${at}${p}` };
 }
 
 describe('auth router', () => {
@@ -66,6 +74,17 @@ describe('auth router', () => {
     await new Promise<void>((r) => ctx.server.close(() => r()));
   });
 
+  const begin = (jar?: CookieJar) => interactionAt(ctx.at, fetch, jar);
+  const cookiesIn = (jar: CookieJar): string => [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
+
+  async function logIn(email: string, password: unknown, jar?: CookieJar) {
+    const interaction = await begin(jar);
+    const login = await interaction.login({ email, password });
+    const body = await login.json() as { next?: string; twoFactorRequired?: boolean; userId?: string; error?: string };
+    const session = login.status === 200 && body.next ? (await interaction.followed(body.next)).cookie : '';
+    return { login, body, status: login.status, session, interaction };
+  }
+
   async function registerAndLogin(email: string, password: string) {
     const reg = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
@@ -73,36 +92,31 @@ describe('auth router', () => {
       body: JSON.stringify({ email, password, inviteCode: SETUP_CODE }),
     });
     expect(reg.status).toBe(200);
-    const login = await fetch(ctx.url('/api/auth/login'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    return { login, session: sessionFrom(login) };
+    return logIn(email, password);
   }
 
   it('locks an account after ten wrong passwords in a row, and the right one after that is refused too', async () => {
     await registerAndLogin('locked@example.com', 'hunter2hunter2');
-    const attempt = (password: string) => fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'Locked@example.com', password }) });
+    const attempt = (password: string) => logIn('Locked@example.com', password);
     for (let n = 0; n < 10; n += 1) expect((await attempt('wrong')).status).toBe(401);
     const locked = await attempt('hunter2hunter2');
     expect(locked.status).toBe(429);
-    expect(((await locked.json()) as { error: string }).error).toMatch(/try again in 15 minutes/);
-    expect((await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'other@example.com', password: 'x' }) })).status).toBe(401);
+    expect(locked.body.error).toMatch(/try again in 15 minutes/);
+    expect((await logIn('other@example.com', 'x')).status).toBe(401);
   });
 
   it('lets a browser that signed in before through while the account is locked to everyone else, and keeps locking a guesser on their own browser', async () => {
-    const { login } = await registerAndLogin('known@example.com', 'hunter2hunter2');
-    const device = login.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('device='))!;
+    const { interaction } = await registerAndLogin('known@example.com', 'hunter2hunter2');
+    const device = interaction.jar.get('device')!;
     expect(device).toBeDefined();
-    const attempt = (password: string, cookie?: string) => fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify({ email: 'known@example.com', password }) });
+    const attempt = (password: string, held?: string) => logIn('known@example.com', password, held ? new Map([['device', held]]) : undefined);
     for (let n = 0; n < 10; n += 1) expect((await attempt('wrong')).status).toBe(401);
     expect((await attempt('hunter2hunter2')).status).toBe(429);
     const known = await attempt('hunter2hunter2', device);
     expect(known.status).toBe(200);
-    expect(known.headers.getSetCookie().find((line) => line.startsWith('device='))!.split(';')[0]).toBeDefined();
-    expect((await attempt('hunter2hunter2', `device=${deviceToken('other@example.com', JWT_SECRET)}`)).status).toBe(429);
-    expect((await attempt('hunter2hunter2', `device=${deviceToken('known@example.com', 'another-key')}`)).status).toBe(429);
+    expect(known.login.headers.getSetCookie().find((line) => line.startsWith('device='))!.split(';')[0]).toBeDefined();
+    expect((await attempt('hunter2hunter2', deviceToken('other@example.com', JWT_SECRET))).status).toBe(429);
+    expect((await attempt('hunter2hunter2', deviceToken('known@example.com', 'another-key'))).status).toBe(429);
     for (let n = 0; n < 10; n += 1) expect((await attempt('wrong', device)).status).toBe(401);
     expect((await attempt('hunter2hunter2', device)).status).toBe(429);
   });
@@ -118,19 +132,18 @@ describe('auth router', () => {
   });
 
   it('tells the first account what the operator may do, from authorize, and a later one only what a person may', async () => {
-    const { login, session } = await registerAndLogin('first@example.com', 'hunter2hunter2');
-    const signedIn = (await login.json() as { user: { claims: unknown; permissions: Record<string, boolean>; isAdmin?: unknown } }).user;
+    const { body, session } = await registerAndLogin('first@example.com', 'hunter2hunter2');
     const me = await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { claims: unknown; permissions: Record<string, boolean>; isAdmin?: unknown; holdsAccounts?: unknown };
     expect(me.claims).toEqual([{ role: 'person' }, { role: 'operator' }]);
     expect(me.permissions).toEqual({
       administer: true, 'manage-accounts': true, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': false, 'manage-own-account': true, 'set-up-again': true,
     });
-    expect(signedIn.permissions).toEqual(me.permissions);
-    expect('isAdmin' in me || 'holdsAccounts' in me || 'isAdmin' in signedIn).toBe(false);
+    expect(body).toEqual({ next: expect.any(String) as string });
+    expect('isAdmin' in me || 'holdsAccounts' in me).toBe(false);
 
     await db.accounts.saveUser({ id: 'plain', email: 'plain@example.com', passwordHash: await hashPassword('plain-password-1'), twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01' });
-    const plainIn = await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'plain@example.com', password: 'plain-password-1' }) });
-    const plain = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: sessionFrom(plainIn) } });
+    const plainIn = await logIn('plain@example.com', 'plain-password-1');
+    const plain = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: plainIn.session } });
     expect((await plain.json() as { permissions: Record<string, boolean> }).permissions).toEqual({
       administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true, 'set-up-again': false,
     });
@@ -170,6 +183,7 @@ describe('auth router', () => {
     const answer = await post('/api/auth/register', { email, password: 'hunter2hunter2', inviteCode });
     return { status: answer.status, body: await answer.json() as { verify?: string; devCode?: string; error?: string } };
   };
+  const verified = async (id: unknown, code: unknown) => (await begin()).signUp(id, code);
 
   it('keeps a sign-up pending until the emailed code is entered, spending the invite and signing in only then', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
@@ -184,17 +198,18 @@ describe('auth router', () => {
     expect(JSON.stringify(pending)).not.toContain(started.body.devCode);
     expect(JSON.stringify(pending)).not.toContain('"CODE"');
 
-    const done = await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode });
+    const interaction = await begin();
+    const done = await interaction.signUp(started.body.verify, started.body.devCode);
     expect(done.status).toBe(200);
-    const session = sessionFrom(done);
     expect(done.headers.getSetCookie().some((line) => line.startsWith('device='))).toBe(true);
+    const { cookie: session } = await interaction.followed(((await done.json()) as { next: string }).next);
     expect((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { email: string }).email).toBe('pending@example.com');
     const user = await db.accounts.getUserByEmail('pending@example.com');
     expect(user?.emailVerified).toBe(true);
     expect(user?.roles).toBeUndefined();
     expect((await db.accounts.getInviteByCode('CODE'))?.usedBy).toBe(user?.id);
     expect(await db.accounts.getPendingSignUp(started.body.verify!)).toBeUndefined();
-    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(410);
+    expect((await verified(started.body.verify, started.body.devCode)).status).toBe(410);
   });
 
   it('ends a sign-up after five wrong codes, and refuses an expired one', async () => {
@@ -202,16 +217,17 @@ describe('auth router', () => {
     await db.accounts.saveInvite({ id: 'inv-guess', codeHash: inviteCodeHash('GUESS'), createdBy: 'first', createdAt: new Date().toISOString() });
     const started = await signUpWith('guess@example.com', 'GUESS');
     const wrong = started.body.devCode === '000000' ? '111111' : '000000';
-    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: 'abc' })).status).toBe(400);
-    for (let n = 0; n < 4; n += 1) expect((await post('/api/auth/register/verify', { id: started.body.verify, code: wrong })).status).toBe(401);
-    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: wrong })).status).toBe(410);
-    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(410);
+    const interaction = await begin();
+    expect((await interaction.signUp(started.body.verify, 'abc')).status).toBe(400);
+    for (let n = 0; n < 4; n += 1) expect((await interaction.signUp(started.body.verify, wrong)).status).toBe(401);
+    expect((await interaction.signUp(started.body.verify, wrong)).status).toBe(410);
+    expect((await interaction.signUp(started.body.verify, started.body.devCode)).status).toBe(410);
     expect(await db.accounts.getUserByEmail('guess@example.com')).toBeUndefined();
 
     const late = await signUpWith('late@example.com', 'GUESS');
     const pending = (await db.accounts.getPendingSignUp(late.body.verify!))!;
     await db.accounts.savePendingSignUp({ ...pending, expiresAt: new Date(Date.now() - 1000) });
-    expect((await post('/api/auth/register/verify', { id: late.body.verify, code: late.body.devCode })).status).toBe(410);
+    expect((await verified(late.body.verify, late.body.devCode)).status).toBe(410);
   });
 
   it('sends a new code that replaces the last, a few times at most', async () => {
@@ -220,7 +236,7 @@ describe('auth router', () => {
     const started = await signUpWith('again@example.com', 'AGAIN');
     const resent = await (await post('/api/auth/register/resend', { id: started.body.verify })).json() as { verify: string; devCode: string };
     expect(resent.verify).toBe(started.body.verify);
-    if (resent.devCode !== started.body.devCode) expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(401);
+    if (resent.devCode !== started.body.devCode) expect((await verified(started.body.verify, started.body.devCode)).status).toBe(401);
     for (let n = 0; n < 3; n += 1) expect((await post('/api/auth/register/resend', { id: started.body.verify })).status).toBe(200);
     expect((await post('/api/auth/register/resend', { id: started.body.verify })).status).toBe(429);
     expect((await post('/api/auth/register/resend', { id: 'no-such-sign-up' })).status).toBe(410);
@@ -236,7 +252,7 @@ describe('auth router', () => {
     }
     const started = await signUpWith('taken@example.com', 'TAKEN');
     await db.accounts.saveUser({ id: 'u-taken', email: 'taken@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
-    const done = await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode });
+    const done = await verified(started.body.verify, started.body.devCode);
     expect(done.status).toBe(410);
     expect((await db.accounts.getInviteByCode('TAKEN'))?.usedBy).toBeUndefined();
   });
@@ -256,7 +272,7 @@ describe('auth router', () => {
 
     const ok = await signUpWith('second@example.com', 'LETMEIN');
     expect(ok.status).toBe(200);
-    expect((await post('/api/auth/register/verify', { id: ok.body.verify, code: ok.body.devCode })).status).toBe(200);
+    expect((await verified(ok.body.verify, ok.body.devCode)).status).toBe(200);
     expect((await db.accounts.getUserByEmail('second@example.com'))?.roles).toBeUndefined();
 
     const reuse = await fetch(ctx.url('/api/auth/register'), {
@@ -281,12 +297,13 @@ describe('auth router', () => {
     await db.accounts.saveInvite({ id: 'inv-once', codeHash: inviteCodeHash('ONCE'), createdBy: 'first', createdAt: new Date().toISOString() });
     const started = await Promise.all(['a@example.com', 'b@example.com', 'c@example.com'].map((email) => signUpWith(email, 'ONCE')));
     expect(started.map((answer) => answer.status)).toEqual([200, 200, 200]);
-    const done = await Promise.all(started.map((answer) => post('/api/auth/register/verify', { id: answer.body.verify, code: answer.body.devCode })));
+    const interactions = await Promise.all(started.map(() => begin()));
+    const done = await Promise.all(started.map((answer, n) => interactions[n]!.signUp(answer.body.verify, answer.body.devCode)));
     expect(done.map((response) => response.status).sort()).toEqual([200, 403, 403]);
     expect((await db.accounts.getUsers()).filter((user) => !user.roles?.includes('operator'))).toHaveLength(1);
   });
 
-  it('asks for a code against a signed challenge, counts wrong codes per account across sign-ins, and never takes the challenge as a session', async () => {
+  it('asks for a code at the sign-in, counts wrong codes per account across sign-ins, and signs no browser in before the code', async () => {
     const { session } = await registerAndLogin('two@example.com', 'hunter2hunter2');
     const codes: string[] = [];
     vi.spyOn(ctx.authService, 'send2FACode').mockImplementation(async (_user, code) => { codes.push(code); });
@@ -294,56 +311,57 @@ describe('auth router', () => {
     const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
     expect(on.status).toBe(200);
     const signIn = async () => {
-      const answer = await post('/api/auth/login', { email: 'two@example.com', password: 'hunter2hunter2' });
-      return { status: answer.status, ...(await answer.json() as { twoFactorRequired: boolean; challenge: string; userId?: string; error?: string }), code: codes.at(-1)! };
+      const { status, body, interaction } = await logIn('two@example.com', 'hunter2hunter2');
+      return { status, ...body, interaction, code: codes.at(-1)! };
     };
-    const verify = (challenge: string, code: string) => post('/api/auth/2fa/verify', { challenge, code });
+    const verify = (at: Awaited<ReturnType<typeof signIn>>, code: string) => at.interaction.secondFactor(code);
     const wrongFor = (code: string) => (code === '000000' ? '111111' : '000000');
 
     const first = await signIn();
     expect(first.twoFactorRequired).toBe(true);
     expect(first.userId).toBeUndefined();
-    expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `koala_sid=${first.challenge}` } })).status).toBe(401);
-    expect((await verify('not-a-challenge', first.code)).status).toBe(400);
-    for (let n = 0; n < 3; n += 1) expect((await verify(first.challenge, wrongFor(first.code))).status).toBe(400);
+    expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: cookiesIn(first.interaction.jar) } })).status).toBe(401);
+    expect((await (await begin()).secondFactor(first.code)).status).toBe(400);
+    for (let n = 0; n < 3; n += 1) expect((await verify(first, wrongFor(first.code))).status).toBe(400);
     const second = await signIn();
-    expect((await verify(second.challenge, wrongFor(second.code))).status).toBe(400);
-    const locked = await verify(second.challenge, wrongFor(second.code));
+    expect((await verify(second, wrongFor(second.code))).status).toBe(400);
+    const locked = await verify(second, wrongFor(second.code));
     expect(locked.status).toBe(429);
-    expect((await verify(second.challenge, second.code)).status).toBe(429);
+    expect((await verify(second, second.code)).status).toBe(429);
     const third = await signIn();
     expect(third.status).toBe(429);
     expect(third.error).toMatch(/wrong codes/);
     expect(codes).toHaveLength(2);
   });
 
-  it('lets the right code through after a wrong one, without the challenge being taken as a session', async () => {
+  it('lets the right code through after a wrong one, signing the browser in only then', async () => {
     const { session } = await registerAndLogin('right@example.com', 'hunter2hunter2');
     const codes: string[] = [];
     vi.spyOn(ctx.authService, 'send2FACode').mockImplementation(async (_user, code) => { codes.push(code); });
     await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
-    const answer = await (await post('/api/auth/login', { email: 'right@example.com', password: 'hunter2hunter2' })).json() as { challenge: string };
-    expect((await post('/api/auth/2fa/verify', { challenge: answer.challenge, code: codes[0] === '000000' ? '111111' : '000000' })).status).toBe(400);
-    const passed = await post('/api/auth/2fa/verify', { challenge: answer.challenge, code: codes[0] });
+    const { interaction } = await logIn('right@example.com', 'hunter2hunter2');
+    expect((await interaction.secondFactor(codes[0] === '000000' ? '111111' : '000000')).status).toBe(400);
+    expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: cookiesIn(interaction.jar) } })).status).toBe(401);
+    const passed = await interaction.secondFactor(codes[0]);
     expect(passed.status).toBe(200);
-    expect(sessionFrom(passed)).toMatch(/^koala_sid=/);
+    expect((await interaction.followed(((await passed.json()) as { next: string }).next)).cookie).toMatch(/^koala_sid=/);
   });
 
   it('ends every other session on request and when two-factor settings change, keeping the one that asked', async () => {
     await registerAndLogin('many@example.com', 'hunter2hunter2');
-    const signIn = async () => sessionFrom(await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'many@example.com', password: 'hunter2hunter2' }) }));
+    const signIn = async () => (await logIn('many@example.com', 'hunter2hunter2')).session;
     const me = async (cookie: string) => (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).status;
     const laptop = await signIn();
     const phone = await signIn();
 
     const ended = await fetch(ctx.url('/api/auth/sessions/end-others'), { method: 'POST', headers: { cookie: laptop } });
-    const kept = sessionFrom(ended);
-    expect([await me(phone), await me(laptop), await me(kept)]).toEqual([401, 401, 200]);
+    expect(sessionFrom(ended)).toBe(laptop);
+    expect([await me(phone), await me(laptop)]).toEqual([401, 200]);
 
     const tablet = await signIn();
-    const changed = await fetch(ctx.url('/api/auth/2fa/settings'), { method: 'POST', headers: { 'content-type': 'application/json', cookie: kept }, body: JSON.stringify({ enabled: false, password: 'hunter2hunter2' }) });
-    const after = sessionFrom(changed);
-    expect([await me(tablet), await me(after)]).toEqual([401, 200]);
+    const changed = await fetch(ctx.url('/api/auth/2fa/settings'), { method: 'POST', headers: { 'content-type': 'application/json', cookie: laptop }, body: JSON.stringify({ enabled: false, password: 'hunter2hunter2' }) });
+    expect(sessionFrom(changed)).toBe(laptop);
+    expect([await me(tablet), await me(laptop)]).toEqual([401, 200]);
   });
 
   it('normalises the email on registration so login can find it again', async () => {
@@ -354,40 +372,24 @@ describe('auth router', () => {
     });
     expect((await db.accounts.getUsers())[0]?.email).toBe('mixedcase@example.com');
 
-    const login = await fetch(ctx.url('/api/auth/login'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'mixedcase@example.com', password: 'hunter2hunter2' }),
-    });
+    const login = await logIn('mixedcase@example.com', 'hunter2hunter2');
     expect(login.status).toBe(200);
   });
 
   it('refuses a wrong password without revealing whether the account exists', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
-    const wrongPass = await fetch(ctx.url('/api/auth/login'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'first@example.com', password: 'wrong-password' }),
-    });
-    const noSuchUser = await fetch(ctx.url('/api/auth/login'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'nobody@example.com', password: 'wrong-password' }),
-    });
+    const wrongPass = await logIn('first@example.com', 'wrong-password');
+    const noSuchUser = await logIn('nobody@example.com', 'wrong-password');
     expect(wrongPass.status).toBe(401);
     expect(noSuchUser.status).toBe(401);
-    expect(await wrongPass.json()).toEqual(await noSuchUser.json());
+    expect(wrongPass.body).toEqual(noSuchUser.body);
   });
 
-  it('keeps /me closed while /login and /register stay open', async () => {
+  it('keeps /me closed while the sign-in and /register stay open', async () => {
     const me = await fetch(ctx.url('/api/auth/me'));
     expect(me.status).toBe(401);
 
-    const login = await fetch(ctx.url('/api/auth/login'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    });
+    const login = await (await begin()).login({});
     expect(login.status).toBe(400);
   });
 
@@ -430,7 +432,7 @@ describe('auth router', () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
     const user = (await db.accounts.getUserByEmail('first@example.com'))!;
     await db.accounts.saveUser({ ...user, passwordHash: await hashPassword('short') });
-    expect((await post('/api/auth/login', { email: 'first@example.com', password: 'short' })).status).toBe(200);
+    expect((await logIn('first@example.com', 'short')).status).toBe(200);
   });
 
   it('answers a sign-up with an address that has an account as it answers a new one, and never lets it through', async () => {
@@ -439,8 +441,9 @@ describe('auth router', () => {
     const taken = await signUpWith('First@example.com', 'DUP');
     expect(taken.status).toBe(200);
     expect(taken.body.verify).toEqual(expect.any(String));
-    for (let n = 0; n < 4; n += 1) expect((await post('/api/auth/register/verify', { id: taken.body.verify, code: String(100000 + n) })).status).toBe(401);
-    expect((await post('/api/auth/register/verify', { id: taken.body.verify, code: '100004' })).status).toBe(410);
+    const interaction = await begin();
+    for (let n = 0; n < 4; n += 1) expect((await interaction.signUp(taken.body.verify, String(100000 + n))).status).toBe(401);
+    expect((await interaction.signUp(taken.body.verify, '100004')).status).toBe(410);
     expect((await db.accounts.getInviteByCode('DUP'))?.usedBy).toBeUndefined();
     expect(await db.accounts.getUsers()).toHaveLength(1);
   });
@@ -473,8 +476,8 @@ describe('auth router', () => {
     expect(done.headers.getSetCookie()).toEqual([]);
     expect((await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).status).toBe(401);
     expect((await post('/api/auth/password/reset', { id: asked.reset, code: asked.devCode, password: 'another-new-password' })).status).toBe(410);
-    expect((await post('/api/auth/login', { email: 'forgot@example.com', password: 'hunter2hunter2' })).status).toBe(401);
-    expect((await post('/api/auth/login', { email: 'forgot@example.com', password: 'a-brand-new-password' })).status).toBe(200);
+    expect((await logIn('forgot@example.com', 'hunter2hunter2')).status).toBe(401);
+    expect((await logIn('forgot@example.com', 'a-brand-new-password')).status).toBe(200);
     expect(ctx.revoked).toEqual([expect.objectContaining({ because: 'password-or-2fa', personId: (await db.accounts.getUserByEmail('forgot@example.com'))!.id })]);
   });
 
@@ -512,26 +515,26 @@ describe('auth router', () => {
     expect(refused.status).toBe(503);
   });
 
-  it('changes a password only with the current one, and a code too with two-factor on, ending every other session', async () => {
+  it('changes a password only with the current one, and a code too with two-factor on, ending every other session and keeping this one', async () => {
     const { session } = await registerAndLogin('change@example.com', 'hunter2hunter2');
-    const other = sessionFrom(await post('/api/auth/login', { email: 'change@example.com', password: 'hunter2hunter2' }));
+    const other = (await logIn('change@example.com', 'hunter2hunter2')).session;
     expect((await post('/api/auth/password', { password: 'a-brand-new-password' }, session)).status).toBe(403);
     expect((await post('/api/auth/password', { password: 'a-brand-new-password', current: 'not-my-password' }, session)).status).toBe(403);
     expect((await post('/api/auth/password', { password: 'password1234', current: 'hunter2hunter2' }, session)).status).toBe(400);
     expect((await post('/api/auth/password', { password: 'a-brand-new-password' })).status).toBe(401);
     const changed = await post('/api/auth/password', { password: 'a-brand-new-password', current: 'hunter2hunter2' }, session);
     expect(changed.status).toBe(200);
-    const kept = sessionFrom(changed);
+    expect(sessionFrom(changed)).toBe(session);
     const me = async (cookie: string) => (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).status;
-    expect([await me(other), await me(session), await me(kept)]).toEqual([401, 401, 200]);
+    expect([await me(other), await me(session)]).toEqual([401, 200]);
 
     const codes: string[] = [];
     vi.spyOn(ctx.authService, 'send2FACode').mockImplementation(async (_user, code) => { codes.push(code); });
-    const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'a-brand-new-password' }, kept);
-    const twoFactor = sessionFrom(on);
-    expect((await post('/api/auth/password', { password: 'yet-another-password', current: 'a-brand-new-password' }, twoFactor)).status).toBe(403);
-    expect((await post('/api/auth/confirm/code', {}, twoFactor)).status).toBe(200);
-    const again = await post('/api/auth/password', { password: 'yet-another-password', current: 'a-brand-new-password', code: codes.at(-1) }, twoFactor);
+    const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'a-brand-new-password' }, session);
+    expect(on.status).toBe(200);
+    expect((await post('/api/auth/password', { password: 'yet-another-password', current: 'a-brand-new-password' }, session)).status).toBe(403);
+    expect((await post('/api/auth/confirm/code', {}, session)).status).toBe(200);
+    const again = await post('/api/auth/password', { password: 'yet-another-password', current: 'a-brand-new-password', code: codes.at(-1) }, session);
     expect(again.status).toBe(200);
   });
 
@@ -541,11 +544,11 @@ describe('auth router', () => {
     const codes: string[] = [];
     vi.spyOn(ctx.authService, 'send2FACode').mockImplementation(async (_user, code) => { codes.push(code); });
     const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
-    const cookie = sessionFrom(on);
-    expect(((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie } })).json()) as { confirmWith: string }).confirmWith).toBe('two-factor');
-    expect((await post('/api/auth/2fa/settings', { enabled: false, password: 'hunter2hunter2' }, cookie)).status).toBe(403);
-    await post('/api/auth/confirm/code', {}, cookie);
-    const off = await post('/api/auth/2fa/settings', { enabled: false, code: codes.at(-1) }, cookie);
+    expect(on.status).toBe(200);
+    expect(((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json()) as { confirmWith: string }).confirmWith).toBe('two-factor');
+    expect((await post('/api/auth/2fa/settings', { enabled: false, password: 'hunter2hunter2' }, session)).status).toBe(403);
+    await post('/api/auth/confirm/code', {}, session);
+    const off = await post('/api/auth/2fa/settings', { enabled: false, code: codes.at(-1) }, session);
     expect(off.status).toBe(200);
     expect((await db.accounts.getUserByEmail('confirm@example.com'))?.twoFactorEnabled).toBe(false);
   });
@@ -554,9 +557,9 @@ describe('auth router', () => {
     const { session } = await registerAndLogin('limit@example.com', 'hunter2hunter2');
     vi.spyOn(ctx.authService, 'send2FACode').mockResolvedValue(undefined);
     const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
-    const cookie = sessionFrom(on);
-    for (let n = 0; n < 5; n += 1) expect((await post('/api/auth/confirm/code', {}, cookie)).status).toBe(200);
-    const sixth = await post('/api/auth/confirm/code', {}, cookie);
+    expect(on.status).toBe(200);
+    for (let n = 0; n < 5; n += 1) expect((await post('/api/auth/confirm/code', {}, session)).status).toBe(200);
+    const sixth = await post('/api/auth/confirm/code', {}, session);
     expect(sixth.status).toBe(429);
     expect(((await sixth.json()) as { error: string }).error).toMatch(/5 confirmation codes in the last 15 minutes/);
   });

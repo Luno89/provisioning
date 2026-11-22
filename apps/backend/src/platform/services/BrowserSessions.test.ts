@@ -19,8 +19,8 @@ function world() {
   app.use(sessions.handle);
   app.post('/sign-in/:sub', (req, res, next) => { sessions.hold(req, person(String(req.params.sub))).then(() => res.json({ sid: req.sessionID }), next); });
   app.get('/me', (req, res) => { res.json({ sub: req.session.person?.sub ?? null }); });
-  app.post('/root-sign-in/:sub', (req, res, next) => { sessions.holdAccount(req, { sub: String(req.params.sub), sessionAt: 5 }).then(() => res.json({ sid: req.sessionID }), next); });
-  app.get('/account', (req, res) => { res.json({ account: req.session.account?.sub ?? null, at: req.session.account?.sessionAt ?? null }); });
+  app.post('/root-sign-in/:sub', (req, res, next) => { sessions.hold(req, { ...person(String(req.params.sub), `root-${String(req.params.sub)}`), sessionAt: 5 }).then(() => res.json({ sid: req.sessionID }), next); });
+  app.get('/account', (req, res) => { res.json({ account: req.session.person?.sub ?? null, at: req.session.person?.sessionAt ?? null }); });
   app.post('/sign-out', (req, res, next) => { sessions.end(req).then(() => res.json({}), next); });
   const ask = async (method: string, path: string, cookie?: string, https = false) => {
     const answer = await serveInProcess(app, new Request(`http://koala.test${path}`, { method, headers: { ...(cookie ? { cookie } : {}), ...(https ? { 'x-forwarded-proto': 'https' } : {}) } }));
@@ -89,7 +89,7 @@ describe('a browser\'s session on a Koala', () => {
     expect((await ask('GET', '/me', ann.cookie)).body).toEqual({ sub: null });
   });
 
-  it('holds an account signed in on root itself under a new id, and ends it with the rest of that person\'s sessions', async () => {
+  it('holds a person signed in on root itself under a new id, and ends it with the rest of that person\'s sessions', async () => {
     const { ask, sessions, ended } = world();
     const before = await ask('POST', '/sign-in/ann');
     const onRoot = await ask('POST', '/root-sign-in/ann', before.cookie);

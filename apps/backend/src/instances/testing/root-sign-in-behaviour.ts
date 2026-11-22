@@ -13,6 +13,7 @@ import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
 import { grantsOver } from '../../engine/testing/run-grants.js';
+import { rootWebFor } from './root-web.js';
 import type { InstanceService } from '../services/InstanceService.js';
 import {
   SESSION_ID_COOKIE, cookieOf, remember, rootSigning, servedThroughRoot, sessionIdOf, signInThroughRoot, type Jar, type Served, type ThroughRoot,
@@ -430,7 +431,7 @@ export function sessionsThroughRoot<S extends Served>(world: SignInWorld<S>): vo
 export async function logoutKeptFromAPrivateAddress<S extends Served>(world: SignInWorld<S>, reach: InstanceReach): Promise<void> {
   await world.signIn.register();
   const { instanceJar } = await world.signInAs('u1');
-  const strict = new RootProvider({ issuer: `${world.root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach }, world.rootDb);
+  const strict = new RootProvider({ issuer: `${world.root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach, web: rootWebFor(world.root.url) }, world.rootDb);
   await strict.revoke({ personId: 'u1', at: world.revokedAt(), because: 'signed-out-everywhere' });
   await strict.deliverLogouts();
   const [waiting] = await world.rootDb.instances.pendingLogouts();

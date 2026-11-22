@@ -1,37 +1,26 @@
 import express, { Router, type Request, type Response } from 'express';
-import { asyncRoute, type BrowserSessions, type OpenRoute } from '../../platform/index.js';
+import { asyncRoute, signInRefusedPage, type BrowserSessions, type OpenRoute } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
 import { START_PATH } from '../lib/oidc.js';
-
-const escaped = (text: string): string => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-
-const refusedPage = (error: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>Koala could not sign you in</title><body style="font-family:system-ui;padding:2rem"><p>Koala could not sign you in: ${escaped(error)}</p><p><a href="${START_PATH}">Sign in again</a></p></body>`;
 
 export interface InstanceSignIn {
   url: string;
 }
 
-export const SIGN_IN_OPEN: readonly OpenRoute[] = ['/sign-in', '/oidc/start', '/oidc/callback', '/oidc/backchannel-logout'];
+export const ROOT_CLIENT_OPEN: readonly OpenRoute[] = ['/oidc/start', '/oidc/callback'];
 
-export function signInRouter(deps: {
-  signIn: Pick<RootSignIn, 'start' | 'callback' | 'backchannel'>;
+export const SIGN_IN_OPEN: readonly OpenRoute[] = ['/sign-in', ...ROOT_CLIENT_OPEN, '/oidc/backchannel-logout'];
+
+export interface RootClientRouterDeps {
+  signIn: Pick<RootSignIn, 'start' | 'callback'>;
   sessions: Pick<BrowserSessions, 'handle' | 'hold' | 'end'>;
-  identity: Pick<IdentityService, 'removalUrl'>;
   publicUrl: string;
   landing: string;
-}): Router {
+}
+
+export function rootClientRouter(deps: RootClientRouterDeps): Router {
   const router = Router();
-
-  router.get('/sign-in', (_req: Request, res: Response) => {
-    const answer: InstanceSignIn = { url: START_PATH };
-    res.json(answer);
-  });
-
-  router.get('/account-removal', (_req: Request, res: Response) => {
-    res.json({ url: deps.identity.removalUrl() ?? null });
-  });
 
   router.get('/oidc/start', deps.sessions.handle, asyncRoute(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -46,11 +35,31 @@ export function signInRouter(deps: {
     if (!signedIn.ok) {
       if (req.session.person) delete req.session.signingIn;
       else await deps.sessions.end(req);
-      return res.status(signedIn.status).type('html').send(refusedPage(signedIn.error));
+      return res.status(signedIn.status).type('html').send(signInRefusedPage(signedIn.error, START_PATH));
     }
     await deps.sessions.hold(req, signedIn.person);
     return res.redirect(302, `/#${signedIn.next ?? deps.landing}`);
   }));
+
+  return router;
+}
+
+export function signInRouter(deps: RootClientRouterDeps & {
+  signIn: Pick<RootSignIn, 'backchannel'>;
+  identity: Pick<IdentityService, 'removalUrl'>;
+}): Router {
+  const router = Router();
+
+  router.get('/sign-in', (_req: Request, res: Response) => {
+    const answer: InstanceSignIn = { url: START_PATH };
+    res.json(answer);
+  });
+
+  router.get('/account-removal', (_req: Request, res: Response) => {
+    res.json({ url: deps.identity.removalUrl() ?? null });
+  });
+
+  router.use(rootClientRouter(deps));
 
   router.post('/oidc/backchannel-logout', express.urlencoded({ extended: false, limit: '16kb' }), asyncRoute(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');

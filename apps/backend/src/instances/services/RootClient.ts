@@ -12,6 +12,7 @@ export interface RootClientSettings {
   owner?: string | undefined;
   keys: IdentityKeyPair;
   registrationCode: string;
+  reach?: typeof fetch | undefined;
 }
 
 const errorOf = (err: unknown): string | undefined => {
@@ -41,7 +42,7 @@ export class RootClient {
   }
 
   private options(): client.DiscoveryRequestOptions {
-    return { ...withAnswerUnlimited(), ...(this.issuer.startsWith('http://') ? { execute: [client.allowInsecureRequests] } : {}) };
+    return { ...withAnswerUnlimited(this.settings.reach), ...(this.issuer.startsWith('http://') ? { execute: [client.allowInsecureRequests] } : {}) };
   }
 
   private async authentication(): Promise<client.ClientAuth> {
