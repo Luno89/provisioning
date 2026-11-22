@@ -97,7 +97,7 @@ describe('root putting Koala on a machine, its pieces stood in for', () => {
   it('checks where Koala answers before the workflow hears it, and answers 503 while the workflow cannot be reached', async () => {
     places.installOf.mockResolvedValue(installOf('installing'));
     places.installedUrl.mockResolvedValueOnce({ ok: false, status: 400, error: 'root does not call http://127.0.0.1' });
-    const ended = { stage: 'koala', title: 'Koala', state: 'done', url: 'http://127.0.0.1' };
+    const ended = { stage: 'koala', title: 'Koala', state: 'done', url: 'http://127.0.0.1', revision: 1 };
     expect(await installs.report('install-1', TOKEN, ended)).toEqual({ ok: false, status: 400, error: 'root does not call http://127.0.0.1' });
     places.installedUrl.mockResolvedValue({ ok: true, value: 'http://100.64.0.7:30320' });
     workflows.progress.mockRejectedValueOnce(new Error('Temporal is down'));

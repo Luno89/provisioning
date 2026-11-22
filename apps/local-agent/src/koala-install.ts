@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { KOALA_INSTALL_LAST_STAGE, koalaInstallProgressPath, koalaStopOf, type PlacedKoala } from '@koala/engine-core/koala-install';
-import { allReporters, chartInputs, chartStep, runSteps, StepFailed, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
+import { allReporters, chartInputs, chartStep, releaseRevision, runSteps, StepFailed, type ChartRelease, type ChartContext, type Reporter, type StepName, type Step, type WaitOptions } from '@koala/provision';
 import { clusterState, machineChartCluster, machineClusterOp, stoppableHost, stoppedPause, type ClusterHost, type MachineHost } from './machine-cluster.js';
 import { rootProgress, rootReporter, rootUrlOf } from './root-progress.js';
 
@@ -183,7 +183,7 @@ export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps, 
   const wait: WaitOptions = { ...deps.wait, pause: stoppedPause(deps.wait?.pause ?? ((ms) => deps.cluster.pause(ms)), stop) };
   const root = rootReporter(
     rootProgress(rootUrlOf(placed.rootUrl, koalaInstallProgressPath(placed.installId)), deps.token, fetcher, wait),
-    { lines: true, ending: { stage: KOALA_INSTALL_LAST_STAGE, url } },
+    { lines: true, ending: { stage: KOALA_INSTALL_LAST_STAGE, url, revision: () => releaseRevision({ cluster: machineChartCluster(host, deps.helm) }, { release: KOALA_RELEASE, namespace: KOALA_NAMESPACE }) } },
   );
   const work = await mkdtemp(path.join(os.tmpdir(), 'koala-install-'));
   try {

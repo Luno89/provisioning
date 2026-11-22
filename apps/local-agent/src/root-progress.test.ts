@@ -118,19 +118,19 @@ describe('telling root how putting Koala on this machine goes', () => {
     },
   }];
 
-  it('says what each stage waits on, in order, and where Koala answers once its last stage is done', async () => {
+  it('says what each stage waits on, in order, and where Koala answers and the chart revision it put on once its last stage is done', async () => {
     server.use(http.post(installUrl, async ({ request }) => {
       const body: unknown = await request.json();
       installHeard.push(body);
       const read = progressOf(body, KOALA_INSTALL_PROGRESS);
       return read.ok ? new HttpResponse(null, { status: 204 }) : new HttpResponse(read.problem, { status: 400 });
     }));
-    await runSteps(installing, { ready: false }, rootReporter(rootProgress(installUrl, 'device-token', fetch, noPause), { lines: true, ending: { stage: 'koala', url: 'https://bo.koala.app' } }));
+    await runSteps(installing, { ready: false }, rootReporter(rootProgress(installUrl, 'device-token', fetch, noPause), { lines: true, ending: { stage: 'koala', url: 'https://bo.koala.app', revision: async () => 2 } }));
     expect(installHeard).toEqual([
       { stage: 'koala', title: 'Putting Koala on this machine', state: 'started' },
       { stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'deployment/instance-backend has 0 of 1 available' },
       { stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'job/instance-seed-2 runs' },
-      { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'https://bo.koala.app' },
+      { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'https://bo.koala.app', revision: 2 },
     ]);
   });
 
@@ -139,7 +139,7 @@ describe('telling root how putting Koala on this machine goes', () => {
       const body = await request.json() as { line?: string };
       return body.line ? new HttpResponse('no such install', { status: 404 }) : new HttpResponse(null, { status: 204 });
     }));
-    await expect(runSteps(installing, { ready: false }, rootReporter(rootProgress(installUrl, 'device-token', fetch, noPause), { lines: true, ending: { stage: 'koala', url: 'https://bo.koala.app' } })))
+    await expect(runSteps(installing, { ready: false }, rootReporter(rootProgress(installUrl, 'device-token', fetch, noPause), { lines: true, ending: { stage: 'koala', url: 'https://bo.koala.app', revision: async () => 2 } })))
       .rejects.toThrow('root did not take this machine\'s progress (404): no such install');
   });
 });

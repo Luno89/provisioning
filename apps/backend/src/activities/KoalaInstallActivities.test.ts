@@ -43,8 +43,8 @@ describe('the install workflow\'s activities, with a store of records in memory'
     const { activities, record } = await world({ id: 'install-1', machineId: 'desk', state: 'asked', at: 't', imageTag: 'v1' });
     expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', progress: { stage: 'koala', title: 'Putting Koala', state: 'started', line: 'waiting for job/x runs' } })).toBe('installing');
     expect((await record()).install).toMatchObject({ state: 'installing', line: 'waiting for job/x runs' });
-    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', progress: { stage: 'koala', title: 'Putting Koala', state: 'done', url: 'http://100.64.0.7:30320' } })).toBe('installing');
-    expect(await record()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320' });
+    expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', progress: { stage: 'koala', title: 'Putting Koala', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 } })).toBe('installing');
+    expect(await record()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up', url: 'http://100.64.0.7:30320', install: { revision: 1 } });
     expect((await record()).servedAt).toBeUndefined();
     expect(await activities.KoalaInstallStageActivity({ installId: 'install-1', setup: { revision: 1, progress: { stage: 'monitoring', title: 'Monitoring', state: 'started', line: 'waiting for deployment/grafana' } } })).toBe('installing');
     expect(await record()).toMatchObject({ status: 'installing', detail: 'Koala on desk is setting itself up: Monitoring, waiting for deployment/grafana', setup: { revision: 1, state: 'running', stage: 'monitoring' } });

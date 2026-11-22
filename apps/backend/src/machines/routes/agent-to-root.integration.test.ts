@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
-import { KOALA_INSTALL_FOLLOW_PATH, koalaInstallProgressPath } from '@koala/engine-core/koala-install';
+import { KOALA_INSTALL_FOLLOW_PATH, koalaInstallProgressPath, PROVISION_DONE_STAGE, PROVISION_DONE_TITLE } from '@koala/engine-core/koala-install';
 import { runSteps, type Step } from '@koala/provision';
 import { memoryReporter } from '@koala/provision/testing';
 import { joinArgsOf } from '../../../../local-agent/src/join/args.js';
@@ -280,13 +280,13 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
     const started = await installs.start('bo', (await db.machines.getLocalAgentDevices())[0]!, 'bobby');
     if (!started.ok) throw new Error(started.error);
     const koala: Step<{ ready: boolean }> = { id: 'koala', title: 'Putting Koala on this machine', check: async (state) => (state.ready ? { done: true } : { done: false, why: 'not yet' }), apply: async (state, progress) => { progress.line('waiting for job/instance-seed-1 runs'); state.ready = true; } };
-    const install = (installId: string, token: () => Promise<string> = keyTokenOf(ctx)) => rootReporter(rootProgress(rootUrlOf(url, koalaInstallProgressPath(installId)), token, fetch, { pause: async () => undefined }), { lines: true, ending: { stage: 'koala', url: 'http://100.64.0.7:30320' } });
+    const install = (installId: string, token: () => Promise<string> = keyTokenOf(ctx)) => rootReporter(rootProgress(rootUrlOf(url, koalaInstallProgressPath(installId)), token, fetch, { pause: async () => undefined }), { lines: true, ending: { stage: 'koala', url: 'http://100.64.0.7:30320', revision: async () => 3 } });
     await expect(runSteps([koala], { ready: false }, install(started.value.installId, async () => 'a-token-of-no-key'))).rejects.toThrow('root did not take this machine\'s progress (401): this machine is not one of Koala\'s: run the command from My Machines again');
     await runSteps([koala], { ready: false }, install(started.value.installId));
     expect(heard).toEqual([
       [started.value.installId, { stage: 'koala', title: 'Putting Koala on this machine', state: 'started' }],
       [started.value.installId, { stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'waiting for job/instance-seed-1 runs' }],
-      [started.value.installId, { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320' }],
+      [started.value.installId, { stage: 'koala', title: 'Putting Koala on this machine', state: 'done', url: 'http://100.64.0.7:30320', revision: 3 }],
     ]);
     await expect(runSteps([koala], { ready: false }, install('another-install'))).rejects.toThrow('root did not take this machine\'s progress (404): no such install of Koala on this machine');
   });
@@ -310,7 +310,7 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
     async function heard(world: Awaited<ReturnType<typeof root>>, installId: string, progress: MachineProgress, setUp = false): Promise<void> {
       const instance = await world.instances.installOf(installId);
       const at = new Date().toISOString();
-      const patch = stageHeard({ ...instance!.install!, ...(setUp ? { setUp: true } : {}) }, progress, 'desk', at);
+      const patch = stageHeard({ install: instance!.install!, ...(setUp ? { setup: { revision: 1, state: 'up' as const, stage: PROVISION_DONE_STAGE, title: PROVISION_DONE_TITLE, at } } : {}) }, progress, 'desk', at);
       await world.db.instances.updateInstall(instance!.id, installId, installFields(patch, at));
     }
 
@@ -323,7 +323,7 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
       await settledOn(world.following, () => world.said.includes('# Putting Koala on this machine'));
       await heard(world, installId, { stage: 'chart', title: 'Installing Koala\'s chart', state: 'started', line: 'waiting for deployment/koala' });
       await settledOn(world.following, () => world.said.includes('  waiting for deployment/koala'));
-      await heard(world, installId, { stage: 'koala', title: 'Koala', state: 'done', url: 'http://100.64.0.7:30320' }, true);
+      await heard(world, installId, { stage: 'koala', title: 'Koala', state: 'done', url: 'http://100.64.0.7:30320', revision: 1 }, true);
       expect(await world.following).toBe('ready');
       expect(world.said).toEqual(['# Putting Koala on this machine', 'Installing Koala\'s chart', '  waiting for deployment/koala', 'Koala is ready at http://100.64.0.7:30320']);
     });

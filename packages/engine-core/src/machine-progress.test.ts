@@ -20,13 +20,14 @@ describe('a machine\'s progress, as root hears it', () => {
     });
   }
 
-  it('lets a join say only its stages, while an install also says what it waits on and, at its end, where Koala answers', () => {
+  it('lets a join say only its stages, while an install also says what it waits on and, at its end, where Koala answers and the chart revision it put on', () => {
     const waiting = { stage: 'koala', title: 'Putting Koala on this machine', state: 'started', line: 'job/instance-seed-2 runs' };
     expect(progressOf(waiting, JOIN_PROGRESS)).toEqual({ ok: false, problem: 'only "stage", "title", "state" and "why" are taken, not "line"' });
     expect(progressOf(waiting, KOALA_INSTALL_PROGRESS)).toEqual({ ok: true, value: waiting });
-    const ended = { stage: KOALA_INSTALL_LAST_STAGE, title: 'Putting Koala on this machine', state: 'done', url: 'https://bo.koala.app' };
+    const ended = { stage: KOALA_INSTALL_LAST_STAGE, title: 'Putting Koala on this machine', state: 'done', url: 'https://bo.koala.app', revision: 2 };
     expect(progressOf(ended, KOALA_INSTALL_PROGRESS)).toEqual({ ok: true, value: ended });
     expect(progressOf({ ...ended, url: undefined }, KOALA_INSTALL_PROGRESS)).toMatchObject({ ok: false });
+    expect(progressOf({ ...ended, revision: undefined }, KOALA_INSTALL_PROGRESS)).toMatchObject({ ok: false });
   });
 
   it('shortens a reason or a line longer than root takes, saying it was shortened, and leaves one that fits as it is', () => {

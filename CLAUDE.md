@@ -231,6 +231,8 @@ on this computer's GPUs. `tests/LAST-PASSED.md` shows when each last passed.
 - A Koala's platform services and monitoring are set up only by the provision procedure: on every new chart revision, when a piece
   is found missing, and when the person asks; root's ready waits for it. Each service is a CDKTF stack applied through that same
   watch, taking over what is already there; their secrets live in Secrets Koala makes, which the stacks read by name.
+- An install of Koala is judged only by the setup of the chart revision the machine says it put on: an earlier revision's
+  setup, failed or not, is never what anyone sees of the new one.
 
 ## Outside dependencies
 
