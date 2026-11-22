@@ -57,7 +57,7 @@ afterEach(async () => {
 const keyToken = (store: MongoDB = db) => () => machineTokenAt(store, 'desk');
 const agentOf = (rootUrl: string, onPlaceKoala: (raw: unknown) => boolean, store: MongoDB = db, onStopKoala?: (raw: unknown) => void) => {
   const link = linkToRoot({
-    rootUrl, client: { token: keyToken(store) }, meshIp: async () => '100.64.0.7',
+    rootUrl, client: { token: keyToken(store), freshToken: keyToken(store) }, meshIp: async () => '100.64.0.7',
     onKoala: () => undefined, onRemoved: () => undefined, onPlaceKoala, onStopKoala, say: () => undefined,
   });
   links.push(link);

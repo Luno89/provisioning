@@ -22,6 +22,9 @@ wait never ends.
   connection to reach. Each wait then asserts the whole list heard, so an extra tell fails the case rather than hanging it.
 - The browser cases and machine-tokens' "hands the machine its Koala…" moved to the same helper; agent-updates' "ended" wait
   waits for at least two and then asserts the list.
+- Found after, in the sibling root-link world (recorded once, 2026-11-22): "tells root its mesh address…" waited for "more koalas
+  than before" while the agent's own renewal ask (its work token is already due, root's clock being behind) could land in place
+  of the tell it meant, and then counted one koala too many. It now waits for the connect and the renewal first, both named.
 - Not changed: `InstancePresence.integration` (instances area) counts what its own fakes record with `===`; each count there is
   of calls the case itself causes one at a time, so none can be skipped.
 
