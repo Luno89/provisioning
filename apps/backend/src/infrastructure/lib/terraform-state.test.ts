@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cdktfStateEnv, MIRRORED_PROVIDERS, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
+import { cdktfStateEnv, freedLease, lockHolderGone, MIRRORED_PROVIDERS, stateFilesOf, stateHomeIn, stateLockName, stateLockOf, stateMove, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
 
 describe('the files a stack keeps its Terraform state in', () => {
   it('is the state and the backup Terraform writes beside it, named for the stack as the CDKTF app names them', () => {
@@ -77,5 +77,49 @@ describe('moving a stack\'s state from the data folder into the cluster', () => 
   it('says which state could not be read rather than guess', () => {
     expect(() => stateMove('desk', 'not json', '')).toThrow('the state desk kept in the data folder is not a Terraform state');
     expect(() => stateMove('desk', state('a', 1, 1), '<html>')).toThrow('the state of desk in the cluster is not a Terraform state');
+  });
+});
+
+describe('the lock Terraform holds on a stack\'s state in the cluster', () => {
+  const leaseHeldBy = (who: string | undefined, id = '1849cacd-fa21-18c6-1a11-6427be1cd2db') => ({
+    apiVersion: 'coordination.k8s.io/v1',
+    kind: 'Lease',
+    metadata: {
+      name: 'lock-tfstate-default-platform-egress-state',
+      namespace: 'nowrinkles',
+      resourceVersion: '4711',
+      labels: { tfstate: 'true' },
+      annotations: { 'app.terraform.io/lock-info': JSON.stringify({ ID: id, Operation: 'OperationTypeApply', Who: who, Version: '1.9.0' }), kept: 'yes' },
+    },
+    spec: { holderIdentity: id },
+  });
+
+  it('is the lease Terraform names after the stack\'s state', () => {
+    expect(stateLockName('platform-egress')).toBe('lock-tfstate-default-platform-egress-state');
+  });
+
+  it('reads who holds it, and reads a lease nobody holds as free', () => {
+    expect(stateLockOf(leaseHeldBy('node@instance-worker-cluster-6b78b5fd69-7rb9s'))).toEqual({ id: '1849cacd-fa21-18c6-1a11-6427be1cd2db', who: 'node@instance-worker-cluster-6b78b5fd69-7rb9s', host: 'instance-worker-cluster-6b78b5fd69-7rb9s' });
+    expect(stateLockOf({ ...leaseHeldBy('node@a'), spec: {} })).toBeUndefined();
+    expect(stateLockOf(leaseHeldBy(undefined))).toEqual({ id: '1849cacd-fa21-18c6-1a11-6427be1cd2db', who: '' });
+  });
+
+  it('was left by a run that is gone when its pod is gone, or when it is this pod and this process applies nothing to that stack', () => {
+    const lock = { id: 'l', who: 'node@worker-old', host: 'worker-old' };
+    expect(lockHolderGone(lock, { here: 'worker-new', applyingHere: false, holderPodThere: false })).toBe(true);
+    expect(lockHolderGone(lock, { here: 'worker-new', applyingHere: true, holderPodThere: false })).toBe(true);
+    expect(lockHolderGone(lock, { here: 'worker-new', applyingHere: false, holderPodThere: true })).toBe(false);
+    expect(lockHolderGone(lock, { here: 'worker-old', applyingHere: false, holderPodThere: true })).toBe(true);
+    expect(lockHolderGone(lock, { here: 'worker-old', applyingHere: true, holderPodThere: true })).toBe(false);
+    expect(lockHolderGone({ id: 'l', who: '' }, { here: 'worker-new', applyingHere: false, holderPodThere: false })).toBe(false);
+  });
+
+  it('is freed as Terraform frees it, the holder and its lock info gone and the rest kept, only while the lease is as it was read', () => {
+    expect(freedLease(leaseHeldBy('node@worker-old'))).toEqual({
+      apiVersion: 'coordination.k8s.io/v1',
+      kind: 'Lease',
+      metadata: { name: 'lock-tfstate-default-platform-egress-state', namespace: 'nowrinkles', resourceVersion: '4711', labels: { tfstate: 'true' }, annotations: { kept: 'yes' } },
+      spec: {},
+    });
   });
 });

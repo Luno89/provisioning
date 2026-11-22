@@ -18,7 +18,7 @@ import type { ProvisioningRecord } from './lib/provisioning.js';
 
 export interface DeploymentHealth { status?: DeploymentMetadata['status']; healthReason?: string | undefined }
 
-export type ProvisioningPatch = Partial<Pick<ProvisioningRecord, 'state' | 'pieces' | 'why' | 'endedAt' | 'workflowId'>> & { root?: ProvisioningRecord['root'] | undefined };
+export type ProvisioningPatch = Partial<Pick<ProvisioningRecord, 'state' | 'pieces' | 'why' | 'endedAt' | 'workflowId' | 'asked'>> & { root?: ProvisioningRecord['root'] | undefined };
 
 export type ProvisioningOpened = { opened: true } | { opened: false; running: ProvisioningRecord };
 

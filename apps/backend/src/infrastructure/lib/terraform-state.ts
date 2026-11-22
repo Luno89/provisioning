@@ -1,4 +1,6 @@
-export const stateFilesOf = (stackName: string): string[] => [`terraform.${stackName}.tfstate`, `terraform.${stackName}.tfstate.backup`];
+import { stateSecretName } from 'cdktf-infra/state-name';
+
+export const stateFilesOf =(stackName: string): string[] => [`terraform.${stackName}.tfstate`, `terraform.${stackName}.tfstate.backup`];
 
 export interface KubernetesApi {
   host: string;
@@ -28,6 +30,54 @@ export const cdktfStateEnv = (home: TerraformStateHome): Record<string, string> 
   (home.kind === 'kubernetes'
     ? { CDKTF_STATE_NAMESPACE: home.namespace, KUBERNETES_SERVICE_HOST: home.api.host, KUBERNETES_SERVICE_PORT: home.api.port }
     : { CDKTF_STATE_DIR: home.dir });
+
+export const STATE_LOCK_INFO = 'app.terraform.io/lock-info';
+
+export const stateLockName = (stackName: string): string => `lock-${stateSecretName(stackName)}`;
+
+export interface StateLock {
+  id: string;
+  who: string;
+  host?: string | undefined;
+}
+
+interface LeaseShape {
+  metadata?: { annotations?: Record<string, string> | undefined; [field: string]: unknown } | undefined;
+  spec?: { holderIdentity?: string | undefined; [field: string]: unknown } | undefined;
+  [field: string]: unknown;
+}
+
+const whoOf = (info: string | undefined): string => {
+  if (!info) return '';
+  try {
+    const who = (JSON.parse(info) as { Who?: unknown }).Who;
+    return typeof who === 'string' ? who : '';
+  } catch {
+    return '';
+  }
+};
+
+export function stateLockOf(lease: unknown): StateLock | undefined {
+  const { metadata, spec } = lease as LeaseShape;
+  const id = spec?.holderIdentity;
+  if (!id) return undefined;
+  const who = whoOf(metadata?.annotations?.[STATE_LOCK_INFO]);
+  const at = who.lastIndexOf('@');
+  const host = at >= 0 ? who.slice(at + 1) : '';
+  return { id, who, ...(host ? { host } : {}) };
+}
+
+export function lockHolderGone(lock: StateLock, seen: { here: string; applyingHere: boolean; holderPodThere: boolean }): boolean {
+  if (!lock.host) return false;
+  return lock.host === seen.here ? !seen.applyingHere : !seen.holderPodThere;
+}
+
+export function freedLease(lease: unknown): unknown {
+  const { metadata, spec, ...rest } = lease as LeaseShape;
+  const annotations = Object.fromEntries(Object.entries(metadata?.annotations ?? {}).filter(([key]) => key !== STATE_LOCK_INFO));
+  const keptSpec = Object.fromEntries(Object.entries(spec ?? {}).filter(([key]) => key !== 'holderIdentity'));
+  return { ...rest, metadata: { ...metadata, annotations }, spec: keptSpec };
+}
 
 export const MIRRORED_PROVIDERS = [
   'registry.terraform.io/hashicorp/kubernetes',

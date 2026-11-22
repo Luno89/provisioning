@@ -220,12 +220,49 @@ describe('setting Koala up after its chart', () => {
   it('sets its own cluster up again only when root says the owner asked for it there', async () => {
     const { provisioning, store, started, root } = setUp();
     await store.openProvisioning(earlier(KOALA, 4, 'a', { state: 'failed', why: 'SearXNG, web search: no room' }));
-    root.setupAsked.mockResolvedValueOnce(false);
+    root.setupAsked.mockResolvedValueOnce(undefined);
     expect(await provisioning.rootAsked()).toBeUndefined();
     expect(started).toEqual([]);
-    root.setupAsked.mockResolvedValueOnce(true);
-    expect(await provisioning.rootAsked()).toMatchObject({ target: KOALA, reason: 'asked', state: 'running' });
+    root.setupAsked.mockResolvedValueOnce('2026-11-18T09:00:00.000Z');
+    expect(await provisioning.rootAsked()).toMatchObject({ target: KOALA, reason: 'asked', state: 'running', asked: '2026-11-18T09:00:00.000Z' });
     expect(started).toHaveLength(1);
+    await provisioning.close();
+  });
+
+  it('runs one setup for one ask heard twice at once, as root tells it and as it reconnects', async () => {
+    const { provisioning, store, started, root } = setUp();
+    await store.openProvisioning(earlier(KOALA, 4, 'a', { state: 'failed', why: 'The egress proxy: no room' }));
+    root.setupAsked.mockResolvedValue('2026-11-18T09:00:00.000Z');
+    const [first, second] = await Promise.all([provisioning.rootAsked(), provisioning.rootAsked()]);
+    expect(started).toHaveLength(1);
+    expect(second?.id ?? first?.id).toBe(started[0]?.recordId);
+    await provisioning.close();
+  });
+
+  it('answers an ask once: hearing it again on a reconnect after its run ended runs nothing, and a new ask runs again', async () => {
+    const { provisioning, store, started, root } = setUp();
+    await store.openProvisioning(earlier(KOALA, 4, 'a', { state: 'failed', why: 'The egress proxy: no room' }));
+    root.setupAsked.mockResolvedValue('2026-11-18T09:00:00.000Z');
+    const answered = await provisioning.rootAsked();
+    await store.patchProvisioning(answered!.id, { state: 'failed', why: 'The egress proxy: the state is locked', endedAt: '2026-11-18T10:05:00.000Z' });
+
+    expect(await provisioning.rootAsked()).toBeUndefined();
+    expect(started).toHaveLength(1);
+
+    root.setupAsked.mockResolvedValue('2026-11-18T11:00:00.000Z');
+    expect(await provisioning.rootAsked()).toMatchObject({ reason: 'asked', state: 'running', asked: '2026-11-18T11:00:00.000Z' });
+    expect(started).toHaveLength(2);
+    await provisioning.close();
+  });
+
+  it('answers an ask heard while another setup runs with that run, and does not answer it again once that run ends', async () => {
+    const { provisioning, store, started, root } = setUp();
+    await store.openProvisioning(earlier(KOALA, 4, 'a'));
+    root.setupAsked.mockResolvedValue('2026-11-18T09:00:00.000Z');
+    expect(await provisioning.rootAsked()).toMatchObject({ id: 'provision-machine-desk~a', asked: '2026-11-18T09:00:00.000Z' });
+    await store.patchProvisioning('provision-machine-desk~a', { state: 'failed', why: 'The egress proxy: no room', endedAt: '2026-11-18T10:05:00.000Z' });
+    expect(await provisioning.rootAsked()).toBeUndefined();
+    expect(started).toEqual([]);
     await provisioning.close();
   });
 

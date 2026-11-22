@@ -86,6 +86,15 @@ describe('setting up one piece of a Koala', () => {
     expect(heard).toEqual(['searxng started SearXNG: applying']);
   });
 
+  it('hands the stop of its run to what it applies, so a run stopped or a worker shutting down interrupts Terraform and it frees its lock', async () => {
+    const { steps, lines } = world();
+    const stop = new AbortController();
+    await ProvisionPieceActivity(input('egress'), { steps, place: PLACE, lines, signal: stop.signal });
+    expect(vi.mocked(provisionPlatformService).mock.calls[0]![5]).toBe(stop.signal);
+    await ProvisionPieceActivity(input('monitoring'), { steps, place: PLACE, lines, signal: stop.signal });
+    expect(vi.mocked(installClusterMonitoring).mock.calls[0]![2]?.signal).toBe(stop.signal);
+  });
+
   it('fails the piece when a line could not reach the record, after the work ends, with why', async () => {
     const { steps } = world();
     let calls = 0;

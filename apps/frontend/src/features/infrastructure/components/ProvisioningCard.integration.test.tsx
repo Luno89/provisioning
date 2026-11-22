@@ -43,7 +43,7 @@ const openCard = () => {
 const provisioning = new Provisioning({
   store: db.infrastructure,
   runs: engineProvisionRuns({ runs: createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => temporal.starter }), client: () => temporal.client.workflow, connected: async () => undefined, agent: PROVISION_AGENT }),
-  root: { setup: async () => ({ ok: true }), setupAsked: async () => false },
+  root: { setup: async () => ({ ok: true }), setupAsked: async () => undefined },
   koala: { ownerId: person.id, clusterId: 'desk', revision: 3 },
   changed: (ownerId, view) => { site!.io.to(userRoom(ownerId)).emit(PROVISIONING_CHANGED, view) },
   log: (line) => { console.warn(line) },

@@ -8,6 +8,7 @@ export interface ProvisioningRecord extends ProvisioningView {
   runId: string;
   ownerId: string;
   workflowId?: string;
+  asked?: string;
 }
 
 export interface ProvisionRunInput {
@@ -66,7 +67,7 @@ export function againPieces(last: ProvisioningRecord | undefined, target: Provis
 export const retryStartsAt = (pieces: readonly ProvisionPieceView[]): ProvisionPieceKey | undefined =>
   pieces.find((piece) => piece.state !== 'up')?.key;
 
-export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string; pieces?: ProvisionPieceView[] | undefined }): ProvisioningRecord {
+export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string; pieces?: ProvisionPieceView[] | undefined; asked?: string | undefined }): ProvisioningRecord {
   return {
     id: given.runId,
     runId: given.runId,
@@ -77,8 +78,11 @@ export function openedRecord(given: { ownerId: string; target: ProvisionTarget; 
     state: 'running',
     pieces: given.pieces ?? piecesFor(given.target),
     startedAt: given.at,
+    ...(given.asked ? { asked: given.asked } : {}),
   };
 }
+
+export const askAnswered = (records: readonly ProvisioningRecord[], asked: string): boolean => records.some((record) => record.asked === asked);
 
 const ofCluster = (records: readonly ProvisioningRecord[], clusterId: string): ProvisioningRecord[] =>
   records.filter((record) => record.target.clusterId === clusterId);

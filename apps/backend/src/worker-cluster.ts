@@ -13,7 +13,9 @@ import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipel
 import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
 import { type ClusterWorkerSettings, createDatabase, refuseWorkWith, deletingMarksIn, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
-import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
+import { hostname } from 'node:os';
+import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, StateLocks, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
+import { nodeRunner } from './platform/index.js';
 import { GiteaService, ProjectRepoService } from './projects/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
@@ -46,7 +48,7 @@ export const clusterActivities = (steps: ClusterSteps, setup: ClusterSetup, hugg
       DownloadModelActivity: (args: DownloadModelArgs) => DownloadModelActivity(args, steps, huggingFace),
       VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => VerifyGpuRuntimeActivity(args, steps),
       RunPipelineActivity: (args: RunPipelineArgs) => RunPipelineActivity(args, steps),
-      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, place: setup.place, lines: setup.lines }),
+      ProvisionPieceActivity: (run: ProvisionPieceRun) => ProvisionPieceActivity(run, { steps, place: setup.place, lines: setup.lines, signal: Context.current().cancellationSignal }),
 });
 
 export async function startClusterWorker(settings: ClusterWorkerSettings) {
@@ -67,7 +69,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   refuseWorkWith(deletingMarksIn(db));
   const steps: ClusterSteps = {
     access,
-    infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources)),
+    infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources), nodeRunner, new StateLocks({ access, target: () => access.own(), here: hostname() })),
     gitea: new GiteaService(dataKey, settings.gitea, { dataDir: settings.dataDir, registryPullHost: settings.registryPullHost, reportsTo: dependencies }),
     infisical: new InfisicalService(dataKey, settings.infisical, settings.dataDir, dependencies),
     database: { mongo: settings.mongo, dataKey },

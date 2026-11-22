@@ -58,7 +58,7 @@ async function alreadyThere(steps: Steps, reach: Reach, service: PlatformService
   return existingOnCluster(service.namespaces, namespaces, objects, releases);
 }
 
-export async function provisionPlatformService(steps: Steps, place: PlatformPlace, service: PlatformServicePlan, report: (line: string) => void, wait?: Pause): Promise<void> {
+export async function provisionPlatformService(steps: Steps, place: PlatformPlace, service: PlatformServicePlan, report: (line: string) => void, wait?: Pause, signal?: AbortSignal): Promise<void> {
   const logFile = steps.infra.getLogPath(platformStackName(service.key));
   report(`${service.what}: applying; Terraform writes to ${logFile}`);
   if (service.checkIngressWebhook) {
@@ -76,7 +76,7 @@ export async function provisionPlatformService(steps: Steps, place: PlatformPlac
     stamp: secretStamp(values),
   });
   const watched = { what: service.what, reach: place.reach, namespaces: service.watch, log: report };
-  await applyWatched(steps, platformStackName(service.key), { env, logFile }, watched, wait);
+  await applyWatched(steps, platformStackName(service.key), { env, logFile }, { ...watched, signal }, wait);
   await untilRolledOut(steps, watched, wait);
   report(`${service.what}: ready`);
 }
