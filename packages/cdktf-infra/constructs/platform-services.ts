@@ -18,6 +18,7 @@ export const GITEA_VERSION = "1.27.0";
 export const GITEA_CHART_REPO = "https://dl.gitea.com/charts/";
 export const INFISICAL_CHART_VERSION = "1.11.1";
 export const INFISICAL_OPERATOR_CHART_VERSION = "v0.11.15";
+export const INFISICAL_IMAGE_TAG = "v0.167.0";
 export const INFISICAL_CHART_REPO = "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/";
 
 const manifestFile = (path: string): string => fileURLToPath(new URL(`../../../k8s/${path}`, import.meta.url));
@@ -131,8 +132,9 @@ export class InfisicalPlatform extends Construct {
       set: plain({
         "infisical.service.type": "ClusterIP",
         "infisical.replicaCount": "1",
-        "infisical.resources.limits.memory": "512Mi",
-        "infisical.resources.requests.memory": "256Mi",
+        "infisical.image.tag": INFISICAL_IMAGE_TAG,
+        "infisical.resources.limits.memory": "1536Mi",
+        "infisical.resources.requests.memory": "1Gi",
         "infisical.resources.requests.cpu": "100m",
         "postgresql.enabled": "true",
         "redis.enabled": "true",
