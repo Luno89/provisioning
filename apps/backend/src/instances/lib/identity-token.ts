@@ -1,15 +1,11 @@
 import crypto from 'crypto';
+import { kidOf, newClientKey, type ClientKeys } from '@koala/engine-core/root-client';
 
-export interface IdentityKeyPair {
-  kid: string;
-  privateKey: crypto.KeyObject;
-  publicKey: crypto.KeyObject;
-}
+export { kidOf };
+
+export type IdentityKeyPair = ClientKeys;
 
 export const publicKeyPem = (key: crypto.KeyObject): string => key.export({ type: 'spki', format: 'pem' }).toString();
-
-export const kidOf = (publicKey: crypto.KeyObject): string =>
-  crypto.createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex').slice(0, 16);
 
 export function identityKeysFrom(privateKeyPem: string): IdentityKeyPair {
   const privateKey = crypto.createPrivateKey(privateKeyPem);
@@ -29,8 +25,7 @@ export function identityKeysFromSeed(seed: Buffer): IdentityKeyPair {
   return { kid: kidOf(publicKey), privateKey, publicKey };
 }
 
-export const generateIdentityKey = (): string =>
-  crypto.generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+export const generateIdentityKey = (): string => newClientKey();
 
 export function trustedKeys(publicKeyPems: readonly string[]): Map<string, crypto.KeyObject> {
   return new Map(publicKeyPems.map((pem) => {

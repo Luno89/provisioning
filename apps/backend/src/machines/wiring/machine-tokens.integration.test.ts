@@ -14,11 +14,12 @@ import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-datab
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
 import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
 import { dropDevice, localAgentStatus } from '../lib/local-agent-registry.js';
-import { MachineAccounts } from '../services/MachineAccounts.js';
+import { MachineAccounts, type MachineMessages } from '../services/MachineAccounts.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
@@ -48,6 +49,18 @@ let server: http.Server;
 let io: SocketServer;
 let watching: () => Watching;
 let url = '';
+
+const accountsOn = (store: MongoDB['machines'], toMachines: MachineMessages): MachineAccounts => new MachineAccounts({
+  store,
+  signing: root,
+  clients: machineClientsAt(db),
+  settings: { url: 'http://root.test' },
+  koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
+  followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+  toOwner: { machinesChanged: () => undefined },
+  toMachines,
+  now: () => clock,
+});
 let gateway: MachineTemporalGateway;
 let gatewayAddress = '';
 const TLS_DIR = path.dirname(inject('temporalCa'));
@@ -130,16 +143,7 @@ beforeEach(async () => {
   io = new SocketServer(server);
   let sockets: ReturnType<typeof wireMachineAccounts> = { watched: { ready: Promise.resolve(), close: async () => undefined }, removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
   watching = () => sockets.watched;
-  accounts = new MachineAccounts({
-    store: db.machines,
-    signing: root,
-    settings: { url: 'http://root.test' },
-    koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
-    followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-    toOwner: { machinesChanged: () => undefined },
-    toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
-    now: () => clock,
-  });
+  accounts = accountsOn(db.machines, { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) });
   sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
@@ -231,16 +235,7 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
         ? Promise.reject(new Error('the database refused the write'))
         : store.updateLocalAgentDevice(id, change)),
     });
-    accounts = new MachineAccounts({
-      store: refusing,
-      signing: root,
-      settings: { url: 'http://root.test' },
-      koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
-      followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-      toMachines: { removed: () => false, koala: () => false },
-      toOwner: { machinesChanged: () => undefined },
-      now: () => clock,
-    });
+    accounts = accountsOn(refusing, { removed: () => false, koala: () => false });
     let offered = false;
     const first = await account(OLD_TOKEN, () => { offered = true; });
     expect(first.error).toBeUndefined();

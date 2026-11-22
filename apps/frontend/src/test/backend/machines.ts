@@ -17,6 +17,7 @@ import { myMachinesRouter } from '../../../../backend/src/machines/routes/my-mac
 import type { InstallWorkflows } from '../../../../backend/src/machines/services/KoalaInstalls'
 import { roleFromEnv, type RoleConfig } from '../../../../backend/src/platform/lib/platform-role'
 import { testInstanceClients } from '../../../../backend/src/instances/testing/placed-koala'
+import { machineClientsAt } from '../../../../backend/src/instances/testing/registration-code'
 
 export const DATA_KEY = 'frontend-integration-data-key'
 
@@ -51,6 +52,7 @@ export async function rootSidesOf(site: Site): Promise<RootSides> {
   const sides = machineSides({
     role, db, io, dataKey: DATA_KEY, publicUrl: origin, meshLoginServer: 'https://mesh.koala.test',
     mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },
+    clients: machineClientsAt(db),
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
     instances: () => ({ places }),
@@ -76,6 +78,7 @@ export function machinesOf({ db, origin }: Site): Machines {
   const accounts: MachineAccounts = new MachineAccounts({
     store: db.machines,
     signing: identityKeysFrom(generateIdentityKey()),
+    clients: machineClientsAt(db),
     settings: { url: origin, meshLoginServer: 'https://mesh.koala.test' },
     mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },
     koala: { of: async () => ({ url: origin, audience: 'site-instance' }) },

@@ -4,6 +4,7 @@ import type { Claim, RevokedBecause } from '../../platform/index.js';
 import { kidOf, type IdentityKeyPair } from './identity-token.js';
 import type { InstanceRecord } from './instances.js';
 import { installUnfinished } from './koala-installs.js';
+import { clientPrivateJwkOf, clientPublicJwkOf, machineRegistration, type ClientPublicJwk } from '@koala/engine-core/root-client';
 
 export const OIDC_PATH = '/oidc';
 export const INTERACTION_PATH = `${OIDC_PATH}/interaction`;
@@ -29,18 +30,26 @@ export const RUN_TOKEN_SECONDS = 5 * 60;
 export const REGISTRATION_POLICY = 'koala-instance';
 export const runResourceOf = (clientId: string): string => `urn:koala:instance:${clientId}`;
 
-export type ClientKind = 'instance' | 'root-web';
+export type ClientKind = 'instance' | 'machine' | 'root-web';
+
+export interface RegisteringClient {
+  kind: 'instance' | 'machine';
+  id: string;
+}
+
+export const REGISTERING_FIELD = { instance: 'instanceId', machine: 'deviceId' } as const satisfies Record<RegisteringClient['kind'], string>;
+
+export function registeringOf(bound: Record<string, unknown> | undefined): RegisteringClient | undefined {
+  if (typeof bound?.instanceId === 'string') return { kind: 'instance', id: bound.instanceId };
+  if (typeof bound?.deviceId === 'string') return { kind: 'machine', id: bound.deviceId };
+  return undefined;
+}
 
 export const ROOT_WEB_CLIENT = 'root-web';
 
 export const ROOT_WEB_ID_TOKEN_CLAIMS = JSON.stringify({ id_token: { sid: null } });
 
-export interface PublicJwk {
-  kty: 'OKP';
-  crv: 'Ed25519';
-  x: string;
-  kid: string;
-}
+export type PublicJwk = ClientPublicJwk;
 
 export interface SignInKey {
   jwk: PublicJwk;
@@ -55,13 +64,9 @@ export interface ClientRegistration {
   owner?: string | undefined;
 }
 
-export const publicJwkOf = (keys: IdentityKeyPair): PublicJwk => {
-  const exported = keys.publicKey.export({ format: 'jwk' }) as { x?: string };
-  return { kty: 'OKP', crv: 'Ed25519', x: exported.x ?? '', kid: keys.kid };
-};
+export const publicJwkOf = (keys: IdentityKeyPair): PublicJwk => clientPublicJwkOf(keys);
 
-export const privateJwkOf = (keys: IdentityKeyPair): crypto.JsonWebKey & { kid: string } =>
-  ({ ...(keys.privateKey.export({ format: 'jwk' }) as crypto.JsonWebKey), kid: keys.kid });
+export const privateJwkOf = (keys: IdentityKeyPair): ReturnType<typeof clientPrivateJwkOf> => clientPrivateJwkOf(keys);
 
 export const publicJwkShaped = (value: unknown): value is PublicJwk => {
   const jwk = value as Partial<PublicJwk> | undefined;
@@ -131,7 +136,15 @@ export function keptRootSession(sessions: ReadonlyArray<{ id: string; payload: R
 export const instanceClient = (instance: Pick<InstanceRecord, 'id' | 'ownerId' | 'url' | 'signIn'>): ClientRegistration | undefined =>
   instance.signIn && instance.url ? { clientId: instance.id, kind: 'instance', url: instance.url, key: instance.signIn.jwk, owner: instance.ownerId } : undefined;
 
+export const machineClientMetadata = (machine: { id: string; ownerId: string; key: PublicJwk }): Record<string, unknown> => ({
+  ...machineRegistration(machine.key),
+  client_id: machine.id,
+  koala_kind: 'machine',
+  koala_owner: machine.ownerId,
+});
+
 export function signInRefusal(client: { kind: ClientKind; owner?: string | undefined }, accountId: string): string | undefined {
+  if (client.kind === 'machine') return 'a machine signs no one in';
   if (client.kind === 'instance' && client.owner !== accountId) return 'this instance belongs to someone else';
   return undefined;
 }

@@ -75,6 +75,10 @@
       "types": "./src/reopening.ts",
       "default": "./src/reopening.ts"
     },
+    "./root-client": {
+      "types": "./src/root-client.ts",
+      "default": "./src/root-client.ts"
+    },
     "./work-for": {
       "types": "./src/work-for.ts",
       "default": "./src/work-for.ts"
@@ -135,6 +139,8 @@
     "@temporalio/client": "^1.23.0",
     "@temporalio/common": "^1.23.0",
     "@temporalio/worker": "^1.23.0",
+    "jose": "6.2.12",
+    "openid-client": "6.8.8",
     "undici": "^7.27.2"
   },
   "scripts": {

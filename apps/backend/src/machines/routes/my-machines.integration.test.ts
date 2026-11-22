@@ -8,6 +8,7 @@ import { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { koalaOfOwner } from '../wiring/machines.js';
 import { myMachinesRouter } from './my-machines.js';
 import { testInstanceClients } from '../../instances/testing/placed-koala.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 
 const sites: Harness[] = [];
 afterEach(async () => { for (const site of sites.splice(0)) await site.close(); });
@@ -24,7 +25,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts }> {
       const instances = new InstanceService(db, { rootUrl: 'http://root.test', rootPublicKeys: () => ['PEM'], ...testInstanceClients, meshLoginServer: 'https://mesh.test', registry: '100.64.0.1:5001', imageTag: 'v1', domain: '' },
         { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined });
       accounts = new MachineAccounts({
-        store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
+        store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
         mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
         koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
         toOwner: { machinesChanged: () => undefined },

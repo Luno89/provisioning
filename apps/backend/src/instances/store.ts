@@ -4,7 +4,7 @@ import { fieldChanges } from '../platform/lib/collection.js';
 import { keepWrittenDocuments, watchDeletes, watchDocument, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { stampServed, type InstanceRecord } from './lib/instances.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
-import { keptRootSession, type SignInKey } from './lib/oidc.js';
+import { keptRootSession, REGISTERING_FIELD, registeringOf, type RegisteringClient, type SignInKey } from './lib/oidc.js';
 import type { LogoutDelivery } from './lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
 import type { DependencyCheck, DependencyFinding } from './lib/dependency-findings.js';
@@ -29,8 +29,8 @@ export interface InstancesStore extends AreaStore {
   oidcRevokeGrant(grantId: string): Promise<void>;
   oidcForgetAccount(accountId: string, keepRootSid?: string): Promise<string[]>;
   oidcGrantsOf(accountId: string): Promise<Record<string, unknown>[]>;
-  oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void>;
-  oidcTakeRegistration(code: string): Promise<string | undefined>;
+  oidcBindRegistration(code: string, client: RegisteringClient & { ownerId: string }): Promise<void>;
+  oidcTakeRegistration(code: string): Promise<RegisteringClient | undefined>;
   enqueueLogout(delivery: LogoutDelivery): Promise<void>;
   pendingLogouts(): Promise<LogoutDelivery[]>;
   logoutDelivered(id: string): Promise<void>;
@@ -239,14 +239,15 @@ export class MongoInstancesStore implements InstancesStore {
     return (await this.oidcArtifacts.find({ model: 'Grant', accountId }).toArray()).map((grant) => asStored(grant)).filter((grant): grant is Record<string, unknown> => grant !== undefined);
   }
 
-  async oidcBindRegistration(code: string, instance: { id: string; ownerId: string }): Promise<void> {
-    await this.oidcArtifacts.deleteMany({ model: REGISTRATION_MODEL, instanceId: instance.id, _id: { $ne: `${REGISTRATION_MODEL}:${code}` as never } });
-    await this.oidcArtifacts.updateOne({ _id: `${REGISTRATION_MODEL}:${code}` as never }, { $set: { instanceId: instance.id, accountId: instance.ownerId } });
+  async oidcBindRegistration(code: string, client: RegisteringClient & { ownerId: string }): Promise<void> {
+    const field = REGISTERING_FIELD[client.kind];
+    await this.oidcArtifacts.deleteMany({ model: REGISTRATION_MODEL, [field]: client.id, _id: { $ne: `${REGISTRATION_MODEL}:${code}` as never } });
+    await this.oidcArtifacts.updateOne({ _id: `${REGISTRATION_MODEL}:${code}` as never }, { $set: { [field]: client.id, accountId: client.ownerId } });
   }
 
-  async oidcTakeRegistration(code: string): Promise<string | undefined> {
-    const taken = await this.oidcArtifacts.findOneAndDelete({ _id: `${REGISTRATION_MODEL}:${code}` as never, instanceId: { $exists: true } });
-    return typeof taken?.instanceId === 'string' ? taken.instanceId : undefined;
+  async oidcTakeRegistration(code: string): Promise<RegisteringClient | undefined> {
+    const taken = await this.oidcArtifacts.findOneAndDelete({ _id: `${REGISTRATION_MODEL}:${code}` as never, $or: [{ instanceId: { $exists: true } }, { deviceId: { $exists: true } }] });
+    return registeringOf(taken ?? undefined);
   }
 
   async oidcForgetAccount(accountId: string, keepRootSid?: string): Promise<string[]> {

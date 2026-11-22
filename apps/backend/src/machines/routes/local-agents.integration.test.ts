@@ -10,6 +10,7 @@ import { ProjectRepoService } from '../../projects/services/ProjectRepoService.j
 import { MachineService } from '../services/MachineService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 
 const DATA_KEY = 'test-secret';
@@ -30,6 +31,7 @@ const machinesOf = (db: Database, mesh = 'https://mesh.koala.test', now?: () => 
     ...(now ? { now } : {}),
     store: db.machines,
     signing,
+    clients: machineClientsAt(db),
     settings: { url: URL_OF_KOALA, meshLoginServer: mesh },
     koala: { of: async () => ({ url: URL_OF_KOALA, audience: 'inst-1' }) },
     followers: { joined: (machine) => machines.adopt(machine), removed: (machine) => machines.forget(machine), changed: async () => undefined },

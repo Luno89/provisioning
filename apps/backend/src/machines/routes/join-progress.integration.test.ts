@@ -7,6 +7,7 @@ import { machineProgressContract } from '@koala/engine-core/testing/machine-prog
 import { anyOf } from '../../platform/lib/test-matchers.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from './machines.js';
 import { myMachinesRouter } from './my-machines.js';
@@ -23,7 +24,7 @@ async function root(): Promise<{ site: Harness; accounts: MachineAccounts; told:
     open: true,
     router: (db) => {
       accounts = new MachineAccounts({
-        store: db.machines, signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
+        store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db), settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
         mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
         koala: { of: async () => undefined }, followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
         toMachines: { removed: () => false, koala: () => false, online: () => false },

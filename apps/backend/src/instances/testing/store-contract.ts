@@ -403,18 +403,27 @@ export function instancesStoreContract(make: () => Promise<InstancesStore>): voi
       }
     });
 
-    it('binds a registration code to one instance, hands it over once, and drops the older code when a newer one is bound', async () => {
+    it('binds a registration code to one instance or machine, hands it over once, and drops the older code when a newer one is bound', async () => {
       const store = await make();
       await store.oidcUpsert('InitialAccessToken', 'code-1', { jti: 'code-1', policies: ['koala-instance'] });
-      await store.oidcBindRegistration('code-1', { id: 'inst-a', ownerId: 'p1' });
+      await store.oidcBindRegistration('code-1', { kind: 'instance', id: 'inst-a', ownerId: 'p1' });
       await store.oidcUpsert('InitialAccessToken', 'code-2', { jti: 'code-2', policies: ['koala-instance'] });
-      await store.oidcBindRegistration('code-2', { id: 'inst-a', ownerId: 'p1' });
+      await store.oidcBindRegistration('code-2', { kind: 'instance', id: 'inst-a', ownerId: 'p1' });
       await store.oidcUpsert('InitialAccessToken', 'code-b', { jti: 'code-b', policies: ['koala-instance'] });
-      await store.oidcBindRegistration('code-b', { id: 'inst-b', ownerId: 'p2' });
+      await store.oidcBindRegistration('code-b', { kind: 'instance', id: 'inst-b', ownerId: 'p2' });
+      await store.oidcUpsert('InitialAccessToken', 'code-m1', { jti: 'code-m1', policies: ['koala-instance'] });
+      await store.oidcBindRegistration('code-m1', { kind: 'machine', id: 'inst-a', ownerId: 'p1' });
+      await store.oidcUpsert('InitialAccessToken', 'code-m2', { jti: 'code-m2', policies: ['koala-instance'] });
+      await store.oidcBindRegistration('code-m2', { kind: 'machine', id: 'desk', ownerId: 'p1' });
+      await store.oidcUpsert('InitialAccessToken', 'code-m3', { jti: 'code-m3', policies: ['koala-instance'] });
+      await store.oidcBindRegistration('code-m3', { kind: 'machine', id: 'desk', ownerId: 'p1' });
       expect(await store.oidcFind('InitialAccessToken', 'code-1')).toBeUndefined();
       expect(await store.oidcTakeRegistration('code-1')).toBeUndefined();
+      expect(await store.oidcTakeRegistration('code-m2')).toBeUndefined();
+      expect(await store.oidcTakeRegistration('code-m1')).toEqual({ kind: 'machine', id: 'inst-a' });
+      expect(await store.oidcTakeRegistration('code-m3')).toEqual({ kind: 'machine', id: 'desk' });
       expect(await store.oidcFind('InitialAccessToken', 'code-2')).toEqual({ jti: 'code-2', policies: ['koala-instance'] });
-      expect(await Promise.all([store.oidcTakeRegistration('code-2'), store.oidcTakeRegistration('code-2')])).toEqual(expect.arrayContaining(['inst-a', undefined]));
+      expect(await Promise.all([store.oidcTakeRegistration('code-2'), store.oidcTakeRegistration('code-2')])).toEqual(expect.arrayContaining([{ kind: 'instance', id: 'inst-a' }, undefined]));
       expect(await store.oidcFind('InitialAccessToken', 'code-2')).toBeUndefined();
       expect(await store.oidcTakeRegistration('never')).toBeUndefined();
       await store.oidcUpsert('InitialAccessToken', 'unbound', { jti: 'unbound' });

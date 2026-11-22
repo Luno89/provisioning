@@ -52,6 +52,10 @@ export interface MachineRemovals {
   uninstalled(ownerId: string, word: { id: string; problem?: string | undefined }): Promise<void>;
 }
 
+export interface MachineClients {
+  machineRegistrationCode(machine: { id: string; ownerId: string }): Promise<string>;
+}
+
 export interface OwnerBrowsers {
   machinesChanged(ownerId: string): void;
 }
@@ -66,6 +70,7 @@ export interface MachineAccountsDeps {
   toOwner: OwnerBrowsers;
   installs?: Pick<KoalaInstalls, 'start' | 'machineRemoved'> | undefined;
   removals?: MachineRemovals | undefined;
+  clients: MachineClients;
   mesh?: {
     createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
     removeNode?(ownerId: string, meshIp: string): Promise<void>;
@@ -239,6 +244,7 @@ export class MachineAccounts {
     if (await this.deps.store.deleteMachineJoinsOf(id, found.hash)) this.deps.toOwner.machinesChanged(found.ownerId);
     if (!replaced) await this.deps.followers.joined(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${name} joined, but its Koala could not be told: ${err.message}`));
     const preAuthKey = (await this.deps.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key;
+    const registrationCode = await this.deps.clients.machineRegistrationCode({ id, ownerId: found.ownerId });
     return {
       ok: true,
       value: {
@@ -247,6 +253,7 @@ export class MachineAccounts {
           KOALA_ROOT_URL: this.deps.settings.url,
           KOALA_DEVICE_ID: id,
           KOALA_DEVICE_TOKEN: token,
+          KOALA_REGISTRATION_TOKEN: registrationCode,
           KOALA_ROOT_DIR: rootDir,
           MESH_LOGIN_SERVER: meshLoginServer,
           MESH_AUTH_KEY: preAuthKey,

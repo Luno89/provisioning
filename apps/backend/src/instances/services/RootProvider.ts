@@ -7,12 +7,14 @@ import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
-  type ClientAt, type ClientKind, type ClientRegistration,
+  machineClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
+import { MACHINE_SCOPE } from '@koala/engine-core/root-client';
+import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceReach } from './InstanceReach.js';
 
-type Store = Pick<Database, 'instances' | 'accounts'>;
+type Store = Pick<Database, 'instances' | 'accounts' | 'machines'>;
 
 export interface RootProviderSettings {
   issuer: string;
@@ -37,7 +39,7 @@ interface KoalaClient {
 
 const kindOf = (client: unknown): { kind: ClientKind; owner?: string | undefined } => {
   const known = client as KoalaClient;
-  if (known.koala_kind !== 'instance' && known.koala_kind !== 'root-web') throw new errors.InvalidClient(`root does not know what kind of client ${known.clientId} is`);
+  if (known.koala_kind !== 'instance' && known.koala_kind !== 'machine' && known.koala_kind !== 'root-web') throw new errors.InvalidClient(`root does not know what kind of client ${known.clientId} is`);
   return { kind: known.koala_kind, owner: known.koala_owner };
 };
 
@@ -104,19 +106,37 @@ export class RootProvider {
     ctx.body = { access_token: accessToken, issued_token_type: ACCESS_TOKEN_TYPE, token_type: 'Bearer', expires_in: at.expiration, refresh_token: refreshToken, scope: RUN_SCOPE };
   }
 
-  async registrationCode(instance: { id: string; ownerId: string }): Promise<string> {
+  private async codeFor(client: RegisteringClient & { ownerId: string }): Promise<string> {
     const code = await new this.provider.InitialAccessToken({ policies: [REGISTRATION_POLICY] }).save();
-    await this.store.instances.oidcBindRegistration(code, instance);
+    await this.store.instances.oidcBindRegistration(code, client);
     return code;
+  }
+
+  registrationCode(instance: { id: string; ownerId: string }): Promise<string> {
+    return this.codeFor({ kind: 'instance', ...instance });
+  }
+
+  machineRegistrationCode(machine: { id: string; ownerId: string }): Promise<string> {
+    return this.codeFor({ kind: 'machine', ...machine });
+  }
+
+  private async device(id: string): Promise<LocalAgentDeviceMetadata | undefined> {
+    return (await this.store.machines.getLocalAgentDevices()).find((candidate) => candidate.id === id);
   }
 
   private async registering(ctx: KoaContextWithOIDC, properties: Record<string, unknown>): Promise<void> {
     const key = registeredKeyOf(properties);
     if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
     const code = ctx.oidc.entities.InitialAccessToken?.jti;
-    const instanceId = code ? await this.store.instances.oidcTakeRegistration(code) : undefined;
-    if (!instanceId) throw new errors.InvalidToken('this registration code was used already, or a newer one replaced it');
-    const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === instanceId);
+    const taken = code ? await this.store.instances.oidcTakeRegistration(code) : undefined;
+    if (!taken) throw new errors.InvalidToken('this registration code was used already, or a newer one replaced it');
+    if (taken.kind === 'machine') {
+      const device = await this.device(taken.id);
+      if (!device) throw new errors.InvalidToken('the machine this registration code was made for is gone');
+      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }));
+      return;
+    }
+    const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === taken.id);
     if (!instance) throw new errors.InvalidToken('the Koala this registration code was made for is gone');
     Object.assign(properties, {
       client_id: instance.id,
@@ -173,12 +193,19 @@ export class RootProvider {
         upsert: async (id, payload) => {
           const key = registeredKeyOf(payload as Record<string, unknown>);
           if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
+          const sinceFor = (held: SignInKey | undefined): string => (held?.jwk.kid === key.kid ? held.since : new Date(this.now()).toISOString());
+          if ((payload as KoalaClient).koala_kind === 'machine') {
+            await this.store.machines.updateLocalAgentDevice(id, { set: { signIn: { jwk: key, since: sinceFor((await this.device(id))?.signIn) } } });
+            return;
+          }
           const held = (await instances.getInstances()).find((candidate) => candidate.id === id)?.signIn;
-          await instances.saveSignInKey(id, { jwk: key, since: held?.jwk.kid === key.kid ? held.since : new Date(this.now()).toISOString() });
+          await instances.saveSignInKey(id, { jwk: key, since: sinceFor(held) });
         },
         find: async (id) => {
           const client = await this.addressedClient(id);
-          return client ? clientMetadata(client) as AdapterPayload : undefined;
+          if (client) return clientMetadata(client) as AdapterPayload;
+          const device = await this.device(id);
+          return device?.signIn ? machineClientMetadata({ id: device.id, ownerId: device.ownerId, key: device.signIn.jwk }) as AdapterPayload : undefined;
         },
         findByUserCode: async () => undefined,
         findByUid: async () => undefined,
@@ -214,7 +241,7 @@ export class RootProvider {
         };
       },
       claims: { openid: ['sub'], email: ['email', 'email_verified'], [KOALA_SCOPE]: [KOALA_CLAIMS] },
-      scopes: [...SIGN_IN_SCOPES, SERVICE_SCOPE, RUN_SCOPE],
+      scopes: [...SIGN_IN_SCOPES, SERVICE_SCOPE, RUN_SCOPE, MACHINE_SCOPE],
       conformIdTokenClaims: false,
       clientDefaults: { grant_types: ['authorization_code'], id_token_signed_response_alg: SIGNING_ALG, response_types: ['code'], token_endpoint_auth_method: 'private_key_jwt' },
       clientAuthMethods: ['private_key_jwt'],
