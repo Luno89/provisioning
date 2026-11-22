@@ -31,6 +31,12 @@ export interface ServiceCaller {
   until: number;
 }
 
+export interface MachineCaller {
+  deviceId: string;
+  ownerId: string;
+  until: number;
+}
+
 interface KoalaClient {
   clientId: string;
   koala_kind?: ClientKind;
@@ -376,6 +382,16 @@ export class RootProvider {
     const client = await this.provider.Client.find(found.clientId);
     if (!client || kindOf(client).kind !== 'instance') return undefined;
     return { clientId: client.clientId, kind: 'instance', until: found.exp * 1000 };
+  }
+
+  async machineCaller(token: string): Promise<MachineCaller | undefined> {
+    const found = await this.provider.ClientCredentials.find(token);
+    if (!found?.clientId || found.exp === undefined || found.isExpired || !found.scopes.has(MACHINE_SCOPE)) return undefined;
+    const client = await this.provider.Client.find(found.clientId);
+    if (!client) return undefined;
+    const kind = kindOf(client);
+    if (kind.kind !== 'machine' || !kind.owner) return undefined;
+    return { deviceId: client.clientId, ownerId: kind.owner, until: found.exp * 1000 };
   }
 
   async revoke(event: AccessRevoked): Promise<void> {

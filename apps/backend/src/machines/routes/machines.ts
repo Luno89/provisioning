@@ -123,8 +123,8 @@ export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join' |
 
   router.post('/join', asyncRoute(async (req: Request, res: Response) => {
     if (!deps.accounts) return res.status(404).type('text/plain').send('machines join at root, which holds accounts: run the command from My Machines');
-    const body = (req.body ?? {}) as { code?: unknown; hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown };
-    const outcome = await deps.accounts.join(body.code, { hostname: body.hostname, rootDir: body.rootDir, os: body.os, replaces: body.replaces });
+    const body = (req.body ?? {}) as { code?: unknown; hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown; replacesKeyless?: unknown };
+    const outcome = await deps.accounts.join(body.code, { hostname: body.hostname, rootDir: body.rootDir, os: body.os, replaces: body.replaces, replacesKeyless: body.replacesKeyless });
     if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
     res.json({ ...outcome.value, env: { ...outcome.value.env, KOALA_AGENT_SHA256: await deps.bundle.sha256() } });
   }));

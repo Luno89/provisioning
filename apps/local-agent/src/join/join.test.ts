@@ -135,7 +135,7 @@ describe('running the command again', () => {
     const sudoBefore = world.sudo().length;
     const again = await join(world, ['--yes', 'second-code']);
     expect(again.code, again.said).toBe(0);
-    expect(world.joins.map((body) => body.replaces)).toEqual(['', 'token-1']);
+    expect(world.joins.map((body) => body.replaces)).toEqual(['', 'token-for-device-1']);
     expect(statesOf(again.root).filter((state) => !state.endsWith('started'))).toEqual([
       'join done', 'mesh already-done', 'k3s-config already-done', 'k3s-firewall already-done', 'k3s-uninstall already-done',
       'k3s already-done', 'k3s-sudo already-done', 'helm already-done', 'service already-done',
@@ -161,7 +161,21 @@ describe('running the command again', () => {
     expect(first.said).toContain('failed: sudo did not let this run as root');
     expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toMatchObject({ token: 'token-1', deviceId: 'device-1' });
     await join(world, ['--yes', 'second-code']);
-    expect(world.joins.map((body) => body.replaces)).toEqual(['', 'token-1']);
+    expect(world.joins.map((body) => body.replaces)).toEqual(['', 'token-for-device-1']);
+  });
+
+  it('replaces a machine that joined before machines had keys by the account token it kept', async () => {
+    const world = machine({ files: { [`${HOME}/.config/koala/machine.json`]: JSON.stringify({ rootUrl: 'https://root.test', token: 'token-before-keys', deviceId: 'device-old', rootDir: `${HOME}/koala` }) } });
+    await join(world, ['--yes', '--no-cluster', 'the-code']);
+    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', 'token-before-keys']]);
+  });
+
+  it('offers the account token it kept when root knows no key of this machine, as after a registration root refused', async () => {
+    const world = machine();
+    await join(world, ['--yes', '--no-cluster', 'first-code']);
+    world.registration.registered.splice(0);
+    await join(world, ['--yes', '--no-cluster', 'second-code']);
+    expect(world.joins.map((body) => [body.replaces, body.replacesKeyless])).toEqual([['', undefined], ['', 'token-1']]);
   });
 });
 

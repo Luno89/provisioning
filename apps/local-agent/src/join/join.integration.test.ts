@@ -274,7 +274,7 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
     heard.length = 0;
     const again = await join('second-code');
     expect(again.code, again.said).toBe(0);
-    expect(joins.map((body) => body.replaces)).toEqual(['', 'token-1']);
+    expect(joins.map((body) => body.replaces)).toEqual(['', 'token-for-device-1']);
     expect(heard.filter((entry) => entry.progress.state !== 'started').map((entry) => `${entry.progress.stage} ${entry.progress.state}`)).toEqual([
       'join done', 'mesh already-done', 'k3s-config already-done', 'k3s-firewall already-done', 'k3s-uninstall already-done', 'k3s already-done', 'k3s-sudo already-done', 'helm already-done', 'service already-done',
     ]);

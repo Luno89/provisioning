@@ -69,6 +69,33 @@ async function joinContext(url: string, code: string): Promise<JoinContext> {
   return { args, host, commands: { run: async () => { throw new Error('the join step runs no command'); } }, pins: joinPins(undefined), folder: path.join(home, 'koala'), agentDir: path.join(home, 'agent'), node: process.execPath };
 }
 
+type Root = Awaited<ReturnType<typeof root>>;
+
+const refusingRegistration = (provider: Root['provider']): typeof fetch => async (input, init) => {
+  const answer = await fetch(input, init);
+  if (String(input).endsWith('/api/machines/join')) {
+    const { env } = await answer.clone().json() as { env: { KOALA_DEVICE_ID: string } };
+    await provider.machineRegistrationCode({ id: env.KOALA_DEVICE_ID, ownerId: 'bo' });
+  }
+  return answer;
+};
+
+const savedOf = async (ctx: JoinContext) => JSON.parse(await readFile(path.join(ctx.host.env.XDG_CONFIG_HOME!, 'koala', 'machine.json'), 'utf8')) as { token: string; deviceId: string; key: string };
+
+async function joinedMachine(world: Root) {
+  const ctx = await joinContext(world.url, (await world.accounts.createJoinCode('bo')).code);
+  await runSteps([joinRootStep(world.url)], ctx, memoryReporter());
+  const saved = await savedOf(ctx);
+  return { ctx, saved, token: () => machineClientOf({ rootUrl: world.url, deviceId: saved.deviceId, key: saved.key }).tokenIfKnown() };
+}
+
+async function joinedAgain(world: Root, ctx: JoinContext) {
+  ctx.args = joinArgsOf([(await world.accounts.createJoinCode('bo')).code, '--url', world.url, '--yes', '--folder', ctx.folder]);
+  delete ctx.joined;
+  await runSteps([joinRootStep(world.url)], ctx, memoryReporter());
+  return { devices: await world.db.machines.getLocalAgentDevices(), saved: await savedOf(ctx) };
+}
+
 describe('the machine agent\'s own HTTP calls, against root\'s real routes in the same process', () => {
   it('joins with the code from My Machines, keeping the token root gives and the key it registered at root with as a client of its owner, and tells root the join\'s stages with that code', async () => {
     const { db, accounts, url } = await root();
@@ -92,20 +119,83 @@ describe('the machine agent\'s own HTTP calls, against root\'s real routes in th
     const { db, accounts, provider, url } = await root();
     const { code } = await accounts.createJoinCode('bo');
     const ctx = await joinContext(url, code);
-    const replacing: typeof fetch = async (input, init) => {
-      const answer = await fetch(input, init);
-      if (String(input).endsWith('/api/machines/join')) {
-        const { env } = await answer.clone().json() as { env: { KOALA_DEVICE_ID: string } };
-        await provider.machineRegistrationCode({ id: env.KOALA_DEVICE_ID, ownerId: 'bo' });
-      }
-      return answer;
-    };
-    ctx.host = { ...ctx.host, fetch: replacing };
+    ctx.host = { ...ctx.host, fetch: refusingRegistration(provider) };
     const reporter = rootReporter(rootProgress(rootUrlOf(url, JOIN_PROGRESS_PATH), code, fetch, { pause: async () => undefined }));
     await expect(runSteps([joinRootStep(url)], ctx, reporter)).rejects.toThrow(MACHINE_REGISTRATION_REFUSED);
     expect((await db.machines.getLocalAgentDevices())[0]?.signIn).toBeUndefined();
     const [join] = await accounts.joins('bo');
     expect(join).toMatchObject({ stage: 'join', state: 'failed', why: MACHINE_REGISTRATION_REFUSED });
+  });
+
+  describe('running the command again on the same machine', () => {
+    it('replaces the machine it joined as, proven with the key it registered, keeping its one entry on My Machines with the new key', async () => {
+      const world = await root();
+      const first = await joinedMachine(world);
+      const again = await joinedAgain(world, first.ctx);
+      expect(again.devices.map((device) => device.id)).toEqual([first.saved.deviceId]);
+      expect(again.saved.key).not.toBe(first.saved.key);
+      expect(again.devices[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(again.saved.key)));
+    });
+
+    it('replaces a machine that joined before machines had keys, matched by the account token it kept', async () => {
+      const { db, accounts, url } = await root();
+      const before = await accounts.join((await accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
+      if (!before.ok) throw new Error(before.error);
+      const ctx = await joinContext(url, (await accounts.createJoinCode('bo')).code);
+      const settings = path.join(ctx.host.env.XDG_CONFIG_HOME!, 'koala', 'machine.json');
+      await mkdir(path.dirname(settings), { recursive: true });
+      await writeFile(settings, JSON.stringify({ rootUrl: url, token: before.value.env.KOALA_DEVICE_TOKEN, deviceId: before.value.deviceId, rootDir: '/home/bo/koala' }), { mode: 0o600 });
+      await runSteps([joinRootStep(url)], ctx, memoryReporter());
+      const devices = await db.machines.getLocalAgentDevices();
+      expect(devices.map((device) => device.id)).toEqual([before.value.deviceId]);
+      expect(devices[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom((await savedOf(ctx)).key)));
+    });
+
+    it('replaces the machine a token of its key names, and that key stops working at once, until the machine registers its new one', async () => {
+      const world = await root();
+      const first = await joinedMachine(world);
+      const again = await world.accounts.join((await world.accounts.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/work', replaces: await first.token() });
+      expect(again.ok && again.value.deviceId).toBe(first.saved.deviceId);
+      expect(await world.db.machines.getLocalAgentDevices()).toHaveLength(1);
+      expect(await first.token()).toBeUndefined();
+    });
+
+    it('replaces a machine whose registration root refused, by the account token it kept, since root holds no key for it', async () => {
+      const world = await root();
+      const ctx = await joinContext(world.url, (await world.accounts.createJoinCode('bo')).code);
+      ctx.host = { ...ctx.host, fetch: refusingRegistration(world.provider) };
+      await expect(runSteps([joinRootStep(world.url)], ctx, memoryReporter())).rejects.toThrow(MACHINE_REGISTRATION_REFUSED);
+      const first = await savedOf(ctx);
+      ctx.host = { ...ctx.host, fetch };
+      const again = await joinedAgain(world, ctx);
+      expect(again.devices.map((device) => device.id)).toEqual([first.deviceId]);
+      expect(again.devices[0]?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(again.saved.key)));
+    });
+
+    it('takes the account token alone as no proof once the machine has a key, adding a machine rather than replacing it', async () => {
+      const world = await root();
+      const { saved } = await joinedMachine(world);
+      const taken = await world.accounts.join((await world.accounts.createJoinCode('bo')).code, { hostname: 'elsewhere', rootDir: '/x', replaces: saved.token, replacesKeyless: saved.token });
+      expect(taken.ok && taken.value.deviceId).not.toBe(saved.deviceId);
+      expect(await world.db.machines.getLocalAgentDevices()).toHaveLength(2);
+    });
+
+    it('never replaces another person\'s machine with that machine\'s token', async () => {
+      const world = await root();
+      const first = await joinedMachine(world);
+      const stranger = await world.accounts.join((await world.accounts.createJoinCode('cy')).code, { hostname: 'desk', rootDir: '/x', replaces: await first.token() });
+      expect(stranger.ok && stranger.value.deviceId).not.toBe(first.saved.deviceId);
+      expect((await world.db.machines.getLocalAgentDevices()).map((device) => device.ownerId).sort()).toEqual(['bo', 'cy']);
+    });
+
+    it('joins as a new machine once the person removed it on My Machines', async () => {
+      const world = await root();
+      const first = await joinedMachine(world);
+      expect(await world.accounts.remove('bo', first.saved.deviceId)).toBe(true);
+      const again = await joinedAgain(world, first.ctx);
+      expect(again.devices).toHaveLength(1);
+      expect(again.devices[0]?.id).not.toBe(first.saved.deviceId);
+    });
   });
 
   it('stops at the join when the settings this machine kept are not the ones Koala writes, tells root where and why with the code, and makes no machine', async () => {

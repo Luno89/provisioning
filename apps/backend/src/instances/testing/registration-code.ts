@@ -12,7 +12,7 @@ const providerAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair })
 export const registrationCodeAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair }, instance: { id: string; ownerId: string }): Promise<string> =>
   providerAt(root).registrationCode(instance);
 
-export const machineClientsAt = (db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode'> => {
+export const machineClientsAt = (db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller'> => {
   const provider = providerAt({ db, url, signing: identityKeysFrom(generateIdentityKey()) });
-  return { machineRegistrationCode: (machine) => provider.machineRegistrationCode(machine) };
+  return { machineRegistrationCode: (machine) => provider.machineRegistrationCode(machine), machineCaller: (token) => provider.machineCaller(token) };
 };
