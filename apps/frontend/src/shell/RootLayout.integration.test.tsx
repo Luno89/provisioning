@@ -14,7 +14,7 @@ import { outsideThisTier } from '../test/backend/outside'
 import { temporalOnPaper } from '../test/backend/projects'
 import { pageSocketsOf, type PageSockets } from '../test/backend/sockets'
 import { toolCallParsersOn } from '../test/backend/tool-calling'
-import { shown } from '../test/backend/hooks'
+import { shown, type ShownPage } from '../test/backend/hooks'
 import { deploymentsRouter } from '../../../backend/src/infrastructure/routes/deployments'
 import { clustersRouter } from '../../../backend/src/infrastructure/routes/clusters'
 import { identityRouter } from '../../../backend/src/instances/routes/identity'
@@ -145,29 +145,31 @@ const changes: StatusChange[] = [
   },
 ]
 
-async function seen(shows: Shows): Promise<void> {
+async function seen(page: ShownPage, shows: Shows): Promise<void> {
   if ('gone' in shows) {
-    await shown(() => (rowOf(shows.app) ? null : rowOf('hermes')))
+    await shown(() => (rowOf(shows.app) ? null : rowOf('hermes')), page)
     expect(rowOf(shows.app)).toBeNull()
     return
   }
-  const badge = await shown(() => badgeOf(shows.app, shows.state))
+  const badge = await shown(() => badgeOf(shows.app, shows.state), page)
   expect(badge.textContent).toBe(shows.state)
   if (shows.reason !== undefined) expect(badge.getAttribute('title')).toBe(shows.reason)
   if (shows.failure !== undefined) expect(within(rowOf(shows.app)!).getByTestId('app-failure').textContent).toBe(shows.failure)
 }
 
-const openApps = async () => {
+const openApps = async (): Promise<ShownPage> => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createProvisioningRouter(createMemoryHistory({ initialEntries: ['/infrastructure/apps'] }))
   render(<QueryClientProvider client={client}><App router={router} /></QueryClientProvider>)
-  await shown(() => rowOf('hermes'))
+  const page: ShownPage = { client, followsSocket: true }
+  await shown(() => rowOf('hermes'), page)
+  return page
 }
 
 describe('the apps a person has open follow every change to their status, told by the backend', () => {
   it.each(changes)('shows it as $change', async ({ act, shows }) => {
-    await openApps()
+    const page = await openApps()
     await act()
-    await seen(shows)
+    await seen(page, shows)
   })
 })

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { act, getConfig, renderHook } from '@testing-library/react'
+import { act, getConfig, render, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query'
 import { getSocket } from '../../features/platform'
 
@@ -35,9 +35,17 @@ export async function mutated<Variables, Result>(useHook: () => UseMutationResul
 
 export interface ShownPage {
   client: QueryClient
+  followsSocket: boolean
 }
 
-export function shown<T>(find: () => T | null, page?: ShownPage): Promise<T> {
+export function openPage(part: ReactNode, { followsSocket }: { followsSocket: boolean }) {
+  const client = freshClient()
+  const page = render(<QueryClientProvider client={client}>{part}</QueryClientProvider>)
+  const shownPage: ShownPage = { client, followsSocket }
+  return { page, client, on: <T,>(find: () => T | null) => shown(find, shownPage) }
+}
+
+export function shown<T>(find: () => T | null, page: ShownPage): Promise<T> {
   return getConfig().asyncWrapper(() => new Promise<T>((resolve, reject) => {
     const ends: Array<() => void> = []
     const end = () => { for (const stop of ends.splice(0)) stop() }
@@ -56,17 +64,24 @@ export function shown<T>(find: () => T | null, page?: ShownPage): Promise<T> {
       return true
     }
     const cannotCome = (why: string) => { end(); reject(new Error(`what this waits for can never be shown: ${why}`)) }
+    let failure: string | undefined
+    const judge = () => {
+      if (look() || failure === undefined || page.client.isFetching() || page.client.isMutating()) return
+      const said = Array.from(document.body.querySelectorAll<HTMLElement>('[role="alert"]'), (alert: HTMLElement) => alert.textContent ?? '').filter(Boolean)
+      if (said.length) cannotCome(`${failure}, and the page shows ${said.map((text) => JSON.stringify(text)).join(', ')}`)
+    }
+    const settle = (said: string | undefined) => { failure ??= said }
     if (look()) return
-    const watch = new MutationObserver(() => { look() })
+    const watch = new MutationObserver(judge)
     watch.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true })
     ends.push(() => watch.disconnect())
-    if (!page) return
     ends.push(page.client.getQueryCache().subscribe((event) => {
-      if (event.type === 'updated' && event.action.type === 'error') cannotCome(`the page's ${JSON.stringify(event.query.queryKey)} failed: ${(event.action.error as Error).message}`)
+      settle(event.type === 'updated' && event.action.type === 'error' ? `the page's ${JSON.stringify(event.query.queryKey)} failed: ${(event.action.error as Error).message}` : undefined)
     }))
     ends.push(page.client.getMutationCache().subscribe((event) => {
-      if (event.type === 'updated' && event.action.type === 'error') cannotCome(`the page's change failed: ${(event.action.error as Error).message}`)
+      settle(event.type === 'updated' && event.action.type === 'error' ? `the page's change failed: ${(event.action.error as Error).message}` : undefined)
     }))
+    if (!page.followsSocket) return
     const socket = getSocket()
     const closed = (reason: string) => cannotCome(`the page's socket closed (${reason}), so no change reaches it`)
     if (!socket.connected) return cannotCome('the page\'s socket is not connected, so no change reaches it')

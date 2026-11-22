@@ -52,6 +52,12 @@ describe('a person\'s machines at root', () => {
     expect(line.textContent).toMatch(/unless it is$/)
   })
 
+  it('says why the person\'s machines could not be read rather than show none', async () => {
+    vi.mocked(api.get).mockRejectedValue(new Error('root could not read its machines'))
+    renderPanel()
+    expect((await screen.findByRole('alert')).textContent).toBe('Your machines could not be read: root could not read its machines')
+  })
+
   it('says nothing of either when nothing went wrong', async () => {
     showing([], [machine()])
     renderPanel()

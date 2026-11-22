@@ -2,14 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AccountMachines from './AccountMachines'
 import { startBackend } from '../../../test/backend/site'
 import { rootSidesOf, type RootSides } from '../../../test/backend/machines'
 import { pageSocketsOf, type PageSockets } from '../../../test/backend/sockets'
-import { shown, type ShownPage } from '../../../test/backend/hooks'
+import { openPage } from '../../../test/backend/hooks'
 import { koalaInstallActivities } from '../../../../../backend/src/activities/KoalaInstallActivities'
 import { runSteps } from '@koala/provision'
 import { joinArgsOf } from '../../../../../local-agent/src/join/args'
@@ -30,14 +29,8 @@ await sockets!.open()
 const accounts = root!.sides.accounts!
 
 const openPanel = () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const panel = render(
-    <QueryClientProvider client={client}>
-      <AccountMachines name="kangaroo" nameOk hasKoala={false} onPlacing={() => undefined} />
-    </QueryClientProvider>,
-  )
-  const page: ShownPage = { client }
-  return { panel, on: <T,>(find: () => T | null) => shown(find, page) }
+  const { page, on } = openPage(<AccountMachines name="kangaroo" nameOk hasKoala={false} onPlacing={() => undefined} />, { followsSocket: true })
+  return { panel: page, on }
 }
 
 const home = await mkdtemp(path.join(tmpdir(), 'koala-account-machines-'))

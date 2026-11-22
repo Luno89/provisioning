@@ -104,6 +104,7 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
 
   return (
     <div className="space-y-3" data-testid="account-machines">
+      {mine.isError && <p role="alert" className="text-xs text-rose-300">Your machines could not be read: {errorMessage(mine.error)}</p>}
       {joins.length > 0 && (
         <ul className="space-y-2">
           {joins.map((join) => <JoinRow key={join.id} join={join} onDismiss={(id) => dismissJoin.mutate(id)} dismissing={dismissJoin.isPending} />)}

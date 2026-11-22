@@ -8,7 +8,7 @@ import { DependenciesSection } from './DependenciesSection'
 import { MailSection } from './MailSection'
 import { getMailReputation, mailReputationKeys } from '../api/mail-reputation'
 import { startBackend } from '../../../test/backend/site'
-import { shown } from '../../../test/backend/hooks'
+import { openPage, shown } from '../../../test/backend/hooks'
 import { outsideThisTier } from '../../../test/backend/outside'
 import { instancesRouter } from '../../../../../backend/src/instances/routes/instances'
 import { IdentityService } from '../../../../../backend/src/instances/services/IdentityService'
@@ -55,14 +55,14 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
 })
 await backend.signIn()
 
-const opened = (section: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>{section}</QueryClientProvider>)
+const opened = (section: ReactNode) => openPage(section, { followsSocket: false })
 
 describe('root\'s admin sections, as an operator reads them against root\'s own routes', () => {
   it('says the check of Koala\'s dependencies could not finish while OSV is down', async () => {
-    const page = opened(<DependenciesSection />)
-    await shown(() => screen.queryByText('Not checked yet'))
+    const { page, on } = opened(<DependenciesSection />)
+    await on(() => screen.queryByText('Not checked yet'))
     await userEvent.click(screen.getByRole('button', { name: /Check now/ }))
-    expect((await shown(() => screen.queryByRole('alert'))).textContent).toMatch(/^the check could not finish: .*\/osv\/querybatch answered 503$/)
+    expect((await on(() => screen.queryByRole('alert'))).textContent).toMatch(/^the check could not finish: .*\/osv\/querybatch answered 503$/)
     page.unmount()
   })
 
@@ -73,14 +73,14 @@ describe('root\'s admin sections, as an operator reads them against root\'s own 
     expect(screen.getByText('Not checked yet')).toBeTruthy()
     await backend.signOut()
     await userEvent.click(screen.getByRole('button', { name: /Check now/ }))
-    expect((await shown(() => screen.queryByRole('alert'))).textContent).toBe('Unauthorized: Session missing')
+    expect((await shown(() => screen.queryByRole('alert'), { client, followsSocket: false })).textContent).toBe('Unauthorized: Session missing')
     page.unmount()
   })
 
   it('says why the dependencies and the mail cannot be read once signed out', async () => {
-    const page = opened(<><DependenciesSection /><MailSection /></>)
-    const dependencies = await shown(() => within(screen.getByRole('region', { name: 'Koala\'s dependencies' })).queryByRole('alert'))
-    const mail = await shown(() => within(screen.getByRole('region', { name: 'Root\'s mail' })).queryByRole('alert'))
+    const { page, on } = opened(<><DependenciesSection /><MailSection /></>)
+    const dependencies = await on(() => within(screen.getByRole('region', { name: 'Koala\'s dependencies' })).queryByRole('alert'))
+    const mail = await on(() => within(screen.getByRole('region', { name: 'Root\'s mail' })).queryByRole('alert'))
     expect(dependencies.textContent).toBe('Unauthorized: Session missing')
     expect(mail.textContent).toBe('Unauthorized: Session missing')
     page.unmount()
