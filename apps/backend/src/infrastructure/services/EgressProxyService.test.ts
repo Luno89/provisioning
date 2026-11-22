@@ -58,26 +58,26 @@ describe('EgressProxyService', () => {
     const { egress, kube } = service(start);
     kube.own.mockImplementation(() => { throw new Error('this process runs in no cluster of its own'); });
     await expect(egress.sync([grant()])).rejects.toThrow('this process runs in no cluster of its own');
-    expect(kube.apply).not.toHaveBeenCalled();
     expect(kube.kubectl).not.toHaveBeenCalled();
   });
 
-  it('puts the grants in a config map and tells the running proxy to reload them', async () => {
+  it('replaces the grants in the proxy\'s config map, never making one, and tells the running proxy to reload them', async () => {
     const { start } = openssl({ stdout: '$6$hashed\n' });
     const { egress, kube } = service(start);
     const koala = { clusterId: 'machine-desk', kind: 'koala' } as const;
     kube.own.mockReturnValue(koala);
     await egress.sync([grant()]);
-    expect(kube.apply).toHaveBeenCalledTimes(1);
-    const [target, manifest] = kube.apply.mock.calls[0]!;
+    expect(kube.kubectl).toHaveBeenCalledTimes(2);
+    const [target, replace, manifest] = kube.kubectl.mock.calls[0]!;
     expect(target).toBe(koala);
-    const applied = JSON.parse(String(manifest)) as { kind: string; metadata: { name: string; namespace: string }; data: { passwd: string; 'acls.conf': string } };
-    expect(applied).toMatchObject({ kind: 'ConfigMap', metadata: { name: 'egress-grants', namespace: PROXY_NAMESPACE } });
-    expect(applied.data.passwd).toContain('$6$hashed');
-    const [on, args] = kube.kubectl.mock.calls[0]!;
+    expect(replace).toEqual(['replace', '-f', '-']);
+    const replaced = JSON.parse(String(manifest)) as { kind: string; metadata: { name: string; namespace: string }; data: { passwd: string; 'acls.conf': string } };
+    expect(replaced).toMatchObject({ kind: 'ConfigMap', metadata: { name: 'egress-grants', namespace: PROXY_NAMESPACE } });
+    expect(replaced.data.passwd).toContain('$6$hashed');
+    const [on, args] = kube.kubectl.mock.calls[1]!;
     expect(on).toBe(koala);
     expect(args.slice(0, 6)).toEqual(['exec', '-n', PROXY_NAMESPACE, 'deploy/egress-proxy', '-c', 'squid']);
-    expect(String(args.at(-1))).toContain(Buffer.from(applied.data['acls.conf']).toString('base64'));
+    expect(String(args.at(-1))).toContain(Buffer.from(replaced.data['acls.conf']).toString('base64'));
     expect(String(args.at(-1))).toContain('squid -k reconfigure');
   });
 });

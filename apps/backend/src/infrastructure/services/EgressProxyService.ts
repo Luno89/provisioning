@@ -5,7 +5,7 @@ import type { ClusterAccess } from './ClusterAccess.js';
 
 export const PROXY_NAMESPACE = 'koala-egress';
 
-export type ProxyKube = Pick<ClusterAccess, 'own' | 'apply' | 'kubectl'>;
+export type ProxyKube = Pick<ClusterAccess, 'own' | 'kubectl'>;
 
 export async function sha512Crypt(password: string, salt: string, processes: Processes = nodeProcesses): Promise<string> {
   const hashed = await processes.run({ command: 'openssl', args: ['passwd', '-6', '-salt', salt, '-stdin'], input: password });
@@ -28,7 +28,7 @@ export class EgressProxyService {
   async sync(grants: readonly EgressGrantRecord[]): Promise<void> {
     const { passwd, acls } = await this.files(grants);
     const koala = this.deps.kube.own();
-    await this.deps.kube.apply(koala, JSON.stringify({
+    await this.deps.kube.kubectl(koala, ['replace', '-f', '-'], JSON.stringify({
       apiVersion: 'v1',
       kind: 'ConfigMap',
       metadata: { name: 'egress-grants', namespace: PROXY_NAMESPACE },

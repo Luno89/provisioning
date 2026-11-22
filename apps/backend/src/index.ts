@@ -442,7 +442,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, getOwnedProject,
   });
   const { egress } = wireActions({
-    tenant, db, role, underTest: settings.underTest, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
+    tenant, db, role, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
   });
   wireRunning({
@@ -461,6 +461,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
       connected: () => temporalBridge.connected(),
       root: instanceReporter,
+      up: (piece) => { if (piece === 'egress') void egress.keepSynced(); },
       koala: clusterId
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
         : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },

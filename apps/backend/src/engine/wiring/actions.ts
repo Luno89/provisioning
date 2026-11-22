@@ -1,4 +1,4 @@
-import { claimSettingsFrom, principalOf, servesTenants, type Database, type Principal, type RoleConfig } from '../../platform/index.js';
+import { claimSettingsFrom, principalOf, type Database, type Principal, type RoleConfig } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
 import {
   EgressService, EgressProxyService, AccessService, type TemporalBridge, type ClusterAccess,
@@ -19,7 +19,6 @@ export interface ActionsWiringDeps {
   tenant: Mounts;
   db: Database;
   role: RoleConfig;
-  underTest: boolean;
   egressKey: string;
   temporalBridge: TemporalBridge;
   monitoring: Pick<MonitoringService, 'addRule' | 'removeRule'>;
@@ -67,6 +66,5 @@ export function wireActions(deps: ActionsWiringDeps): { egress: EgressService } 
   });
   tenant.use('/api/egress', egressRouter({ egress: egressService }));
   tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
-  if (!deps.underTest && servesTenants(role)) void egressService.keepSynced();
   return { egress: egressService };
 }
