@@ -6,7 +6,7 @@ import type { DependencyId } from '../../platform/lib/dependencies.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
-import { claimsFor, clientMetadata, publicJwkOf, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
+import { claimsFor, clientMetadata, publicJwkOf, RUN_TOKEN_SECONDS, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
 import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, MACHINE_KEY_DAYS, MACHINE_REGISTRATION_REFUSED, MACHINE_SCOPE, machineClientOf, newClientKey, type MachineClient } from '@koala/engine-core/root-client';
@@ -460,6 +460,18 @@ export function runTokensThroughRoot<S extends Served>(world: SignInWorld<S>): v
     const renewed = await world.signIn.renewRunToken(run.refreshToken);
     expect(renewed.refreshToken).not.toBe(run.refreshToken);
     expect(await runTokenOf(renewed.accessToken)).toMatchObject({ sub: 'u1', koala_run: 'run-1', koala_claims: atStart });
+  });
+
+  it('gives a run a token that lives five minutes, and each renewal of it too', async () => {
+    await world.signIn.register();
+    await world.signInAs('u1');
+    const run = await world.signIn.runToken('run-1');
+    const lifetime = async (accessToken: string) => {
+      const { exp, iat } = await runTokenOf(accessToken);
+      return (exp ?? 0) - (iat ?? 0);
+    };
+    expect(await lifetime(run.accessToken)).toBe(RUN_TOKEN_SECONDS);
+    expect(await lifetime((await world.signIn.renewRunToken(run.refreshToken)).accessToken)).toBe(RUN_TOKEN_SECONDS);
   });
 
   it('names the check space a run token was asked for, through every renewal, and names none when none was asked for', async () => {

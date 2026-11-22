@@ -6,6 +6,7 @@ import { installView } from '../../instances/index.js';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
 import { checkWorkToken, type WorkTokenTrust } from '../lib/work-tokens.js';
 import { gatewayServerName } from '../lib/gateway-name.js';
+import { deviceByMachineToken, type MachineTokens } from './machine-admission.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { accountMachinesRouter, type MachineCaller } from '../routes/account-machines.js';
@@ -29,6 +30,8 @@ export interface MachinesWiringDeps {
   installs?: KoalaInstalls | undefined;
   instanceCaller?: ((instanceId: string, credential: string) => Promise<MachineCaller | undefined>) | undefined;
   workTokens?: WorkTokenTrust | undefined;
+  machineTokens?: MachineTokens | undefined;
+  ownerId?: string | undefined;
   db: Database;
   dataKey: SecretKey;
   publicUrl: string;
@@ -82,7 +85,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
   const { bundle } = deps;
   const git = new MachineGitService({
-    deviceFor: deviceByWorkToken(db, deps.workTokens),
+    deviceFor: deviceByMachineToken(db, deps.machineTokens, deps.ownerId),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {

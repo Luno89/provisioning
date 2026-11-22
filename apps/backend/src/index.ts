@@ -382,6 +382,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { odooReleases, releaseSettings, customizations } = releases;
   wireMachines({
     app, tenant, servesTenants: tenants, accounts: machineAccounts, installs: koalaInstalls, workTokens,
+    machineTokens: signsInThroughRoot(role.role) ? rootSignIn : undefined, ownerId: role.instance?.ownerId,
     instanceCaller,
     db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, projectRepos: projectRepoService,
     ...(tenants ? {

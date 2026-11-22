@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { Server as SocketServer } from 'socket.io';
 import {
-  type PayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
+  type PayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, servesTenants,
   type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SignedInSockets, type SessionSockets, nodeStreams, type Followed, type Streams,
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
@@ -15,17 +15,9 @@ import { MachineRunWatch, type RunLiveness } from '../services/MachineRunWatch.j
 import { podLogTarget, PodLogTails, type ClusterService, type AppService } from '../../infrastructure/index.js';
 import type { MachineClusters } from '../services/MachineClusters.js';
 import { reportedCluster } from '../lib/machine-clusters.js';
+import { machineAdmission, type MachineAdmission, type MachineTokens } from './machine-admission.js';
 
 const LOG_TAIL_LINES = 200;
-
-interface MachineSocketData {
-  device: LocalAgentDeviceMetadata;
-  until: number;
-}
-
-export interface MachineTokens {
-  checkMachineToken(token: string): Promise<{ deviceId: string; until: number } | string>;
-}
 
 const signedInUser = (data: unknown): UserMetadata | undefined => {
   if (!data || typeof data !== 'object' || !('user' in data)) return undefined;
@@ -70,22 +62,17 @@ export function wireSockets(deps: SocketsWiringDeps): SignedInSockets {
   const signedIn = signSocketsIn(io, { auth: deps.auth, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
-  const admitted = new WeakMap<object, MachineSocketData>();
+  const admitted = new WeakMap<object, MachineAdmission>();
   const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: deps.payloadBlobs, ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });
   const now = deps.now ?? (() => new Date());
   const ownerId = role.instance?.ownerId;
-  const admit = async (tokens: MachineTokens, token: string): Promise<MachineSocketData | string> => {
-    const checked = await tokens.checkMachineToken(token);
-    if (typeof checked === 'string') return `Unauthorized: ${checked}`;
-    const device = (await db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === checked.deviceId && candidate.ownerId === ownerId);
-    return device ? { device, until: checked.until } : 'this machine is not one of this Koala\'s: run the command from My Machines again';
-  };
+  const admit = deps.machineTokens ? machineAdmission(db, deps.machineTokens, ownerId) : undefined;
   agentNamespace.use((socket, next) => {
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
     const token = tokenOf(auth);
     if (!token) return next(new Error('Unauthorized: send a token root gave this machine for this Koala'));
-    if (!deps.machineTokens) return next(new Error('this Koala takes no machines'));
-    admit(deps.machineTokens, token).then((admission) => {
+    if (!admit) return next(new Error('this Koala takes no machines'));
+    admit(token).then((admission) => {
       if (typeof admission === 'string') return next(new Error(admission));
       admitted.set(socket, admission);
       return next();
