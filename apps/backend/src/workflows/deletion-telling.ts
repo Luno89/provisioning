@@ -29,8 +29,9 @@ export async function awaitStopped(work: OpenWork, tell: Tell, cluster: FrozenWo
   const { frozen, killed } = await cluster.AwaitProjectWorkActivity({ workflowId: work.workflowId });
   await tell((current) => workClosed(current, work.workflowId, frozen, killed));
   for (const worker of frozen) {
-    if ((await cluster.RestartWorkerActivity({ worker })) === 'restarted') restarted.push(worker);
-    await tell((current) => workerRestarted(current, worker));
+    const answer = await cluster.RestartWorkerActivity({ worker });
+    if (answer === 'restarted') restarted.push(worker);
+    await tell((current) => workerRestarted(current, worker, answer));
   }
   return restarted;
 }

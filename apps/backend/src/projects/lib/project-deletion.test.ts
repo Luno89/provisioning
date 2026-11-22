@@ -29,7 +29,12 @@ describe('what a project being deleted shows as it goes', () => {
   it('shows a worker that did not answer as restarting, and restarted only once its restart is reported', () => {
     const closed = workClosed(workStopping(deletionBegun(), [run]), 'run-1', ['worker-engine-7d9f']);
     expect(closed.work[0]).toMatchObject({ state: 'restarting', worker: 'worker-engine-7d9f' });
-    expect(workerRestarted(closed, 'worker-engine-7d9f').work[0]).toMatchObject({ state: 'restarted', worker: 'worker-engine-7d9f' });
+    expect(workerRestarted(closed, 'worker-engine-7d9f', 'restarted').work[0]).toMatchObject({ state: 'restarted', worker: 'worker-engine-7d9f' });
+  });
+
+  it('shows a worker Kubernetes has no pod for as gone, never as restarted', () => {
+    const closed = workClosed(workStopping(deletionBegun(), [run]), 'run-1', ['worker-engine-7d9f']);
+    expect(workerRestarted(closed, 'worker-engine-7d9f', 'not-here').work[0]).toMatchObject({ state: 'gone', worker: 'worker-engine-7d9f' });
   });
 
   it('names the programs that were killed when a running thing stopped', () => {

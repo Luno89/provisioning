@@ -5,7 +5,7 @@ export interface OpenWork {
   memo?: Readonly<Record<string, unknown>> | undefined;
 }
 
-export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted';
+export type WorkStopState = 'stopping' | 'stopped' | 'restarting' | 'restarted' | 'gone';
 
 export interface StoppingWork extends OpenWork {
   state: WorkStopState;
@@ -83,8 +83,9 @@ export function workClosed(progress: DeletionProgress, workflowId: string, froze
   });
 }
 
-export function workerRestarted(progress: DeletionProgress, worker: string): DeletionProgress {
-  return next(progress, { work: progress.work.map((item) => (item.worker === worker && item.state === 'restarting' ? { ...item, state: 'restarted' } : item)) });
+export function workerRestarted(progress: DeletionProgress, worker: string, answer: 'restarted' | 'not-here'): DeletionProgress {
+  const state: WorkStopState = answer === 'restarted' ? 'restarted' : 'gone';
+  return next(progress, { work: progress.work.map((item) => (item.worker === worker && item.state === 'restarting' ? { ...item, state } : item)) });
 }
 
 export function partDeleting(progress: DeletionProgress, part: DeletionPart, left?: number): DeletionProgress {
