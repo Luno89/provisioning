@@ -232,11 +232,11 @@ describe("Infisical", () => {
     });
   });
 
-  it("runs one Infisical within 512Mi, set where the chart reads them, so a person's machine holds one copy", () => {
+  it("runs one Infisical with the memory its migrations were measured to need, set where the chart reads them, so a person's machine holds one copy", () => {
     expect(setOf(releases(s()).find((r) => r.chart === "infisical-standalone"))).toMatchObject({
       "infisical.replicaCount": "1",
-      "infisical.resources.limits.memory": "512Mi",
-      "infisical.resources.requests.memory": "256Mi",
+      "infisical.resources.limits.memory": "1536Mi",
+      "infisical.resources.requests.memory": "1Gi",
       "infisical.resources.requests.cpu": "100m",
     });
   });

@@ -1729,6 +1729,32 @@
       ]
     },
     {
+      "kind": "image",
+      "name": "infisical/infisical",
+      "version": "v0.167.0",
+      "where": "the instance's own Infisical, set on the standalone chart so the image never floats with the chart",
+      "source": "docker.io/infisical/infisical:v0.167.0",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/platform-services.ts",
+          "pattern": "INFISICAL_IMAGE_TAG = \"(v[0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "redis",
+      "version": "7.4.2",
+      "where": "the Redis the Infisical memory container test runs the pinned image against",
+      "source": "docker.io/library/redis:7.4.2",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/infisical-memory.integration.test.ts",
+          "pattern": "REDIS_IMAGE = \"redis:([0-9.]+)\""
+        }
+      ]
+    },
+    {
       "kind": "chart",
       "name": "secrets-operator",
       "version": "v0.11.15",
