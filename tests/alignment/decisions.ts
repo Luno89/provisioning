@@ -435,6 +435,15 @@ export const DECISIONS: Decision[] = [
     reading: 'Every program that can speak OAuth for itself gets its own client and short-lived tokens instead of a fixed password. A machine\'s Prometheus is a client at root (client credentials, its secret in a Secret root can replace and revoke) and asks for a five-minute token for its owner\'s Koala alone, checked where git and the /agent socket are checked; the fixed per-cluster metrics token goes.',
   },
   {
+    id: 'setup-again',
+    subject: 'A Koala whose setup failed is set up again from the step that failed, without removing the machine',
+    terms: ['set up again', 'retry setup', 'failed setup', 'provision again'],
+    words: [
+      { at: '2026-11-22T17:29', text: 'Yeah that sounds ok, to retry at the last failed step or something' },
+    ],
+    reading: 'Where root shows that a Koala stopped setting itself up at a step, the person has Set up again: the same install runs its setup procedure again, starting at the step that failed, the finished steps left as they are. npm run dev, finding this computer\'s current setup failed, does the same on its own, since running dev is asking. One procedure: the same run a new chart revision starts.',
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
