@@ -98,3 +98,20 @@ describe('the metrics ports on root', () => {
     for (const exporter of Object.values(exporters)) expect(exporter.image).toMatch(/@sha256:[0-9a-f]{64}$/);
   });
 });
+
+describe('measuring root, which reads root\'s settings', () => {
+  const reads = [...read('scripts/root-node/root-telemetry.sh').matchAll(/grep -E '\^([A-Z_]+)=' "\$BACKEND_ENV"/g)].map((found) => found[1]!);
+  const completed = [...read('scripts/root-node/root-settings.sh').matchAll(/ensure_root_setting "\$file" ([A-Z_]+) /g)].map((found) => found[1]!);
+
+  it.each(['scripts/root-node/bootstrap.sh', 'scripts/root-node/update.sh'])('runs in %s only once every setting it reads is written', (script) => {
+    const text = read(script);
+    const before = text.slice(0, text.indexOf('root-node/root-telemetry.sh'));
+    const written = new Set([
+      ...[...before.matchAll(/set_env ([A-Z_]+) /g)].map((found) => found[1]!),
+      ...[...before.matchAll(/echo "([A-Z_]+)=/g)].map((found) => found[1]!),
+      ...(/^\s*ensure_root_settings /m.test(before) ? completed : []),
+    ]);
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.filter((name) => !written.has(name))).toEqual([]);
+  });
+});

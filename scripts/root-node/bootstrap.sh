@@ -372,13 +372,14 @@ K3S_KUBECONFIG_MODE=600 bash scripts/cluster.sh install provisioning-lunorica ||
 bash scripts/cluster.sh create provisioning-lunorica || die "the management cluster did not come up"
 KOALA_ROOT_NODE=1 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 
+step "Completing root's settings"
+. "$REPO_DIR/scripts/root-node/root-settings.sh"
+ensure_root_settings "$ENV_FILE" "$REPO_DIR" "$COMPOSE_ENV" || die "root's settings could not be completed; see above"
+
 step "Measuring root: the cluster's monitoring, the exporters and the host collector"
 REPO_DIR="$REPO_DIR" COMPOSE_ENV="$COMPOSE_ENV" BACKEND_ENV="$ENV_FILE" bash scripts/root-node/root-telemetry.sh \
   || die "root cannot be measured yet; see above. Run bootstrap.sh again once it is fixed."
 
-step "Completing root's settings"
-. "$REPO_DIR/scripts/root-node/root-settings.sh"
-ensure_root_settings "$ENV_FILE" "$REPO_DIR" "$COMPOSE_ENV" || die "root's settings could not be completed; see above"
 
 # ── 8. systemd ─────────────────────────────────────────────────────────────────────────────────
 # Without this the platform dies on reboot and every tenant loses the ability to provision.
