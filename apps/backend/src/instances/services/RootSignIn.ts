@@ -7,7 +7,7 @@ import {
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import type { RunToken, RunTokenRoot } from '../../engine/index.js';
 import {
-  claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, runResourceOf, safeNextPath, TOKEN_EXCHANGE,
+  claimsShaped, KOALA_CLAIMS, LOGOUT_EVENT, LOGOUT_TYP, OWNER_TOKEN_TYPE, ROOT_WEB_ID_TOKEN_CLAIMS, runResourceOf, safeNextPath, TOKEN_EXCHANGE,
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
 import { RootClient } from './RootClient.js';
@@ -23,6 +23,7 @@ export interface RootSignInSettings {
   clientKeys: IdentityKeyPair;
   registrationCode: string;
   dataKey: SecretKey;
+  reach?: typeof fetch | undefined;
 }
 
 export interface RootSignInDeps {
@@ -75,8 +76,8 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
   ) {
     this.store = deps.store;
     this.revocations = deps.revocations;
-    const { kind, clientId, rootUrl, publicUrl, owner, clientKeys, registrationCode } = settings;
-    this.client = new RootClient({ kind, clientId, rootUrl, publicUrl, owner, keys: clientKeys, registrationCode }, now);
+    const { kind, clientId, rootUrl, publicUrl, owner, clientKeys, registrationCode, reach } = settings;
+    this.client = new RootClient({ kind, clientId, rootUrl, publicUrl, owner, keys: clientKeys, registrationCode, reach }, now);
   }
 
   get issuer(): string {
@@ -114,20 +115,22 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
       code_challenge_method: 'S256',
       state,
       nonce,
-      prompt: 'login',
+      ...(this.settings.kind === 'root-web' ? { claims: ROOT_WEB_ID_TOKEN_CLAIMS } : { prompt: 'login' }),
     });
     const going = safeNextPath(next);
     return { url: url.href, started: { verifier, state, nonce, ...(going ? { next: going } : {}) } };
   }
 
-  private personOf(tokens: GrantedTokens, sessionAt: number, kept?: BrowserPerson['tokens']): BrowserPerson | string {
+  private personOf(tokens: GrantedTokens, sessionAt: number, kept?: BrowserPerson): BrowserPerson | string {
     const payload = tokens.claims();
     if (!payload) return 'root sent no identity';
     const claims = payload[KOALA_CLAIMS];
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string' || !claimsShaped(claims)) return 'root sent an identity this server cannot read';
     if (this.settings.kind === 'instance' && payload.sub !== this.settings.owner) return 'this instance belongs to someone else';
-    const refresh = tokens.refresh_token ? encryptValue(tokens.refresh_token, this.settings.dataKey) : kept?.refresh;
-    const id = tokens.id_token ? encryptValue(tokens.id_token, this.settings.dataKey) : kept?.id;
+    const rootSid = typeof payload.sid === 'string' ? payload.sid : kept?.rootSid;
+    if (this.settings.kind === 'root-web' && !rootSid) return 'root named no session for this sign-in';
+    const refresh = tokens.refresh_token ? encryptValue(tokens.refresh_token, this.settings.dataKey) : kept?.tokens.refresh;
+    const id = tokens.id_token ? encryptValue(tokens.id_token, this.settings.dataKey) : kept?.tokens.id;
     if (!refresh || !id) return 'root gave this sign-in no way to stay signed in';
     return {
       sub: payload.sub,
@@ -135,7 +138,7 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
       claims,
       sessionAt,
       accessExp: this.now() + (tokens.expires_in ?? 0) * 1000,
-      ...(typeof payload.sid === 'string' ? { rootSid: payload.sid } : {}),
+      ...(rootSid ? { rootSid } : {}),
       tokens: { access: encryptValue(tokens.access_token, this.settings.dataKey), refresh, id },
     };
   }
@@ -152,13 +155,15 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
     }
     const person = this.personOf(tokens, this.now());
     if (typeof person === 'string') return { ok: false, status: person.includes('someone else') ? 403 : 401, error: person };
-    const existing = await this.store.accounts.getUserById(person.sub);
-    await this.store.accounts.saveUser({
-      ...(existing ?? { twoFactorEnabled: false, createdAt: new Date(person.sessionAt).toISOString() }),
-      id: person.sub,
-      email: person.email,
-      emailVerified: true,
-    } as never);
+    if (this.settings.kind === 'instance') {
+      const existing = await this.store.accounts.getUserById(person.sub);
+      await this.store.accounts.saveUser({
+        ...(existing ?? { twoFactorEnabled: false, createdAt: new Date(person.sessionAt).toISOString() }),
+        id: person.sub,
+        email: person.email,
+        emailVerified: true,
+      } as never);
+    }
     const next = safeNextPath(started.next);
     return { ok: true, person, ...(next ? { next } : {}) };
   }
@@ -181,7 +186,7 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
       this.deps.dependency.failed('root', err);
       return 'kept';
     }
-    const renewed = this.personOf(tokens, person.sessionAt, person.tokens);
+    const renewed = this.personOf(tokens, person.sessionAt, person);
     return typeof renewed === 'string' || renewed.sub !== person.sub ? 'ended' : renewed;
   }
 

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { hostContainers } from './dead-states.js';
 import { randomBytes } from 'node:crypto';
 import { leaseMongo } from '../../apps/backend/src/platform/lib/mongo-lease.js';
+import { signInWithPassword } from '../../apps/backend/src/accounts/services/sign-in/password-at-root.js';
 
 export interface SuiteRoot {
   suite: string;
@@ -59,12 +60,11 @@ export async function firstAdmin(rootUrl: string, root: SuiteRoot): Promise<Firs
   const post = (path: string, body: unknown) => fetch(`${rootUrl}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const registered = await post('/auth/register', { email, password, inviteCode: root.setupCode });
   if (registered.status !== 200) throw new Error(`the first admin could not sign up on ${rootUrl}: ${registered.status} ${await registered.text()}`);
-  const signedIn = await post('/auth/login', { email, password });
-  const body = await signedIn.json() as { user?: { id: string; email: string }; error?: string };
-  if (signedIn.status !== 200 || !body.user) throw new Error(`the first admin could not sign in on ${rootUrl}: ${signedIn.status} ${body.error ?? ''}`);
-  const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=/.test(pair));
-  if (!cookie) throw new Error(`signing in on ${rootUrl} set no session cookie`);
-  return { id: body.user.id, email: body.user.email, password, cookie };
+  const { cookie } = await signInWithPassword(rootUrl, { email, password });
+  const me = await fetch(`${rootUrl}/api/auth/me`, { headers: { cookie } });
+  const body = await me.json() as { id?: string; email?: string; error?: string };
+  if (me.status !== 200 || !body.id || !body.email) throw new Error(`the first admin signed in on ${rootUrl} but root does not read it: ${me.status} ${body.error ?? ''}`);
+  return { id: body.id, email: body.email, password, cookie };
 }
 
 export async function forgetMeshUser(ownerId: string): Promise<void> {

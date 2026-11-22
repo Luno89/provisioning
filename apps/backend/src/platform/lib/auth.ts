@@ -45,7 +45,7 @@ function base64urlDecode(str: string): Record<string, unknown> | null {
 }
 
 type LastingPurpose = 'removal-progress';
-export type TokenPurpose = 'two-factor' | 'device' | 'oauth-state' | LastingPurpose;
+export type TokenPurpose = 'device' | 'oauth-state' | LastingPurpose;
 const LASTING: ReadonlySet<TokenPurpose> = new Set<LastingPurpose>(['removal-progress']);
 
 export function signJWT(purpose: Exclude<TokenPurpose, LastingPurpose>, payload: Record<string, unknown>, key: SecretKey, expiresInSeconds: number): string {

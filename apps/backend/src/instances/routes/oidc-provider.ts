@@ -6,6 +6,7 @@ import type { RootProvider } from '../services/RootProvider.js';
 export function oidcProviderRouter(deps: {
   provider: Pick<RootProvider, 'provider' | 'continueInteraction' | 'issuer' | 'proxied'>;
   signedIn: (req: Request) => Promise<{ id: string } | undefined>;
+  interactions: Router;
 }): Router {
   const router = Router();
 
@@ -19,6 +20,8 @@ export function oidcProviderRouter(deps: {
     const waiting = await deps.provider.continueInteraction(req, res, (await deps.signedIn(req))?.id);
     if (waiting) res.redirect(302, `/?resume=${encodeURIComponent(waiting.resume)}`);
   }));
+
+  router.use('/interaction/:uid', deps.interactions);
 
   router.use(deps.provider.provider.callback());
   return router;

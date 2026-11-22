@@ -29,7 +29,11 @@ export const RUN_TOKEN_SECONDS = 5 * 60;
 export const REGISTRATION_POLICY = 'koala-instance';
 export const runResourceOf = (clientId: string): string => `urn:koala:instance:${clientId}`;
 
-export type ClientKind = 'instance';
+export type ClientKind = 'instance' | 'root-web';
+
+export const ROOT_WEB_CLIENT = 'root-web';
+
+export const ROOT_WEB_ID_TOKEN_CLAIMS = JSON.stringify({ id_token: { sid: null } });
 
 export interface PublicJwk {
   kty: 'OKP';
@@ -92,6 +96,38 @@ export function clientMetadata(client: ClientRegistration): Record<string, unkno
   };
 }
 
+export const rootWebMetadata = (publicUrl: string, key: PublicJwk): Record<string, unknown> => {
+  const base = origin(publicUrl);
+  return {
+    client_id: ROOT_WEB_CLIENT,
+    redirect_uris: [`${base}${CALLBACK_PATH}`],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    scope: SIGN_IN_SCOPES.join(' '),
+    token_endpoint_auth_method: 'private_key_jwt',
+    token_endpoint_auth_signing_alg: SIGNING_ALG,
+    id_token_signed_response_alg: SIGNING_ALG,
+    jwks: { keys: [{ ...key, alg: SIGNING_ALG, use: 'sig' }] },
+    post_logout_redirect_uris: [`${base}/`],
+    koala_kind: 'root-web',
+  };
+};
+
+export interface KeptRootSession {
+  session: string;
+  grant: string;
+  grantId: string;
+}
+
+export function keptRootSession(sessions: ReadonlyArray<{ id: string; payload: Record<string, unknown> | undefined }>, rootSid: string | undefined): KeptRootSession | undefined {
+  if (!rootSid) return undefined;
+  for (const { id, payload } of sessions) {
+    const web = (payload?.authorizations as Record<string, { sid?: unknown; grantId?: unknown } | undefined> | undefined)?.[ROOT_WEB_CLIENT];
+    if (web?.sid === rootSid && typeof web.grantId === 'string') return { session: id, grant: `Grant:${web.grantId}`, grantId: web.grantId };
+  }
+  return undefined;
+}
+
 export const instanceClient = (instance: Pick<InstanceRecord, 'id' | 'ownerId' | 'url' | 'signIn'>): ClientRegistration | undefined =>
   instance.signIn && instance.url ? { clientId: instance.id, kind: 'instance', url: instance.url, key: instance.signIn.jwk, owner: instance.ownerId } : undefined;
 
@@ -139,7 +175,7 @@ export function clientAt(instance: Pick<InstanceRecord, 'id' | 'ownerId' | 'url'
 }
 
 export const claimsFor = (user: ClaimedUser, client: { kind: ClientKind; owner?: string | undefined }): Claim[] =>
-  claimsOf(user, { role: 'instance', instanceOwnerId: client.owner });
+  client.kind === 'root-web' ? claimsOf(user, { role: 'root' }) : claimsOf(user, { role: 'instance', instanceOwnerId: client.owner });
 
 export const CLAIM_ROLES: readonly Claim['role'][] = ['person', 'operator', 'instance-owner', 'space-of'];
 

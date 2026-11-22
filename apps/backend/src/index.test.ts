@@ -15,7 +15,8 @@ describe('the order routes are mounted in bootstrap', () => {
     expect(limit).toBeGreaterThan(at("app.set('trust proxy',"));
     expect(limit).toBeLessThan(at("tenant.post('/webhooks/gitea/:projectId'"));
     expect(limit).toBeLessThan(at('app.use(metrics.middleware());'));
-    expect(limit).toBeLessThan(at("app.use('/api', ...RATE_LIMITS.map("));
+    expect(limit).toBeLessThan(at("app.use('/api', ...limited);"));
+    expect(limit).toBeLessThan(at('app.use(OIDC_PATH, ...limited);'));
   });
 
   it('reads the Gitea webhook from the raw body before the JSON parser is mounted', () => {
@@ -29,7 +30,9 @@ describe('the order routes are mounted in bootstrap', () => {
 
   it('puts the rate limits before the guard, and the guard before every API router', () => {
     const guard = at("app.use('/api', auth.requireAuth);");
-    expect(at("app.use('/api', ...RATE_LIMITS.map(")).toBeLessThan(guard);
+    expect(at("app.use('/api', ...limited);")).toBeLessThan(guard);
+    expect(at('app.use(OIDC_PATH, ...limited);')).toBeLessThan(guard);
+    expect(at('app.use(INTERACTION_PATH, sameSiteOnly);')).toBeLessThan(guard);
     const routers = [...bootstrap.matchAll(/^\s*(?:tenant|app)\.use\('\/api\/[a-z-]+'/gm)].map((match) => match.index!);
     expect(routers.length).toBeGreaterThan(0);
     expect(Math.min(...routers)).toBeGreaterThan(guard);

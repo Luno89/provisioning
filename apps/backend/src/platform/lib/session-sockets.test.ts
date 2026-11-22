@@ -14,4 +14,9 @@ describe('which open connections a session ending closes', () => {
     expect(endsSocket(socket, { kind: 'person', personId: 'ann', before: 1_000 })).toBe(false);
     expect(endsSocket(socket, { kind: 'person', personId: 'bo', before: 2_000 })).toBe(false);
   });
+
+  it('leaves the connections of the session a person stayed signed in on', () => {
+    expect(endsSocket(socket, { kind: 'person', personId: 'ann', before: 2_000, except: 's1' })).toBe(false);
+    expect(endsSocket(socket, { kind: 'person', personId: 'ann', before: 2_000, except: 's2' })).toBe(true);
+  });
 });

@@ -2,17 +2,17 @@ import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { describe, it, expect, beforeAll, inject } from 'vitest';
 import { testMinioEnv } from './files/testing/real-minio.js';
 import { NO_SERVICE_HOST, TEST_RELEASE, unreachedPlatformServices } from './platform/testing/platform-services.js';
-import express from 'express';
 import axios from 'axios';
-import http from 'http';
+import type { Server as SocketServer } from 'socket.io';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AddressInfo } from 'net';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { signInWithPassword } from './accounts/services/sign-in/password-at-root.js';
+import { interactionAt } from './accounts/testing/interaction-driver.js';
 
 describe('Auth Endpoints & Route Protection Integration', () => {
-  let app: express.Application;
-  let server: http.Server;
+  let server: SocketServer['httpServer'] | undefined;
   let port: number;
   let session = '';
   const SETUP_CODE = 'routes-test-setup-code';
@@ -25,8 +25,10 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     process.env.ROLE = 'root';
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
     process.env.IS_E2E = 'true';
+    port = await portToHandOn();
+    const PUBLIC_URL = getUrl('');
     Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), testKeyEnv('routes'), { ROOT_IDENTITY_KEY: testIdentityKey() }, {
-      PORT: '0', PUBLIC_URL: 'http://127.0.0.1:3001', APP_URL: 'http://127.0.0.1:3001', TERRAFORM_STATE: 'local',
+      PORT: String(port), PUBLIC_URL, APP_URL: PUBLIC_URL, TERRAFORM_STATE: 'local',
       TEMPORAL_CONNECTION_ADDRESS: NO_SERVICE_HOST, TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: inject('temporalCa'),
       INSTANCE_IMAGE_TAG: TEST_RELEASE.imageTag, INSTANCE_REGISTRY: TEST_RELEASE.registry,
     });
@@ -36,20 +38,13 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     process.env.HOME = home;
     const { bootstrap } = await import('./index.js');
     const res = await bootstrap();
-    app = res.app;
 
     // Setup seeds the catalogues; the server no longer does it on start. This is the same call
     // scripts/setup.sh makes, against the database the server actually opened.
     const { seedAll } = await import('./scripts/seed-all.js');
     await seedAll(res.db);
 
-    server = http.createServer(app);
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', () => {
-        port = (server.address() as AddressInfo).port;
-        resolve();
-      });
-    });
+    server = res.io.httpServer;
   });
 
   afterAll(async () => {
@@ -76,13 +71,13 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   });
 
   it('answers a request it refuses with its reason as JSON, never Express\'s own error page', async () => {
-    const res = await axios.post(getUrl('/api/auth/login'), '{"email": "a@example.com", ', { headers: { 'content-type': 'application/json' }, validateStatus: () => true });
+    const res = await axios.post(getUrl('/api/auth/register'), '{"email": "a@example.com", ', { headers: { 'content-type': 'application/json' }, validateStatus: () => true });
     expect(res.status).toBe(400);
     expect(String(res.headers['content-type'])).toMatch(/^application\/json/);
     expect((res.data as { error?: string }).error).toMatch(/JSON/);
   });
 
-  it('should register and log in natively, returning correct JWT session cookie', async () => {
+  it('registers and signs in through root\'s own sign-in, the session cookie working over HTTP', async () => {
     const email = `test-user-${Date.now()}@example.com`;
     const password = 'a-koala-routes-password';
 
@@ -90,12 +85,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     expect(regRes.status).toBe(200);
     expect(regRes.data.success).toBe(true);
 
-    const loginRes = await axios.post<{ success: boolean }>(getUrl('/api/auth/login'), { email, password });
-    expect(loginRes.status).toBe(200);
-    expect(loginRes.data.success).toBe(true);
-    expect(loginRes.headers['set-cookie']).toBeDefined();
-    
-    const sessionCookie = loginRes.headers['set-cookie']!.map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=./.test(pair)) ?? '';
+    const { cookie: sessionCookie } = await signInWithPassword(getUrl(''), { email, password });
     session = sessionCookie;
     expect(sessionCookie).toMatch(/^(__Host-)?koala_sid=s%3A/);
 
@@ -117,8 +107,8 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     const foreign = await axios.get(getUrl('/api/auth/me'), { headers: { Cookie: session, Origin: 'http://elsewhere.localhost:5173' }, validateStatus: () => true });
     expect(foreign.headers['access-control-allow-origin']).toBeUndefined();
     expect(foreign.headers['access-control-allow-credentials']).toBeUndefined();
-    const ours = await axios.get(getUrl('/api/auth/me'), { headers: { Cookie: session, Origin: 'http://127.0.0.1:3001' }, validateStatus: () => true });
-    expect(ours.headers['access-control-allow-origin']).toBe('http://127.0.0.1:3001');
+    const ours = await axios.get(getUrl('/api/auth/me'), { headers: { Cookie: session, Origin: getUrl('') }, validateStatus: () => true });
+    expect(ours.headers['access-control-allow-origin']).toBe(getUrl(''));
   });
 
   it('no longer starts work the old way: no hand-made leaves, branch chats or legacy chat turns', async () => {
@@ -146,7 +136,8 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     const offered = await axios.get<{ providers: unknown }>(getUrl('/api/auth/sign-in'), { validateStatus: () => true });
     expect(offered.status).toBe(200);
     expect(offered.data.providers).toEqual(signInProvidersFrom(process.env).providers.map(({ id, label }) => ({ id, label })));
-    expect((await axios.get(getUrl('/api/auth/provider/nobody'), { maxRedirects: 0, validateStatus: () => true })).status).toBe(404);
+    const interaction = await interactionAt(getUrl(''));
+    expect((await interaction.ask(`${interaction.path}/provider/nobody`)).status).toBe(404);
     for (const old of ['/api/auth/google', '/api/auth/github/callback?code=mock-github-code']) {
       expect((await axios.get(getUrl(old), { maxRedirects: 0, validateStatus: () => true })).status, old).toBe(401);
     }

@@ -6,10 +6,14 @@ vi.mock('../../api/client', () => ({
     post: vi.fn(),
     delete: vi.fn(),
   },
+  API_BASE: 'https://koala.test/api',
 }));
 
 import { api } from '../../api/client';
-import { getMe, logout, login, resendSignUpCode, verifySignUp, verifyTwoFactor } from './api';
+import { confirmSecondFactor, getMe, logout, providerSignInUrl, register, resendSignUpCode, signIn, verifySignUp } from './api';
+
+const RESUME = '/oidc/interaction/u1';
+const SITE = { baseURL: 'https://koala.test' };
 
 const mocked = vi.mocked(api);
 
@@ -49,19 +53,18 @@ describe('logout', () => {
   });
 });
 
-describe('login', () => {
-  it('posts credentials to /auth/login and unwraps data on success', async () => {
-    const user = { id: 'u1', email: 'a@b.c' };
-    mocked.post.mockResolvedValue({ data: { user } });
+describe('signIn', () => {
+  it('posts credentials to the sign-in it resumes, on the site beside the API, and unwraps where to go on', async () => {
+    mocked.post.mockResolvedValue({ data: { next: 'https://koala.test/oidc/auth/u1' } });
 
-    await expect(login({ email: 'a@b.c', password: 'pw' })).resolves.toEqual({ user });
-    expect(mocked.post).toHaveBeenCalledWith('/auth/login', { email: 'a@b.c', password: 'pw' });
+    await expect(signIn(RESUME, { email: 'a@b.c', password: 'pw' })).resolves.toEqual({ next: 'https://koala.test/oidc/auth/u1' });
+    expect(mocked.post).toHaveBeenCalledWith('/oidc/interaction/u1/login', { email: 'a@b.c', password: 'pw' }, SITE);
   });
 
   it('posts an inviteCode when registering', async () => {
     mocked.post.mockResolvedValue({ data: {} });
 
-    await login({ email: 'a@b.c', password: 'pw', inviteCode: 'INVITE' }, { register: true });
+    await register({ email: 'a@b.c', password: 'pw', inviteCode: 'INVITE' });
     expect(mocked.post).toHaveBeenCalledWith('/auth/register', {
       email: 'a@b.c',
       password: 'pw',
@@ -71,23 +74,28 @@ describe('login', () => {
 });
 
 describe('confirming a sign-up', () => {
-  it('posts the pending sign-up and its code, and asks for a new code by the sign-up alone', async () => {
-    const user = { id: 'u1', email: 'a@b.c' };
-    mocked.post.mockResolvedValueOnce({ data: { user } });
-    await expect(verifySignUp({ id: 'p1', code: '123456' })).resolves.toEqual({ user });
-    expect(mocked.post).toHaveBeenCalledWith('/auth/register/verify', { id: 'p1', code: '123456' });
+  it('posts the pending sign-up and its code to the sign-in it resumes, and asks for a new code by the sign-up alone', async () => {
+    mocked.post.mockResolvedValueOnce({ data: { next: 'https://koala.test/oidc/auth/u1' } });
+    await expect(verifySignUp(RESUME, { id: 'p1', code: '123456' })).resolves.toEqual({ next: 'https://koala.test/oidc/auth/u1' });
+    expect(mocked.post).toHaveBeenCalledWith('/oidc/interaction/u1/sign-up/verify', { id: 'p1', code: '123456' }, SITE);
     mocked.post.mockResolvedValueOnce({ data: { verify: 'p1' } });
     await expect(resendSignUpCode('p1')).resolves.toEqual({ verify: 'p1' });
     expect(mocked.post).toHaveBeenCalledWith('/auth/register/resend', { id: 'p1' });
   });
 });
 
-describe('verifyTwoFactor', () => {
-  it('posts userId and code to /auth/2fa/verify and unwraps data', async () => {
-    const user = { id: 'u1', email: 'a@b.c' };
-    mocked.post.mockResolvedValue({ data: { user } });
+describe('confirmSecondFactor', () => {
+  it('posts the code to the sign-in it resumes and unwraps where to go on', async () => {
+    mocked.post.mockResolvedValue({ data: { next: 'https://koala.test/oidc/auth/u1' } });
 
-    await expect(verifyTwoFactor({ challenge: 'signed', code: '123456' })).resolves.toEqual({ user });
-    expect(mocked.post).toHaveBeenCalledWith('/auth/2fa/verify', { challenge: 'signed', code: '123456' });
+    await expect(confirmSecondFactor(RESUME, '123456')).resolves.toEqual({ next: 'https://koala.test/oidc/auth/u1' });
+    expect(mocked.post).toHaveBeenCalledWith('/oidc/interaction/u1/second-factor', { code: '123456' }, SITE);
+  });
+});
+
+describe('providerSignInUrl', () => {
+  it('starts a provider inside the sign-in it resumes, carrying an invite when there is one', () => {
+    expect(providerSignInUrl(RESUME, 'google')).toBe('https://koala.test/oidc/interaction/u1/provider/google');
+    expect(providerSignInUrl(RESUME, 'oidc', 'INV ITE')).toBe('https://koala.test/oidc/interaction/u1/provider/oidc?invite=INV%20ITE');
   });
 });

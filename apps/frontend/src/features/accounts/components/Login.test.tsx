@@ -1,32 +1,58 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { replacedLocation } from '../../../test/location';
 
 vi.mock('../../platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../platform/api')>()),
-  login: vi.fn(),
-  verifyTwoFactor: vi.fn(),
+  register: vi.fn(),
+  signIn: vi.fn(),
+  confirmSecondFactor: vi.fn(),
   verifySignUp: vi.fn(),
   resendSignUpCode: vi.fn(),
   signInPlace: vi.fn(),
 }));
 
 import Login from './Login.js';
-import { login, resendSignUpCode, signInPlace, verifySignUp, verifyTwoFactor } from '../../platform/api';
+import { confirmSecondFactor, register, resendSignUpCode, signIn, signInPlace, verifySignUp } from '../../platform/api';
 
-const show = (node: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>);
+const RESUME = '/oidc/interaction/u1';
+const START = '/api/auth/oidc/start';
+const NEXT = 'http://localhost/oidc/auth/u1';
 
-const mockedLogin = vi.mocked(login);
+const showLogin = (invite?: string) => render(
+  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <Login resume={RESUME} start={START} {...(invite ? { invite: { code: invite } } : {})} />
+  </QueryClientProvider>,
+);
+
+const typed = (email: string, password: string, button: RegExp) => {
+  fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: email } });
+  fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: password } });
+  fireEvent.click(screen.getByRole('button', { name: button }));
+};
+
+const signsInAs = (email: string, password = 'password123') => typed(email, password, /sign in/i);
+
+const mockedSignIn = vi.mocked(signIn);
+const mockedRegister = vi.mocked(register);
+
+const stood = replacedLocation();
+const { went, assign } = stood;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(signInPlace).mockResolvedValue({ url: null, providers: [] });
+  vi.mocked(signInPlace).mockResolvedValue({ url: START, providers: [] });
+  stood.install();
+});
+
+afterEach(() => {
+  stood.restore();
 });
 
 describe('Login Component', () => {
   it('renders login form by default', () => {
-    show(<Login onSuccess={() => {}} />);
+    showLogin();
 
     expect(screen.getByRole('heading', { name: /no wrinkles/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
@@ -35,7 +61,7 @@ describe('Login Component', () => {
   });
 
   it('switches between Sign In and Register views', () => {
-    show(<Login onSuccess={() => {}} />);
+    showLogin();
 
     const toggleBtn = screen.getByRole('button', { name: /don't have an account yet\? register/i });
     fireEvent.click(toggleBtn);
@@ -45,71 +71,70 @@ describe('Login Component', () => {
   });
 
   it('displays 2FA OTP code panel when requested', async () => {
-    mockedLogin.mockResolvedValue({ twoFactorRequired: true, challenge: 'signed-challenge' });
+    mockedSignIn.mockResolvedValue({ twoFactorRequired: true });
 
-    show(<Login onSuccess={() => {}} />);
-
-    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'test@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    showLogin();
+    signsInAs('test@example.com');
 
     await waitFor(() => {
       expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('e.g. 123456')).toBeInTheDocument();
     });
-    expect(mockedLogin).toHaveBeenCalledWith(
-      { email: 'test@example.com', password: 'password123' },
-      { register: false },
-    );
+    expect(mockedSignIn).toHaveBeenCalledWith(RESUME, { email: 'test@example.com', password: 'password123' });
   });
 
-  it('asks for the code when Google or GitHub hands back a sign-in that needs it, and sends its challenge', async () => {
-    window.history.replaceState({}, '', '/?twoFactor=from-provider');
-    const user = { id: 'u1', email: 'test@example.com' };
-    vi.mocked(verifyTwoFactor).mockResolvedValue({ user });
-    const onSuccess = vi.fn();
-    show(<Login onSuccess={onSuccess} />);
+  it('asks for the code when Google or GitHub hands back a sign-in that needs it, and sends it for this sign-in', async () => {
+    window.history.replaceState({}, '', `/?resume=${encodeURIComponent(RESUME)}&secondFactor=1`);
+    vi.mocked(confirmSecondFactor).mockResolvedValue({ next: NEXT });
+    showLogin();
 
     expect(await screen.findByText('Two-Factor Authentication')).toBeInTheDocument();
-    expect(window.location.search).toBe('');
+    expect(new URLSearchParams(window.location.search).has('secondFactor')).toBe(false);
+    expect(new URLSearchParams(window.location.search).get('resume')).toBe(RESUME);
     fireEvent.change(screen.getByPlaceholderText('e.g. 123456'), { target: { value: '424242' } });
     fireEvent.click(screen.getByRole('button', { name: /verify/i }));
-    await waitFor(() => expect(verifyTwoFactor).toHaveBeenCalledWith({ challenge: 'from-provider', code: '424242' }));
-    expect(onSuccess).toHaveBeenCalledWith(user);
+    await waitFor(() => expect(confirmSecondFactor).toHaveBeenCalledWith(RESUME, '424242'));
+    expect(assign).toHaveBeenCalledWith(NEXT);
   });
 
-  it('calls onSuccess with the user on a plain successful sign-in', async () => {
-    const user = { id: 'u1', email: 'test@example.com' };
-    mockedLogin.mockResolvedValue({ user });
+  it('goes on where root says on a plain successful sign-in', async () => {
+    mockedSignIn.mockResolvedValue({ next: NEXT });
 
-    const onSuccess = vi.fn();
-    show(<Login onSuccess={onSuccess} />);
-
-    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'test@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    showLogin();
+    signsInAs('test@example.com');
 
     await waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledWith(user);
+      expect(assign).toHaveBeenCalledWith(NEXT);
     });
   });
 
+  it('never goes on to an address that is not a web page', async () => {
+    mockedSignIn.mockResolvedValue({ next: 'javascript:alert(1)' });
+    showLogin();
+    signsInAs('test@example.com');
+    expect(await screen.findByText('The sign-in answered without saying where to go on; sign in again')).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('starts the sign-in again once root says this one has ended', async () => {
+    mockedSignIn.mockRejectedValue({ response: { status: 410, data: { error: 'This sign-in has ended; sign in again' } } });
+    showLogin();
+    signsInAs('test@example.com');
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(START));
+  });
+
   const signUpAs = async (email: string) => {
-    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: email } });
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    typed(email, 'password123', /create account/i);
     return screen.findByText('Confirm your email');
   };
 
   it('asks for the emailed code after signing up, and signs in once it is right', async () => {
-    const user = { id: 'u2', email: 'new@example.com' };
-    mockedLogin.mockResolvedValue({ verify: 'pending-1' });
-    vi.mocked(verifySignUp).mockResolvedValue({ user });
-    const onSuccess = vi.fn();
-    show(<Login onSuccess={onSuccess} invite={{ code: 'INVITE' }} />);
+    mockedRegister.mockResolvedValue({ verify: 'pending-1' });
+    vi.mocked(verifySignUp).mockResolvedValue({ next: NEXT });
+    showLogin('INVITE');
 
     await signUpAs('new@example.com');
-    expect(mockedLogin).toHaveBeenCalledWith({ email: 'new@example.com', password: 'password123', inviteCode: 'INVITE' }, { register: true });
+    expect(mockedRegister).toHaveBeenCalledWith({ email: 'new@example.com', password: 'password123', inviteCode: 'INVITE' });
     expect(screen.getByText(/sent a six-digit code to new@example.com/)).toBeInTheDocument();
     expect(screen.queryByText(/here is the code/)).toBeNull();
     const verify = screen.getByRole('button', { name: /^verify/i });
@@ -117,15 +142,15 @@ describe('Login Component', () => {
     fireEvent.change(screen.getByLabelText('Code from the email'), { target: { value: '12a3456' } });
     expect(screen.getByLabelText('Code from the email')).toHaveValue('123456');
     fireEvent.click(verify);
-    await waitFor(() => expect(verifySignUp).toHaveBeenCalledWith({ id: 'pending-1', code: '123456' }));
-    expect(onSuccess).toHaveBeenCalledWith(user);
+    await waitFor(() => expect(verifySignUp).toHaveBeenCalledWith(RESUME, { id: 'pending-1', code: '123456' }));
+    expect(assign).toHaveBeenCalledWith(NEXT);
   });
 
   it('shows the code where the server sends no email, sends a new one, and says why a code is refused', async () => {
-    mockedLogin.mockResolvedValue({ verify: 'pending-2', devCode: '111111' });
+    mockedRegister.mockResolvedValue({ verify: 'pending-2', devCode: '111111' });
     vi.mocked(resendSignUpCode).mockResolvedValue({ verify: 'pending-2', devCode: '222222' });
     vi.mocked(verifySignUp).mockRejectedValue({ response: { status: 401, data: { error: 'That code is not the one we sent; check the email and try again' } } });
-    show(<Login onSuccess={() => {}} invite={{ code: 'INVITE' }} />);
+    showLogin('INVITE');
 
     await signUpAs('dev@example.com');
     expect(screen.getByText('This server sends no email, so here is the code: 111111')).toBeInTheDocument();
@@ -139,44 +164,57 @@ describe('Login Component', () => {
     expect(screen.getByText('Confirm your email')).toBeInTheDocument();
   });
 
-  it('goes back to signing up once the sign-up has ended', async () => {
-    mockedLogin.mockResolvedValue({ verify: 'pending-3' });
+  it('starts again once the sign-up has ended', async () => {
+    mockedRegister.mockResolvedValue({ verify: 'pending-3' });
     vi.mocked(verifySignUp).mockRejectedValue({ response: { status: 410, data: { error: 'That code was wrong too many times; sign up again' } } });
-    show(<Login onSuccess={() => {}} invite={{ code: 'INVITE' }} />);
+    showLogin('INVITE');
 
     await signUpAs('gone@example.com');
     fireEvent.change(screen.getByLabelText('Code from the email'), { target: { value: '000000' } });
     fireEvent.click(screen.getByRole('button', { name: /^verify/i }));
-    expect(await screen.findByText('That code was wrong too many times; sign up again')).toBeInTheDocument();
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(START));
+  });
+
+  it('goes back to signing up once a new code can no longer be sent', async () => {
+    mockedRegister.mockResolvedValue({ verify: 'pending-4' });
+    vi.mocked(resendSignUpCode).mockRejectedValue({ response: { status: 410, data: { error: 'This sign-up has ended; sign up again' } } });
+    showLogin('INVITE');
+
+    await signUpAs('gone@example.com');
+    fireEvent.click(screen.getByRole('button', { name: /send a new code/i }));
+    expect(await screen.findByText('This sign-up has ended; sign up again')).toBeInTheDocument();
     expect(screen.queryByText('Confirm your email')).toBeNull();
     expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
   });
 
   it('tells the first account to sign in once it is made, since it needs no code', async () => {
-    mockedLogin.mockResolvedValue({});
-    show(<Login onSuccess={() => {}} invite={{ code: 'SETUP' }} />);
-    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'owner@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
-    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    mockedRegister.mockResolvedValue({});
+    showLogin('SETUP');
+    typed('owner@example.com', 'password123', /create account/i);
     expect(await screen.findByText('Registration successful! Please sign in.')).toBeInTheDocument();
   });
 
   it('shows the server error message when sign-in fails', async () => {
-    mockedLogin.mockRejectedValue(new Error('Invalid credentials'));
+    mockedSignIn.mockRejectedValue(new Error('Invalid credentials'));
 
-    show(<Login onSuccess={() => {}} />);
-
-    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'test@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'wrong-password' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    showLogin();
+    signsInAs('test@example.com', 'wrong-password');
 
     await waitFor(() => {
       expect(screen.getByText('Invalid credentials')).toBeInTheDocument();
     });
   });
 
+  it('shows why a provider turned the person away', async () => {
+    window.history.replaceState({}, '', `/?resume=${encodeURIComponent(RESUME)}&authError=${encodeURIComponent('That Google account has no invite')}`);
+    showLogin();
+    expect(await screen.findByText('That Google account has no invite')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).has('authError')).toBe(false);
+    expect(new URLSearchParams(window.location.search).get('resume')).toBe(RESUME);
+  });
+
   it('offers no provider when the server has none configured', async () => {
-    show(<Login onSuccess={() => {}} />);
+    showLogin();
     await waitFor(() => expect(signInPlace).toHaveBeenCalled());
     expect(screen.queryByText(/or continue with/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /google|github/i })).toBeNull();
@@ -184,25 +222,18 @@ describe('Login Component', () => {
 
   it('says other ways to sign in could not be loaded, without saying why', async () => {
     vi.mocked(signInPlace).mockRejectedValue(new Error('Request failed with status code 500: database is away'));
-    show(<Login onSuccess={() => {}} />);
+    showLogin();
     expect(await screen.findByText('Other ways to sign in could not be loaded. Reload the page to try again.')).toBeInTheDocument();
     expect(screen.queryByText(/database is away/)).toBeNull();
   });
 
-  it('offers only the providers the server says it has, and starts one with the invite when signing up', async () => {
-    vi.mocked(signInPlace).mockResolvedValue({ url: null, providers: [{ id: 'google', label: 'Google' }, { id: 'oidc', label: 'Example Co' }] });
-    const assign = vi.fn();
-    const was = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { ...was, set href(to: string) { assign(to); } } });
-    try {
-      show(<Login onSuccess={() => {}} invite={{ code: 'INV ITE' }} />);
-      expect(await screen.findByRole('button', { name: 'Example Co' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Google' })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'GitHub' })).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: 'Example Co' }));
-      expect(assign).toHaveBeenCalledWith(expect.stringMatching(/\/api\/auth\/provider\/oidc\?invite=INV%20ITE$/));
-    } finally {
-      Object.defineProperty(window, 'location', { configurable: true, value: was });
-    }
+  it('offers only the providers the server says it has, and starts one in this sign-in with the invite when signing up', async () => {
+    vi.mocked(signInPlace).mockResolvedValue({ url: START, providers: [{ id: 'google', label: 'Google' }, { id: 'oidc', label: 'Example Co' }] });
+    showLogin('INV ITE');
+    expect(await screen.findByRole('button', { name: 'Example Co' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Google' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'GitHub' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Example Co' }));
+    expect(went).toHaveBeenCalledWith(expect.stringMatching(/\/oidc\/interaction\/u1\/provider\/oidc\?invite=INV%20ITE$/));
   });
 });

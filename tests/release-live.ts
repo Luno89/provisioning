@@ -12,6 +12,8 @@ import { dataVersionOf } from '../apps/backend/src/instances/lib/instance-update
 import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 import { until, Hopeless, waiting } from './lib/until.js';
+import { labFetch } from './lib/lab-fetch.js';
+import { signInWithPassword } from '../apps/backend/src/accounts/services/sign-in/password-at-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? execFileSync('git', ['describe', '--tags', '--abbrev=0', '--match', 'v*', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
@@ -231,17 +233,12 @@ async function main(): Promise<void> {
   assert.match(setupCode, /^[0-9a-f]{32}$/, 'bootstrap made no setup code');
   const registered = https(`app.${DOMAIN}`, '/api/auth/register', { method: 'POST', body: { email: EMAIL, password: PASSWORD, inviteCode: setupCode } });
   assert.equal(registered.status, 200, registered.body);
-  const signInAtRoot = (): string => {
-    const signedIn = https(`app.${DOMAIN}`, '/api/auth/login', { method: 'POST', body: { email: EMAIL, password: PASSWORD } });
-    assert.equal(signedIn.status, 200, signedIn.body);
-    const session = sessionFrom(signedIn.cookies);
-    assert.ok(session, 'root set no session');
-    return session;
-  };
-  let rootCookie = signInAtRoot();
-  const keepRootSession = (on: string) => {
+  const signInAtRoot = async (): Promise<string> =>
+    (await signInWithPassword(`https://app.${DOMAIN}:${TLS_PORT}`, { email: EMAIL, password: PASSWORD }, labFetch(join(work, 'ca.crt')))).cookie;
+  let rootCookie = await signInAtRoot();
+  const keepRootSession = async (on: string) => {
     if (https(`app.${DOMAIN}`, '/api/auth/me', { cookie: rootCookie }).status !== 401) return;
-    rootCookie = signInAtRoot();
+    rootCookie = await signInAtRoot();
     note(`root on ${on} does not take the session the release before it signed, so the owner signs in again`);
   };
   const asOwner = (path: string, init: { method?: string; body?: unknown } = {}) => https(`app.${DOMAIN}`, path, { ...init, cookie: rootCookie });
@@ -424,7 +421,7 @@ async function main(): Promise<void> {
   assert.equal(await rootReleaseTag(), candidateTag, 'root does not offer instances the candidate image');
   assert.equal((await sh(root, 'systemctl is-active nowrinkles')).trim(), 'active');
   await until('root answering on the candidate', rootAnswers, gone);
-  keepRootSession(candidateTag);
+  await keepRootSession(candidateTag);
   const tags = JSON.parse(await sh(root, `curl -fsS http://127.0.0.1:5000/v2/${IMAGE_REPO}/tags/list`)) as { tags: string[] };
   assert.ok(tags.tags.includes(candidateTag), `root's registry holds ${tags.tags.join(', ')}, not ${candidateTag}`);
   const registryDigest = (await sh(root, `curl -fsSI -H 'Accept: ${MANIFESTS}' http://127.0.0.1:5000/v2/${IMAGE_REPO}/manifests/${candidateTag} | tr -d '\\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p'`)).trim();
@@ -532,7 +529,7 @@ async function main(): Promise<void> {
   assert.equal(await rootHead(), previous, 'root is not back on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image again');
   await until('root answering on the previous release', rootAnswers, gone);
-  keepRootSession(previousTag);
+  await keepRootSession(previousTag);
   const previousSplits = run('git', ['ls-tree', '--name-only', previous, 'scripts/root-node/units.sh']).trim() !== ''
     && run('git', ['show', `${previous}:scripts/root-node/units.sh`]).includes('nowrinkles-workers');
   if (previousSplits) {

@@ -12,7 +12,7 @@ export const V1_FLOWS: Flow[] = [
         id: 'A1',
         does: 'The person opens root\'s invite link and signs up with the invited address, confirming it with an emailed code.',
         screen: { on: 'root', component: `${UI}/accounts/components/Login.tsx#Login` },
-        code: ['apps/frontend/src/features/platform/api.ts#login', 'apps/frontend/src/features/platform/api.ts#verifySignUp'],
+        code: ['apps/frontend/src/features/platform/api.ts#signIn', 'apps/frontend/src/features/platform/api.ts#verifySignUp'],
         decisions: ['sign-up-at-root'],
       },
       {

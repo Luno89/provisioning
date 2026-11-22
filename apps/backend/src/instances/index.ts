@@ -3,7 +3,7 @@ export { DEV_SPLIT, devSplitOwner, devSplitPlace, devSplitPlan, envFileText, rea
 export type { SplitPlace } from './lib/dev-split.js';
 export { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, labelOfLocal, localHost, nestedHost, offersNested } from './lib/edge-addresses.js';
 export type { AddressScope } from './lib/edge-addresses.js';
-export { generateIdentityKey, publicKeyPem } from './lib/identity-token.js';
+export { generateIdentityKey, identityKeysFrom, publicKeyPem } from './lib/identity-token.js';
 export type { IdentityKeyPair } from './lib/identity-token.js';
 export { nameProblem } from './lib/instance-names.js';
 export { dataHolds } from './lib/instance-updates.js';
@@ -40,4 +40,5 @@ export type { RootMachine } from './services/RootMachines.js';
 export type { InstancesStore } from './store.js';
 export { IDENTITY_OPEN } from './routes/identity.js';
 export { INSTANCES_OPEN } from './routes/instances.js';
-export { SIGN_IN_OPEN } from './routes/sign-in.js';
+export { ROOT_CLIENT_OPEN, SIGN_IN_OPEN } from './routes/sign-in.js';
+export { INTERACTION_PATH, OIDC_PATH, START_PATH } from './lib/oidc.js';

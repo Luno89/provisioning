@@ -1,6 +1,6 @@
 import { temporaryStatus } from '@koala/engine-core/failures';
 import { koalaReadinessOf, MY_KOALA_PATH, type KoalaReadiness } from '../../apps/backend/src/instances/lib/koala-readiness.js';
-import { sessionFrom } from '../../apps/backend/src/platform/testing/handoff.js';
+import { signInWithPassword } from '../../apps/backend/src/accounts/services/sign-in/password-at-root.js';
 
 export type DevStackState =
   | { kind: 'ready' }
@@ -32,13 +32,24 @@ export async function devStackState(repo: string, looks: DevStackLooks): Promise
   const notAnswering: DevStackState = { kind: 'provisioning', stage: `root does not answer on ${looks.rootApi} yet` };
   const signIn = looks.ownerSignIn();
   if (!signIn) return { kind: 'provisioning', stage: 'dev has not made its owner on root yet' };
-  const login = await answered(`${looks.rootApi}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signIn) });
-  if (!login) return notAnswering;
-  if (!login.ok) return refusedOrBusy('dev\'s owner signed in', 'dev\'s owner signing in', login.status, login.text);
+  const seen: { last?: { status: number; text: string } | undefined } = {};
+  const send: typeof fetch = async (url, init) => {
+    seen.last = undefined;
+    const answer = await fetch(url, init);
+    seen.last = { status: answer.status, text: await answer.clone().text() };
+    return answer;
+  };
+  let cookie: string | undefined;
+  try {
+    cookie = (await signInWithPassword(looks.rootApi, signIn, send)).cookie;
+  } catch {
+    const { last } = seen;
+    if (!last) return notAnswering;
+    if (last.status < 300 || last.status >= 400) return refusedOrBusy('dev\'s owner signed in', 'dev\'s owner signing in', last.status, last.text);
+  }
   const rootFrom = looks.rootFrom();
   if (!rootFrom) return { kind: 'not this checkout', why: `cannot tell which checkout root on ${looks.rootApi} runs from` };
   if (rootFrom !== repo && !rootFrom.startsWith(`${repo}/`)) return { kind: 'not this checkout', why: `root on ${looks.rootApi} runs from ${rootFrom}, not this checkout (${repo}), so it is not running this commit` };
-  const cookie = sessionFrom(login.cookies);
   if (!cookie) return { kind: 'failed', stage: 'root signed dev\'s owner in without a session cookie' };
   const mine = await answered(`${looks.rootApi}${MY_KOALA_PATH}`, { headers: { Cookie: cookie } });
   if (!mine) return notAnswering;

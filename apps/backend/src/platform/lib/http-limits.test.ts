@@ -3,12 +3,12 @@ import { afterFailure, attemptsKeptUntil, CONFIRM_CODES, confirmCodesSaid, fullU
 
 describe('which public paths are rate limited', () => {
   it('limits sign-in, joining and share links, and nothing signed-in', () => {
-    expect(ruleFor('/auth/login')?.name).toBe('sign-in');
+    expect(ruleFor('/interaction/uid-1/login')?.name).toBe('sign-in');
     expect(ruleFor('/auth/handoff')?.name).toBe('sign-in');
     expect(ruleFor('/machines/join')?.name).toBe('joining');
     expect(ruleFor('/share/tok')?.name).toBe('share-links');
-    expect(ruleFor('/AUTH/2fa/Verify/')?.name).toBe('sign-in');
-    expect(ruleFor('/auth//login')?.name).toBe('sign-in');
+    expect(ruleFor('/Interaction/uid-1/Second-Factor/')?.name).toBe('sign-in');
+    expect(ruleFor('/interaction//uid-1/login')?.name).toBe('sign-in');
     expect(ruleFor('/Share/Tok')?.name).toBe('share-links');
     expect(ruleFor('/projects')).toBeUndefined();
     expect(ruleFor('/conversations/x/messages')).toBeUndefined();
@@ -16,9 +16,9 @@ describe('which public paths are rate limited', () => {
 
   it('counts only failed sign-ins, sign-ups and joins against an address, since a guess fails and a person succeeds, while every opening of a share link counts', () => {
     expect(ruleFor('/auth/register')?.countsOnlyFailures).toBe(true);
-    expect(ruleFor('/auth/register/verify')?.name).toBe('sign-in');
+    expect(ruleFor('/interaction/uid-1/sign-up/verify')?.name).toBe('sign-in');
     expect(ruleFor('/auth/register/resend')?.name).toBe('sign-in');
-    expect(ruleFor('/auth/login')?.countsOnlyFailures).toBe(true);
+    expect(ruleFor('/interaction/uid-1/login')?.countsOnlyFailures).toBe(true);
     expect(ruleFor('/machines/join')?.countsOnlyFailures).toBe(true);
     expect(ruleFor('/share/tok')?.countsOnlyFailures).toBe(false);
   });

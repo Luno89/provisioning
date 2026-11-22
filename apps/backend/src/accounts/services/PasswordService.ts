@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { generateOTP, hashPassword, type AccessRevocations, type Database, type SecretKey, type UserMetadata } from '../../platform/index.js';
+import { generateOTP, hashPassword, type AccessRevocations, type Database, type KeptSession, type SecretKey, type UserMetadata } from '../../platform/index.js';
 import { codeHash, sameCode } from '../lib/codes.js';
 import { passwordProblem, type BreachedPasswords } from '../lib/passwords.js';
 import { RESET_WRONG_CODES, resetCodeMail, resetExpiry, resetLive } from '../lib/password-reset.js';
@@ -93,7 +93,7 @@ export class PasswordService {
     return { ok: true, email: user.email };
   }
 
-  async change(signedIn: UserMetadata, input: { password: unknown; current: unknown; code: unknown }, device: SignedInDevice, from?: string | undefined): Promise<Answered<{ user: UserMetadata }>> {
+  async change(signedIn: UserMetadata, input: { password: unknown; current: unknown; code: unknown }, device: SignedInDevice, kept: KeptSession, from?: string | undefined): Promise<Answered<{ user: UserMetadata }>> {
     const user = await this.deps.db.accounts.getUserById(signedIn.id);
     if (!user || user.removal) return { ok: false, status: 401, error: 'Sign in first' };
     const weak = this.newPasswordProblem(input.password, user.email);
@@ -103,13 +103,13 @@ export class PasswordService {
       ...(typeof input.code === 'string' && input.code.trim() ? { code: input.code.trim() } : {}),
     }, device, from);
     if (refused) return { ok: false, ...refused };
-    return { ok: true, user: await this.replace(user, input.password as string) };
+    return { ok: true, user: await this.replace(user, input.password as string, kept) };
   }
 
-  private async replace(user: UserMetadata, password: string): Promise<UserMetadata> {
+  private async replace(user: UserMetadata, password: string, kept?: KeptSession): Promise<UserMetadata> {
     const changed: UserMetadata = { ...user, passwordHash: await hashPassword(password) };
     await this.deps.db.accounts.saveUser(changed);
-    await this.deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: this.now().toISOString() });
+    await this.deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: this.now().toISOString(), ...(kept ? { kept } : {}) });
     return changed;
   }
 }

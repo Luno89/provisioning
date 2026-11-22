@@ -4,7 +4,7 @@ import session from 'express-session';
 import { arrivedOverHttps, cookieNamed } from '../lib/auth.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
 import { ringOf, type SecretKey } from '../lib/crypto.js';
-import { BROWSER_SESSION_COOKIE, BROWSER_SESSION_SECONDS, type AccountSession, type BrowserPerson, type BrowserSessionsOf } from '../lib/browser-session.js';
+import { BROWSER_SESSION_COOKIE, BROWSER_SESSION_SECONDS, type BrowserPerson, type BrowserSessionsOf } from '../lib/browser-session.js';
 import type { PlatformStore } from '../store.js';
 
 export interface BrowserSessionsDeps {
@@ -48,12 +48,6 @@ export class BrowserSessions {
   async hold(req: express.Request, person: BrowserPerson): Promise<void> {
     await settled((done) => req.session.regenerate(done));
     req.session.person = person;
-    await settled((done) => req.session.save(done));
-  }
-
-  async holdAccount(req: express.Request, account: AccountSession): Promise<void> {
-    await settled((done) => req.session.regenerate(done));
-    req.session.account = account;
     await settled((done) => req.session.save(done));
   }
 

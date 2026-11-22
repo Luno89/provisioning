@@ -1,37 +1,22 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import App from '../App';
-import { disconnectShared } from '../features/platform';
+import { disconnectShared, useShellStore } from '../features/platform';
 import * as clustersApi from '../features/infrastructure/api/clusters';
 import * as deploymentsApi from '../features/infrastructure/api/deployments';
 import * as credentialsApi from '../features/infrastructure/api/credentials';
 import * as authApi from '../features/platform/api';
 import * as identityApi from '../features/instances/api/identity';
 import * as instancesApi from '../features/instances/api/instances';
+import { replacedLocation } from '../test/location';
 
-vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => ({
-  ...(await importOriginal<typeof clustersApi>()),
-  listClusters: vi.fn(),
-}));
-vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => ({
-  ...(await importOriginal<typeof deploymentsApi>()),
-  listDeployments: vi.fn(),
-}));
-vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => ({
-  ...(await importOriginal<typeof credentialsApi>()),
-  listProviders: vi.fn(),
-}));
-vi.mock('../features/platform/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof authApi>()),
-  getMe: vi.fn(),
-  logout: vi.fn(),
-}));
-vi.mock('../features/instances/api/identity', async (importOriginal) => ({
-  ...(await importOriginal<typeof identityApi>()),
-  getMyInstance: vi.fn(),
-}));
+vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof clustersApi>, 'listClusters'));
+vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof deploymentsApi>, 'listDeployments'));
+vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof credentialsApi>, 'listProviders'));
+vi.mock('../features/platform/api', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof authApi>, 'getMe', 'logout', 'signInPlace'));
+vi.mock('../features/instances/api/identity', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof identityApi>, 'getMyInstance'));
 vi.mock('../features/instances/api/instances', async (importOriginal) => ({
   ...(await importOriginal<typeof instancesApi>()),
   useMySetup: vi.fn(() => ({ data: null, isPending: false })),
@@ -83,5 +68,53 @@ describe('where a signed-in person lands', () => {
     expect(screen.getByText(/Cannot GET \/api\/identity\/instance/)).toBeInTheDocument();
     expect(screen.queryByText('Infrastructure')).toBeNull();
     expect(clustersApi.listClusters).not.toHaveBeenCalled();
+  });
+});
+
+describe('where a signed-out person goes', () => {
+  const START = '/api/auth/oidc/start';
+  const stood = replacedLocation();
+  const { assign } = stood;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(authApi.getMe).mockResolvedValue(null);
+    useShellStore.getState().setUser(null);
+    useShellStore.getState().setAuthLoading(true);
+    vi.mocked(authApi.signInPlace).mockResolvedValue({ url: START, providers: [] });
+    stood.install();
+  });
+
+  afterEach(() => {
+    stood.restore();
+  });
+
+  it('goes to the sign-in place when no sign-in is waiting for it', async () => {
+    window.history.replaceState({}, '', '/');
+    show();
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(START));
+    expect(screen.queryByRole('button', { name: /^sign in$/i })).toBeNull();
+  });
+
+  it('shows the sign-in form for the sign-in root is resuming, and goes nowhere by itself', async () => {
+    window.history.replaceState({}, '', `/?resume=${encodeURIComponent('/oidc/interaction/u1')}`);
+    show();
+    expect(await screen.findByRole('button', { name: /^sign in$/i })).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('never shows the form for a resume that is not root\'s sign-in, and goes to the sign-in place instead', async () => {
+    window.history.replaceState({}, '', `/?resume=${encodeURIComponent('https://elsewhere.example/oidc/interaction/u1')}`);
+    show();
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(START));
+    expect(screen.queryByRole('button', { name: /^sign in$/i })).toBeNull();
+  });
+
+  it('says where sign-in could not be found rather than showing a form with nowhere to go', async () => {
+    vi.mocked(authApi.signInPlace).mockRejectedValue(new Error('Request failed with status code 502'));
+    window.history.replaceState({}, '', `/?resume=${encodeURIComponent('/oidc/interaction/u1')}`);
+    show();
+    expect(await screen.findByText(/Koala could not find where to sign in: Request failed with status code 502/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^sign in$/i })).toBeNull();
   });
 });

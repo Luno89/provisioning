@@ -5,7 +5,7 @@ import type { Devices } from './device.js';
 
 export interface PasswordRouterDeps {
   passwords: Pick<PasswordService, 'forgot' | 'resend' | 'reset' | 'change'>;
-  auth: Pick<Auth, 'holdAccount'>;
+  auth: Pick<Auth, 'keptSession'>;
   devices: Pick<Devices, 'known'>;
 }
 
@@ -36,8 +36,7 @@ export function passwordRouter(deps: PasswordRouterDeps): Router {
     const user = (req as { user?: UserMetadata }).user;
     if (!user) return res.status(401).json({ error: 'Sign in first' });
     const { password, current, code } = bodyOf(req);
-    const changed = await deps.passwords.change(user, { password, current, code }, deps.devices.known(req), req.ip);
-    if (changed.ok) await deps.auth.holdAccount(req, changed.user);
+    const changed = await deps.passwords.change(user, { password, current, code }, deps.devices.known(req), deps.auth.keptSession(req), req.ip);
     return answer(res, changed, () => ({ changed: true }));
   }));
 

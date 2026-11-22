@@ -4,6 +4,7 @@ import { arrivedOverHttps, cookieNamed } from '../lib/auth.js';
 import { BROWSER_SESSION_COOKIE, type BrowserPerson, type PersonThroughRoot } from '../lib/browser-session.js';
 import type { BrowserSessions } from '../services/BrowserSessions.js';
 import type { AccessRevocations } from '../services/AccessRevocations.js';
+import type { KeptSession } from '../lib/revocations.js';
 import { inviteCodeHash, inviteExpired } from '../lib/invite-codes.js';
 import { setupCodeProblem } from '../lib/first-admin.js';
 import type { Database } from '../lib/db-interface.js';
@@ -14,11 +15,6 @@ import { authorize, principalOf, type Actions, type BearerSignIn, type Principal
 export interface ThroughRoot {
   sessions: BrowserSessions;
   signIn: PersonThroughRoot;
-}
-
-export interface OwnSessions {
-  sessions: BrowserSessions;
-  revocations: Pick<AccessRevocations, 'listen'>;
 }
 
 export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
@@ -37,9 +33,9 @@ export interface AuthDeps {
   role: PlatformRole;
   instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
-  throughRoot?: ThroughRoot | undefined;
+  throughRoot: ThroughRoot;
   bearer?: ((token: string) => Promise<BearerSignIn>) | undefined;
-  own?: OwnSessions | undefined;
+  revocations?: Pick<AccessRevocations, 'listen'> | undefined;
   open: readonly OpenMount[];
 }
 
@@ -75,7 +71,7 @@ export interface Auth {
   requireAuth: express.RequestHandler;
   requireOperator: (action: Actions['install']) => express.RequestHandler;
   principalFor: (user: Pick<UserMetadata, 'id' | 'roles'>) => Principal;
-  holdAccount: (req: express.Request, user: Pick<UserMetadata, 'id'>) => Promise<void>;
+  keptSession: (req: express.Request) => KeptSession;
   clearSession: (res: express.Response) => void;
   endSession: (req: express.Request) => Promise<string | undefined>;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
@@ -129,15 +125,11 @@ type HeldRequest = IncomingMessage & Pick<express.Request, 'session' | 'sessionI
 const ran = (handle: Auth['sessionHandle'], req: IncomingMessage, res: ServerResponse): Promise<void> =>
   new Promise((resolve, reject) => { handle(req, res, (err) => (err ? reject(err instanceof Error ? err : new Error(String(err))) : resolve())); });
 
-const noSessions = (role: PlatformRole): never => {
-  throw new Error(`a ${role} was given no browser sessions to sign people in with`);
-};
-
-export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, throughRoot, bearer, own, open }: AuthDeps): Auth {
-  if (signsInThroughRoot(role) && (!throughRoot || own)) throw new Error(`a ${role} signs people in only through root, so it is given root's sessions and no sessions of its own`);
-  if (!signsInThroughRoot(role) && (throughRoot || !own)) throw new Error(`a ${role} keeps its own sessions, so it is given those and none through root`);
-  const sessions = throughRoot?.sessions ?? own?.sessions ?? noSessions(role);
-  own?.revocations.listen(async (revoked) => sessions.endOf({ sub: revoked.personId }));
+export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, throughRoot, bearer, revocations, open }: AuthDeps): Auth {
+  if (signsInThroughRoot(role) && revocations) throw new Error(`a ${role} hears revocations from root's back-channel, so it is given none to listen to`);
+  if (!signsInThroughRoot(role) && !revocations) throw new Error(`a ${role} ends its own browser sessions when a person's access is revoked, so it is given the revocations to listen to`);
+  const { sessions } = throughRoot;
+  revocations?.listen(async (revoked) => sessions.endOf({ sub: revoked.personId, except: revoked.kept?.session }));
   const opens = openedBy(open);
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
@@ -152,28 +144,35 @@ export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, th
 
   const personHeld = async (req: HeldRequest): Promise<BrowserPerson | undefined> => {
     const held = req.session?.person;
-    if (!throughRoot || !held) return undefined;
+    if (!held) return undefined;
     const fresh = await throughRoot.signIn.fresh(held);
     if (fresh === 'ended') {
-      await throughRoot.sessions.end(req as express.Request);
+      await sessions.end(req as express.Request);
       return undefined;
     }
     if (fresh === 'kept') return held;
-    if (fresh !== held) await throughRoot.sessions.keep(req as express.Request, fresh);
+    if (fresh !== held) await sessions.keep(req as express.Request, fresh);
     return fresh;
   };
 
-  const accountHeld = async (req: HeldRequest): Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined> => {
-    const held = own ? req.session?.account : undefined;
-    if (!held) return undefined;
-    const user = await db.accounts.getUserById(held.sub);
-    return !user || user.removal ? undefined : { user, sessionId: req.sessionID, sessionAt: held.sessionAt };
+  const accountOf = async (person: BrowserPerson): Promise<UserMetadata | undefined> => {
+    if (signsInThroughRoot(role)) return userOfPerson(person);
+    const user = await db.accounts.getUserById(person.sub);
+    return !user || user.removal ? undefined : user;
   };
 
+  const principalOfPerson = (person: BrowserPerson, user: UserMetadata): Principal =>
+    signsInThroughRoot(role) ? { kind: 'person', id: person.sub, claims: person.claims } : principalFor(user);
+
+  async function signedInBy(req: HeldRequest): Promise<{ person: BrowserPerson; user: UserMetadata } | undefined> {
+    const person = await personHeld(req);
+    const user = person ? await accountOf(person) : undefined;
+    return person && user ? { person, user } : undefined;
+  }
+
   async function sessionOf(req: IncomingMessage): Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined> {
-    if (!throughRoot) return accountHeld(req as HeldRequest);
-    const person = await personHeld(req as HeldRequest);
-    return person ? { user: userOfPerson(person), sessionId: (req as HeldRequest).sessionID, sessionAt: person.sessionAt } : undefined;
+    const held = await signedInBy(req as HeldRequest);
+    return held ? { user: held.user, sessionId: (req as HeldRequest).sessionID, sessionAt: held.person.sessionAt } : undefined;
   }
 
   async function userOf(req: express.Request): Promise<UserMetadata | undefined> {
@@ -181,22 +180,18 @@ export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, th
     return (await sessionOf(req))?.user;
   }
 
-  async function holdAccount(req: express.Request, user: Pick<UserMetadata, 'id'>): Promise<void> {
-    if (!own) throw new Error(`a ${role} signs people in only through root, so it holds no account's session of its own`);
-    await ran(sessions.handle, req, req.res!);
-    await own.sessions.holdAccount(req, { sub: user.id, sessionAt: Date.now() });
-  }
+  const keptSession = (req: express.Request): KeptSession => {
+    const rootSid = req.session?.person?.rootSid;
+    if (!rootSid) throw new Error(`${req.method} ${req.path} kept a browser signed in that root named no session for`);
+    return { session: req.sessionID, rootSid };
+  };
 
   async function endSession(req: express.Request): Promise<string | undefined> {
     await ran(sessions.handle, req, req.res!);
-    if (throughRoot) {
-      const person = req.session?.person;
-      if (!person) return undefined;
-      await throughRoot.sessions.end(req);
-      return throughRoot.signIn.end(person);
-    }
-    if (req.session?.account) await sessions.end(req);
-    return undefined;
+    const person = req.session?.person;
+    if (!person) return undefined;
+    await sessions.end(req);
+    return throughRoot.signIn.end(person);
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
@@ -209,17 +204,10 @@ export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, th
       signedIn(req, { user: signed.user, principal: signed.principal });
       return next();
     }
-    if (throughRoot) {
-      if (!req.session?.person) return res.status(401).json({ error: 'Unauthorized: Session missing' });
-      const person = await personHeld(req);
-      if (!person) return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
-      signedIn(req, { user: userOfPerson(person), sessionId: req.sessionID, principal: { kind: 'person', id: person.sub, claims: person.claims } });
-      return next();
-    }
-    if (!req.session?.account) return res.status(401).json({ error: 'Unauthorized: Session missing' });
-    const held = await accountHeld(req);
+    if (!req.session?.person) return res.status(401).json({ error: 'Unauthorized: Session missing' });
+    const held = await signedInBy(req);
     if (!held) return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
-    signedIn(req, { user: held.user, sessionId: held.sessionId, principal: principalFor(held.user) });
+    signedIn(req, { user: held.user, sessionId: req.sessionID, principal: principalOfPerson(held.person, held.user) });
     next();
   };
 
@@ -267,6 +255,6 @@ export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, th
 
   return {
     getCookie, userOf, sessionOf, sessionHandle: sessions.handle, securedFor, requireAuth, requireOperator, principalFor,
-    holdAccount, clearSession, endSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
+    keptSession, clearSession, endSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
   };
 }

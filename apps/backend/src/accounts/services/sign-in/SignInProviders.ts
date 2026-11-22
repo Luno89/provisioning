@@ -1,5 +1,6 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import * as client from 'openid-client';
-import { carriedByOAuthState, newOAuthState, type SecretKey, type UserMetadata } from '../../../platform/index.js';
+import type { UserMetadata } from '../../../platform/index.js';
 import {
   offeredProviders, providerCallbackUrl, returnedElsewhere,
   type OfferedProvider, type SignInClient, type SignInProvider, type SignInProviderKind,
@@ -18,7 +19,15 @@ export type ConsumeInvite = (code: string | undefined, userId: string, isFirstUs
 export type ProviderStart =
   | { kind: 'unknown' }
   | { kind: 'refused'; why: string }
-  | { kind: 'started'; url: string; cookie: string };
+  | { kind: 'started'; url: string; held: ProviderHeld };
+
+export interface ProviderHeld {
+  provider: string;
+  state: string;
+  verifier: string;
+  nonce: string;
+  invite: string;
+}
 
 export type ProviderFinish =
   | { kind: 'unknown' }
@@ -30,12 +39,24 @@ export interface SignInProvidersSettings {
   providers: readonly SignInProvider[];
   publicUrl: string;
   returnUrl?: string | undefined;
-  sessionKey: SecretKey;
   accounts: Pick<AuthService, 'signInWithProvider'>;
   clients?: Readonly<Record<SignInProviderKind, (provider: SignInProvider) => SignInClient>> | undefined;
 }
 
-const NOT_STARTED_HERE = 'This sign-in did not start here, or took longer than ten minutes; start it again';
+const NOT_STARTED_HERE = 'This sign-in did not start here, or took longer than an hour; start it again';
+
+const heldShaped = (value: unknown): value is ProviderHeld => {
+  const held = value as Partial<ProviderHeld> | undefined;
+  return typeof held?.provider === 'string' && typeof held.state === 'string' && typeof held.verifier === 'string' && held.verifier.length > 0
+    && typeof held.nonce === 'string' && held.nonce.length > 0 && typeof held.invite === 'string';
+};
+
+const sameState = (held: string, given: string | null): boolean => {
+  if (given === null) return false;
+  const expected = Buffer.from(held);
+  const actual = Buffer.from(given);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+};
 
 const reasonOf = (err: unknown): string => {
   const known = err as { error?: unknown; error_description?: unknown; message?: unknown; cause?: { message?: unknown } };
@@ -83,32 +104,29 @@ export class SignInProviders {
     if (!found) return { kind: 'unknown' };
     const verifier = client.randomPKCECodeVerifier();
     const nonce = client.randomNonce();
-    const { state, cookie } = newOAuthState(invite, this.settings.sessionKey, { provider: id, verifier, nonce });
+    const state = randomBytes(24).toString('base64url');
     try {
       const url = await found.client.authorizationUrl(providerCallbackUrl(this.returnBase, id), { state, verifier, nonce });
-      return { kind: 'started', url: url.href, cookie };
+      return { kind: 'started', url: url.href, held: { provider: id, state, verifier, nonce, invite } };
     } catch (err) {
       return { kind: 'refused', why: `${found.provider.label} could not be asked to sign you in: ${reasonOf(err)}` };
     }
   }
 
-  async finish(id: string, callback: URL, cookie: string | undefined, consumeInvite: ConsumeInvite): Promise<ProviderFinish> {
+  async finish(id: string, callback: URL, held: unknown, consumeInvite: ConsumeInvite): Promise<ProviderFinish> {
     const found = this.find(id);
     if (!found) return { kind: 'unknown' };
-    const held = carriedByOAuthState(cookie, callback.searchParams.get('state') ?? undefined, this.settings.sessionKey);
-    const verifier = held?.held.verifier;
-    const nonce = held?.held.nonce;
-    if (!held || held.held.provider !== id || !verifier || !nonce) return { kind: 'refused', why: NOT_STARTED_HERE };
+    if (!heldShaped(held) || held.provider !== id || !sameState(held.state, callback.searchParams.get('state'))) return { kind: 'refused', why: NOT_STARTED_HERE };
     const label = found.provider.label;
     let identity;
     try {
-      identity = await found.client.identify(callback, { state: held.state, verifier, nonce });
+      identity = await found.client.identify(callback, { state: held.state, verifier: held.verifier, nonce: held.nonce });
     } catch (err) {
       return { kind: 'refused', why: `${label} did not sign you in: ${reasonOf(err)}` };
     }
     return this.settings.accounts.signInWithProvider(
       { provider: label, issuer: found.provider.issuer, ...identity },
-      held.carried || undefined,
+      held.invite || undefined,
       consumeInvite,
     );
   }

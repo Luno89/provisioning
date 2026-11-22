@@ -7,6 +7,8 @@ import type { PasswordService } from '../services/PasswordService.js';
 import { passwordRouter } from './password.js';
 import type { Devices } from './device.js';
 
+const KEPT = { session: 'the-session-the-change-was-made-in', rootSid: 'its-session-at-root' };
+
 async function set(passwords = mock<PasswordService>()) {
   const auth = mock<Auth>();
   const devices = mock<Devices>();
@@ -64,25 +66,26 @@ describe('/api/auth/password', () => {
     expect(passwords.change).not.toHaveBeenCalled();
   });
 
-  it('changes the password for the person signed in and gives their browser a new session', async () => {
+  it('changes the password for the person signed in and keeps their browser\'s session', async () => {
     const { passwords, auth, devices, routes } = await set();
     const changed = { ...PERSON, passwordHash: 'the-new-hash' } as UserMetadata;
     const device = { account: PERSON.email, id: 'phone' };
     devices.known.mockReturnValue(device);
     passwords.change.mockResolvedValue({ ok: true, user: changed });
-    auth.holdAccount.mockResolvedValue(undefined);
+    auth.keptSession.mockReturnValue(KEPT);
     const answer = await routes.post('/api/auth/password/', { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' });
     expect(answer.data).toEqual({ changed: true });
-    expect(passwords.change).toHaveBeenCalledWith(expect.objectContaining({ id: PERSON.id }), { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' }, device, '127.0.0.1');
-    expect(auth.holdAccount).toHaveBeenCalledWith(expect.anything(), changed);
+    expect(passwords.change).toHaveBeenCalledWith(expect.objectContaining({ id: PERSON.id }), { password: 'the-new-one-1', current: 'the-old-one-1', code: '123456' }, device, KEPT, '127.0.0.1');
+    expect(answer.headers['set-cookie']).toBeUndefined();
   });
 
   it('keeps the session as it was and says why when the change is refused', async () => {
     const { passwords, auth, routes } = await set();
     passwords.change.mockResolvedValue({ ok: false, status: 403, error: 'Enter your current password to change it' });
+    auth.keptSession.mockReturnValue(KEPT);
     const answer = await routes.post('/api/auth/password/', { password: 'the-new-one-1' });
     expect(answer.status).toBe(403);
     expect(answer.data).toEqual({ error: 'Enter your current password to change it' });
-    expect(auth.holdAccount).not.toHaveBeenCalled();
+    expect(answer.headers['set-cookie']).toBeUndefined();
   });
 });

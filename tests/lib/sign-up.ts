@@ -1,4 +1,5 @@
 import { until, waiting } from './until.js';
+import { browsing } from './browsing.js';
 
 export interface SignUpAccount {
   email: string;
@@ -50,6 +51,8 @@ export async function signUp(apiBase: string, account: SignUpAccount, stack: Sta
     headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
     body: JSON.stringify(body),
   });
+  const browser = browsing(apiBase.replace(/\/api$/, ''), { headers: options.headers ?? {} });
+  const resume = await browser.resume();
   const asked = Date.now();
   const registered = await post('/auth/register', account);
   const pending = await asJson(registered) as { verify?: string; devCode?: string };
@@ -60,13 +63,17 @@ export async function signUp(apiBase: string, account: SignUpAccount, stack: Sta
     if (!stack.production) throw new Error(`${account.email}'s sign-up code was emailed, and this suite reads no mailbox`);
     code = await codeFromMailpit(stack.mailpitApi, account.email, asked);
   }
-  const verified = await post('/auth/register/verify', { id: pending.verify, code });
-  const body = await asJson(verified) as { user?: { id: string; email: string } };
+  const verified = await browser.hop(`${resume}/sign-up/verify`, { id: pending.verify, code });
+  const body = await asJson(verified) as { next?: string };
+  if (verified.status !== 200 || !body.next) return { status: verified.status, ...(errorOf(body) ? { error: errorOf(body)! } : {}), cookies: browser.cookies() };
+  await browser.followed(body.next, (at) => at.hash.startsWith('#'));
+  const me = await browser.hop('/api/auth/me');
+  const user = await asJson(me) as { id?: string; email?: string };
   return {
-    status: verified.status,
-    ...(errorOf(body) ? { error: errorOf(body)! } : {}),
-    cookies: verified.headers.getSetCookie().map((line) => line.split(';')[0]!),
-    ...(body.user ? { user: body.user } : {}),
+    status: me.status,
+    ...(errorOf(user) ? { error: errorOf(user)! } : {}),
+    cookies: browser.cookies(),
+    ...(user.id && user.email ? { user: { id: user.id, email: user.email } } : {}),
   };
 }
 

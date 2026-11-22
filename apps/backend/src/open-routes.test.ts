@@ -24,9 +24,11 @@ async function guarded(role: 'root' | 'instance', method: string, path: string) 
   } as unknown as Response;
   const db = memoryDatabase();
   const sessions = new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false });
-  const auth = role === 'root'
-    ? createAuth({ db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), own: { sessions, revocations: new AccessRevocations() } })
-    : createAuth({ db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), throughRoot: { sessions, signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } } });
+  const auth = createAuth({
+    db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role),
+    throughRoot: { sessions, signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } },
+    ...(role === 'root' ? { revocations: new AccessRevocations() } : {}),
+  });
   await auth.requireAuth(req, res, () => { nexted = true; });
   return { statusCode, body, nexted };
 }

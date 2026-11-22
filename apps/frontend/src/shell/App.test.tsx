@@ -8,27 +8,11 @@ import * as authApi from '../features/platform/api';
 import * as credentialsApi from '../features/infrastructure/api/credentials';
 import * as identityApi from '../features/instances/api/identity';
 
-vi.mock('../features/instances/api/identity', async (importOriginal) => ({
-  ...(await importOriginal<typeof identityApi>()),
-  getMyInstance: vi.fn().mockResolvedValue({ instance: null, servesTenants: true }),
-}));
-vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => ({
-  ...(await importOriginal<typeof clustersApi>()),
-  listClusters: vi.fn(),
-}));
-vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => ({
-  ...(await importOriginal<typeof deploymentsApi>()),
-  listDeployments: vi.fn(),
-}));
-vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => ({
-  ...(await importOriginal<typeof credentialsApi>()),
-  listProviders: vi.fn(),
-}));
-vi.mock('../features/platform/api', async (importOriginal) => ({
-  ...(await importOriginal<typeof authApi>()),
-  getMe: vi.fn(),
-  logout: vi.fn(),
-}));
+vi.mock('../features/instances/api/identity', async (importOriginal) => (await import('../test/mocked-module')).withResolved(importOriginal<typeof identityApi>, { getMyInstance: { instance: null, servesTenants: true } }));
+vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof clustersApi>, 'listClusters'));
+vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof deploymentsApi>, 'listDeployments'));
+vi.mock('../features/infrastructure/api/credentials', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof credentialsApi>, 'listProviders'));
+vi.mock('../features/platform/api', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof authApi>, 'getMe', 'logout'));
 
 const queryClient = new QueryClient({
   defaultOptions: {

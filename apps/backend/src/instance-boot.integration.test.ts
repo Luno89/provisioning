@@ -17,6 +17,7 @@ let env: TestWorkflowEnvironment;
 const from = process.cwd();
 const homeWas = process.env.HOME;
 let home = '';
+let served: { close: () => unknown } | undefined;
 
 beforeAll(async () => {
   env = await realTemporalEnvironment();
@@ -34,6 +35,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  served?.close();
   process.chdir(from);
   process.env.HOME = homeWas;
   await rm(home, { recursive: true, force: true });
@@ -43,7 +45,7 @@ afterAll(async () => {
 describe('an instance\'s backend, started as its entry starts it', () => {
   it('starts its own stream worker, which polls the stream queue', async () => {
     const { bootstrap } = await import('./index.js');
-    await bootstrap();
+    served = (await bootstrap()).io.httpServer;
     const pollers = async () => (await env.client.workflowService.describeTaskQueue({
       namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.stream }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
     })).pollers ?? [];

@@ -71,13 +71,15 @@ export function platformStoreContract(make: () => Promise<PlatformStore>): void 
       expect(await store.endBrowserSessions({ sub: 'nobody' })).toEqual([]);
     });
 
-    it('ends the sessions root holds for an account signed in on root itself with the rest of that person\'s', async () => {
+    it('ends every session of a person but the one they asked from, when they asked to stay signed in there', async () => {
       const store = await make();
-      await put(store, 'r1', { cookie: held('ann', 'x').cookie, account: { sub: 'ann', sessionAt: 1 } });
-      await put(store, 'r2', { cookie: held('bob', 'x').cookie, account: { sub: 'bob', sessionAt: 1 } });
-      await put(store, 'b1', held('ann', 'root-1'));
-      expect((await store.endBrowserSessions({ sub: 'ann' })).sort()).toEqual(['b1', 'r1']);
-      expect(await got(store, 'r2')).toMatchObject({ account: { sub: 'bob' } });
+      await put(store, 'r1', held('ann', 'root-1'));
+      await put(store, 'r2', held('bob', 'root-2'));
+      await put(store, 'b1', held('ann', 'root-3'));
+      await put(store, 'b2', held('ann', 'root-4'));
+      expect((await store.endBrowserSessions({ sub: 'ann', except: 'b1' })).sort()).toEqual(['b2', 'r1']);
+      expect(await got(store, 'b1')).toMatchObject({ person: { sub: 'ann' } });
+      expect(await got(store, 'r2')).toMatchObject({ person: { sub: 'bob' } });
     });
   });
 

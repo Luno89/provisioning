@@ -24,6 +24,8 @@ import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructu
 import { startDependencySourcesStandIn } from './dependency-sources-stand-in.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { TEST_RELEASE } from './platform-services.js';
+import { interactionAt } from '../../accounts/testing/interaction-driver.js';
+import { signInWithPassword } from '../../accounts/services/sign-in/password-at-root.js';
 
 export interface TestGitea { url: string; adminPassword: string; logs(): string; close(): Promise<void> }
 
@@ -58,9 +60,6 @@ export interface ThreeRolesOptions {
 
 export type WorkerName = 'host' | 'engine' | 'cluster';
 
-const sessionOf = (headers: Headers): string | undefined =>
-  headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=./.test(pair));
-
 async function signUpWith(rootUrl: string, mail: SmtpSink, email: string, inviteCode: string): Promise<Person> {
   const password = randomBytes(18).toString('base64url');
   const post = (path: string, body: unknown) => fetch(`${rootUrl}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -70,13 +69,19 @@ async function signUpWith(rootUrl: string, mail: SmtpSink, email: string, invite
   if (said.verify) {
     const sent = await until(`the sign-up code mail to ${email}`, async () => mail.received.find((message) => message.to.includes(email) && /sign-up code/i.test(mail.subjectOf(message) ?? '')) ?? waiting(`${mail.received.length} mails received, subjects: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ').slice(0, 200)}`));
     const code = /\b(\d{6})\b/.exec(sent.data)?.[1];
-    const verified = await post('/auth/register/verify', { id: said.verify, code });
-    if (!verified.ok) throw new Error(`${email} could not confirm the sign-up: ${verified.status} ${await verified.text()}`);
+    const interaction = await interactionAt(rootUrl);
+    const verified = await interaction.signUp(said.verify, code);
+    const confirmed = await verified.json() as { next?: string; error?: string };
+    if (!verified.ok || !confirmed.next) throw new Error(`${email} could not confirm the sign-up: ${verified.status} ${JSON.stringify(confirmed)}`);
+    return personOn(rootUrl, email, password, (await interaction.followed(confirmed.next)).cookie);
   }
-  const login = await post('/auth/login', { email, password });
-  const cookie = sessionOf(login.headers);
-  if (!login.ok || !cookie) throw new Error(`${email} could not sign in on root: ${login.status}`);
-  return { id: ((await login.json()) as { user: { id: string } }).user.id, email, password, cookie };
+  return personOn(rootUrl, email, password, (await signInWithPassword(rootUrl, { email, password })).cookie);
+}
+
+async function personOn(rootUrl: string, email: string, password: string, cookie: string): Promise<Person> {
+  const me = await fetch(`${rootUrl}/api/auth/me`, { headers: { cookie } });
+  if (!me.ok) throw new Error(`${email} signed in on root, but root does not know the session: ${me.status} ${await me.text()}`);
+  return { id: ((await me.json()) as { id: string }).id, email, password, cookie };
 }
 
 const WORKER_ENTRY: Record<WorkerName, string> = { host: 'src/worker-host.ts', engine: 'src/worker-engine.ts', cluster: 'src/worker-cluster.ts' };

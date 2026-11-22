@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { AccessRevocations, Database, InstanceClient, PlatformKeys, RoleConfig } from '../../platform/index.js';
-import { OIDC_PATH } from '../lib/oidc.js';
+import { OIDC_PATH, publicJwkOf, ROOT_WEB_CLIENT } from '../lib/oidc.js';
+import type { IdentityKeyPair } from '../lib/identity-token.js';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn, type RootSignInDeps } from '../services/RootSignIn.js';
@@ -9,7 +10,7 @@ import type { BearerSignIn, ClaimSettings } from '../../platform/index.js';
 
 const currentOf = (key: PlatformKeys['session']): string => (typeof key === 'string' ? key : key.current);
 
-export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; keys: Pick<PlatformKeys, 'session'>; db: Database; proxied: boolean; reach: InstanceReach }): RootProvider | undefined {
+export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; keys: Pick<PlatformKeys, 'session'>; db: Database; proxied: boolean; reach: InstanceReach; webKeys: IdentityKeyPair }): RootProvider | undefined {
   if (deps.role.role !== 'root' || !deps.role.signing) return undefined;
   return new RootProvider({
     issuer: `${deps.publicUrl.replace(/\/+$/, '')}${OIDC_PATH}`,
@@ -17,7 +18,30 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
     cookieKey: Buffer.from(crypto.hkdfSync('sha256', currentOf(deps.keys.session), 'koala-sign-in-provider', 'cookies', 32)).toString('hex'),
     proxied: deps.proxied,
     reach: deps.reach,
+    web: { publicUrl: deps.publicUrl, key: publicJwkOf(deps.webKeys) },
   }, deps.db);
+}
+
+export const toOwnProvider = (served: () => string): typeof fetch => (url, init) => {
+  const asked = new URL(url instanceof Request ? url.url : url);
+  const at = new URL(served());
+  asked.protocol = at.protocol;
+  asked.host = at.host;
+  return fetch(asked, init);
+};
+
+export function rootWebSignInFor(deps: { publicUrl: string; webKeys: IdentityKeyPair; keys: Pick<PlatformKeys, 'data'>; db: Database; revocations: AccessRevocations; reach: typeof fetch } & Pick<RootSignInDeps, 'sessions' | 'dependency'>): RootSignIn {
+  const rootUrl = deps.publicUrl.replace(/\/+$/, '');
+  return new RootSignIn({
+    kind: 'root-web',
+    clientId: ROOT_WEB_CLIENT,
+    rootUrl,
+    publicUrl: rootUrl,
+    clientKeys: deps.webKeys,
+    registrationCode: '',
+    dataKey: deps.keys.data,
+    reach: deps.reach,
+  }, { store: deps.db, sessions: deps.sessions, revocations: deps.revocations, dependency: deps.dependency });
 }
 
 export function rootSignInFor(deps: { role: RoleConfig; client: InstanceClient | undefined; keys: Pick<PlatformKeys, 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string } & Pick<RootSignInDeps, 'sessions' | 'dependency'>): RootSignIn | undefined {

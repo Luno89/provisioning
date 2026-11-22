@@ -4,7 +4,7 @@ import {
   getMyRemovalProgress, mintInvite, removeMyAccount, removePerson, resendPasswordReset, resetPassword, saveTwoFactor, sendConfirmCode, setOwnInviteAccounts, setProjectInviteLimits,
 } from './api'
 import type { Invite, PersonEntry, ProjectInviteLimits, RemovalPreview } from './types'
-import { getMe, login } from '../platform'
+import { getMe, signIn } from '../platform'
 import { PASSWORD, startBackend } from '../../test/backend/site'
 import { followedTemporal, mountAccounts } from '../../test/backend/accounts'
 import type { Wire } from '../../test/backend/wire'
@@ -97,7 +97,10 @@ describe('a person\'s own password, second factor and sessions, combined', () =>
     expect(await resendPasswordReset(reset.reset)).toEqual({ reset: reset.reset })
     await expect(resetPassword({ id: reset.reset, code: '000000', password: NEW_PASSWORD })).rejects.toMatchObject({ response: { status: 401 } })
     expect(await resetPassword({ id: reset.reset, code: backend.codeMailedTo('member@koala.test'), password: NEW_PASSWORD })).toEqual(objectWith({ email: 'member@koala.test' }))
-    expect(await login({ email: 'member@koala.test', password: NEW_PASSWORD })).toEqual(objectWith({ user: objectWith({ email: 'member@koala.test' }) }))
+    const signedIn = await signIn(await backend.resumeAt(), { email: 'member@koala.test', password: NEW_PASSWORD })
+    expect(signedIn).toEqual({ next: anyOf(String) })
+    await backend.landedFrom(signedIn.next!)
+    expect(await getMe()).toEqual(objectWith({ email: 'member@koala.test' }))
   })
 })
 

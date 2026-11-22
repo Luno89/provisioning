@@ -8,6 +8,7 @@ import { childEnv, passedOn, PERSON_SESSION } from '@koala/engine-core/child-env
 import { ignore } from '@koala/engine-core/failures';
 import { DEV, devKoalaValues, koalaReadinessOf, MY_KOALA_PATH, readEnvFile } from '../instances/index.js';
 import { imageMirrorsOnThisComputer } from '../infrastructure/index.js';
+import { signInWithPassword } from '../accounts/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CHECKOUT = resolve(here, '../../../..');
@@ -49,11 +50,7 @@ async function owner(setupCode: string): Promise<string> {
     await writeFile(file, JSON.stringify(saved), { mode: 0o600 });
     say(`you are ${saved.email} on root; the password is in ${file}`);
   }
-  const signedIn = await post('/auth/login', saved);
-  if (!signedIn.ok) throw new Error(`the dev owner could not sign in on root: ${signedIn.status} ${await signedIn.text()}`);
-  const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?koala_sid=/.test(pair));
-  if (!cookie) throw new Error('signing in on root set no session cookie');
-  return cookie;
+  return (await signInWithPassword(ROOT_API, saved)).cookie;
 }
 
 export interface ThisComputer {

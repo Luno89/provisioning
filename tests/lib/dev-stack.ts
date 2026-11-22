@@ -10,6 +10,7 @@ import { DEV } from '../../apps/backend/src/instances/lib/dev-root.js';
 import { ClusterCommandFailed, clusterAccessOfKubeconfig, type ClusterAccess } from '../../apps/backend/src/infrastructure/services/ClusterAccess.js';
 import type { Reach } from '../../apps/backend/src/infrastructure/lib/cluster-places.js';
 import { fetchSide, handOff, sessionFrom } from './handoff.js';
+import { signInWithPassword } from '../../apps/backend/src/accounts/services/sign-in/password-at-root.js';
 import { devFile } from './dev-temporal.js';
 
 export const DEV_KUBECONFIG = '/etc/rancher/k3s/k3s.yaml';
@@ -87,10 +88,7 @@ export const devOwnerSignIn = (): { email: string; password: string } =>
 
 export async function devOwner(): Promise<DevOwner> {
   const saved = devOwnerSignIn();
-  const rootIn = await fetchSide(devRootApi)('/api/auth/login', { method: 'POST', body: saved });
-  assert.equal(rootIn.status, 200, `dev's owner could not sign in at root: ${rootIn.status} ${rootIn.body.slice(0, 200)}`);
-  const rootCookie = sessionFrom(rootIn.setCookies);
-  assert.ok(rootCookie, 'signing in at root set no session cookie');
+  const { cookie: rootCookie } = await signInWithPassword(devRootApi, saved);
   const handed = await handOff(fetchSide(devRootApi, rootCookie), fetchSide(devKoalaApi));
   const cookie = sessionFrom(handed.exchange.setCookies);
   assert.ok(cookie, `dev's Koala gave its owner no session: ${handed.exchange.status} ${handed.exchange.body.slice(0, 200)}`);

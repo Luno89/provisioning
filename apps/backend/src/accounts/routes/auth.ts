@@ -1,23 +1,22 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request } from 'express';
 import { randomUUID } from 'node:crypto';
-import { signJWT, verifyJWT, hashPassword, type Auth,
-  asyncRoute, cookieNamed, generateOTP, inviteCodeHash, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS,
+import { hashPassword, type Auth,
+  asyncRoute, cookieNamed, generateOTP, inviteCodeHash, signInRefusedPage,
   type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal, type UserMetadata, type OpenRoute, } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
 import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
-import { emailProblem, normalEmail, SIGN_UP_WRONG_CODES, signUpExpiry, signUpLive } from '../lib/sign-up.js';
-import { codeHash, sameCode } from '../lib/codes.js';
+import { emailProblem, normalEmail, signUpExpiry, signUpLive } from '../lib/sign-up.js';
+import { codeHash } from '../lib/codes.js';
 import { takenAddressMail } from '../lib/password-reset.js';
 import type { OfferedProvider } from '../lib/sign-in-providers.js';
 import { confirmWith, twoFactorChangeFrom } from '../lib/second-factor.js';
 import { devicesFor } from './device.js';
-
-const TWO_FACTOR_SECONDS = 5 * 60;
+import { INTERACTION_GONE, PROVIDER_INTERACTION_COOKIE } from './interaction.js';
 
 export interface AccountsSignIn {
-  url: null;
+  url: string;
   providers: OfferedProvider[];
 }
 
@@ -28,22 +27,23 @@ export interface AuthRouterDeps {
   sessionKey: SecretKey;
   codeKey: SecretKey;
   appUrl: string;
+  start: string;
+  interactionPath: string;
   accounts?: boolean | undefined;
-  revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
-  providers?: Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'> | undefined;
+  revocations: Pick<AccessRevocations, 'revoked'>;
+  providers?: Pick<SignInProviders, 'offered' | 'returnedElsewhere'> | undefined;
   passwords: Pick<PasswordService, 'newPasswordProblem'>;
 }
 
-export const AUTH_OPEN: readonly OpenRoute[] = ['/login', '/register', '/register/verify', '/register/resend', '/2fa/verify', '/sign-in', '/provider/:id', '/provider/:id/callback'];
+export const AUTH_OPEN: readonly OpenRoute[] = ['/register', '/register/resend', '/sign-in', '/provider/:id/callback'];
 
 export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
   const { db, authService, sessionKey, appUrl } = deps;
-  const { holdAccount, clearSession, checkAndConsumeInvite, inviteProblem, claimHeldInvite, sessionCookieOptions, getCookie } = deps.auth;
-  const stateCookie = cookieNamed(OAUTH_STATE_COOKIE, sessionCookieOptions.secure);
+  const { keptSession, clearSession, checkAndConsumeInvite, inviteProblem, sessionCookieOptions, getCookie } = deps.auth;
+  const uidCookie = cookieNamed(PROVIDER_INTERACTION_COOKIE, sessionCookieOptions.secure);
   const devices = devicesFor({ auth: deps.auth, sessionKey, authService });
-  const rememberDevice = devices.remember;
   const userOf = (req: Request): UserMetadata | undefined => (req as { user?: UserMetadata }).user;
   const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
   const place = { holdsAccounts: deps.accounts !== false };
@@ -53,11 +53,10 @@ export function authRouter(deps: AuthRouterDeps): Router {
     ...(place.holdsAccounts ? { confirmWith: confirmWith(user), hasPassword: Boolean(user.passwordHash) } : {}),
   });
   const APP_URL = appUrl;
-  const signInHere = async (req: Request, res: Response, user: UserMetadata): Promise<void> => {
-    await holdAccount(req, user);
-    rememberDevice(req, res, user.email);
-    res.json({ success: true, user: signedIn(user, deps.auth.principalFor(user)) });
-  };
+  const signUpMail = (email: string, taken: boolean | undefined, sentCode: string) => taken
+    ? authService.emailCode(email, takenAddressMail(APP_URL), undefined)
+    : authService.sendSignUpCode(email, sentCode);
+  const toVerify = (id: string, sending: Awaited<ReturnType<typeof signUpMail>>) => ({ verify: id, ...(sending.kind === 'shown' && sending.code ? { devCode: sending.code } : {}) });
 
   accountRoutes.post('/register', asyncRoute(async (req, res) => {
     try {
@@ -95,9 +94,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       const id = uuidv4();
       const taken = Boolean(await db.accounts.getUserByEmail(email));
       const sentCode = generateOTP();
-      const sending = taken
-        ? await authService.emailCode(email, takenAddressMail(APP_URL), undefined)
-        : await authService.sendSignUpCode(email, sentCode);
+      const sending = await signUpMail(email, taken, sentCode);
       if (sending.kind === 'refused') return res.status(503).json({ error: sending.why });
       await db.accounts.savePendingSignUp({
         id,
@@ -110,7 +107,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         expiresAt: signUpExpiry(new Date()),
         ...(taken ? { taken: true } : {}),
       });
-      res.json({ verify: id, ...(sending.kind === 'shown' && sending.code ? { devCode: sending.code } : {}) });
+      res.json(toVerify(id, sending));
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -123,42 +120,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
   };
   const SIGN_UP_GONE = 'This sign-up has ended; sign up again';
 
-  accountRoutes.post('/register/verify', asyncRoute(async (req, res) => {
-    try {
-      const { id, code } = bodyOf(req);
-      if (typeof code !== 'string' || !/^\s*\d{6}\s*$/.test(code)) {
-        return res.status(400).json({ error: 'Enter the six digits from the email' });
-      }
-      const pending = await pendingFor(id);
-      if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
-      if (!sameCode(deps.codeKey, pending, code)) {
-        const wrong = await db.accounts.wrongSignUpCode(pending.id);
-        if (wrong >= SIGN_UP_WRONG_CODES) {
-          await db.accounts.deletePendingSignUp(pending.id);
-          return res.status(410).json({ error: 'That code was wrong too many times; sign up again' });
-        }
-        return res.status(401).json({ error: 'That code is not the one we sent; check the email and try again' });
-      }
-      if (!await db.accounts.deletePendingSignUp(pending.id)) return res.status(410).json({ error: SIGN_UP_GONE });
-      if (await db.accounts.getUserByEmail(pending.email)) return res.status(410).json({ error: SIGN_UP_GONE });
-      const userId = uuidv4();
-      const inviteError = await claimHeldInvite(pending.inviteHash, userId, pending.email);
-      if (inviteError) return res.status(403).json({ error: inviteError });
-      const user = {
-        id: userId,
-        email: pending.email,
-        passwordHash: pending.passwordHash,
-        twoFactorEnabled: false,
-        emailVerified: true,
-        createdAt: new Date().toISOString(),
-      };
-      await db.accounts.saveUser(user);
-      await signInHere(req, res, user);
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  }));
-
   accountRoutes.post('/register/resend', asyncRoute(async (req, res) => {
     try {
       const pending = await pendingFor(bodyOf(req).id);
@@ -167,60 +128,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!await db.accounts.newSignUpCode(pending.id, codeHash(deps.codeKey, pending.id, pending.taken ? randomUUID() : sentCode), signUpExpiry(new Date()))) {
         return res.status(429).json({ error: 'We have sent this sign-up enough codes; sign up again' });
       }
-      const sending = pending.taken
-        ? await authService.emailCode(pending.email, takenAddressMail(APP_URL), undefined)
-        : await authService.sendSignUpCode(pending.email, sentCode);
+      const sending = await signUpMail(pending.email, pending.taken, sentCode);
       if (sending.kind === 'refused') return res.status(503).json({ error: sending.why });
-      res.json({ verify: pending.id, ...(sending.kind === 'shown' && sending.code ? { devCode: sending.code } : {}) });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  }));
-
-  accountRoutes.post('/login', asyncRoute(async (req, res) => {
-    try {
-      const { password, email } = bodyOf(req);
-      const account = normalEmail(email);
-      if (!account || typeof password !== 'string' || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
-      }
-      const user = await db.accounts.getUserByEmail(account);
-      const checked = await authService.checkPassword(account, user, password, devices.known(req), req.ip);
-      if (checked.kind === 'locked') return res.status(429).json({ error: checked.said });
-      if (checked.kind === 'wrong' || !user) return res.status(401).json({ error: 'Invalid email or password' });
-
-      if (user.removal) {
-        return res.status(403).json({ error: 'This account is being removed' });
-      }
-      if (user.twoFactorEnabled) {
-        const sent = await authService.sendCode(user, 'sign-in');
-        if (sent.kind === 'locked') return res.status(429).json({ error: sent.said });
-        return res.json({ twoFactorRequired: true, challenge: signJWT('two-factor', { twoFactorFor: user.id }, sessionKey, TWO_FACTOR_SECONDS) });
-      }
-
-      await signInHere(req, res, user);
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  }));
-
-  accountRoutes.post('/2fa/verify', asyncRoute(async (req, res) => {
-    try {
-      const { challenge, code } = bodyOf(req);
-      if (typeof challenge !== 'string' || typeof code !== 'string' || !code) {
-        return res.status(400).json({ error: 'The sign-in and its code are required' });
-      }
-      const userId: unknown = verifyJWT(challenge, 'two-factor', sessionKey)?.twoFactorFor;
-      const user = typeof userId === 'string' ? await db.accounts.getUserById(userId) : undefined;
-      if (!user || user.removal) {
-        return res.status(400).json({ error: 'This sign-in has expired; sign in again' });
-      }
-
-      const checked = await authService.checkCode(user.id, 'sign-in', code);
-      if (checked.kind === 'locked') return res.status(429).json({ error: checked.said });
-      if (checked.kind === 'wrong') return res.status(400).json({ error: 'Invalid or expired 2FA code' });
-
-      await signInHere(req, res, user);
+      res.json(toVerify(pending.id, sending));
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -250,8 +160,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     try {
       const user = userOf(req);
       if (!user) return res.status(401).json({ error: 'Not authenticated' });
-      await deps.revocations?.revoked({ personId: user.id, because: 'signed-out-everywhere', at: new Date().toISOString() });
-      await holdAccount(req, user);
+      await deps.revocations.revoked({ personId: user.id, because: 'signed-out-everywhere', at: new Date().toISOString(), kept: keptSession(req) });
       res.json({ ended: true });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -288,8 +197,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
       await db.accounts.saveUser(user);
-      await deps.revocations?.revoked({ personId: user.id, because: 'password-or-2fa', at: new Date().toISOString() });
-      await holdAccount(req, user);
+      await deps.revocations.revoked({ personId: user.id, because: 'password-or-2fa', at: new Date().toISOString(), kept: keptSession(req) });
       res.json({
         id: user.id,
         email: user.email,
@@ -304,32 +212,18 @@ export function authRouter(deps: AuthRouterDeps): Router {
   }));
 
   accountRoutes.get('/sign-in', (_req, res) => {
-    const answer: AccountsSignIn = { url: null, providers: deps.providers ? deps.providers.offered() : [] };
+    const answer: AccountsSignIn = { url: deps.start, providers: deps.providers ? deps.providers.offered() : [] };
     res.json(answer);
   });
-
-  accountRoutes.get('/provider/:id', asyncRoute(async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const started = deps.providers ? await deps.providers.start(String(req.params.id), typeof req.query.invite === 'string' ? req.query.invite : '') : { kind: 'unknown' as const };
-    if (started.kind === 'unknown') return res.status(404).json({ error: 'This server does not offer that way to sign in' });
-    if (started.kind === 'refused') return res.redirect(302, `${APP_URL}/?authError=${encodeURIComponent(started.why)}`);
-    res.cookie(stateCookie, started.cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
-    return res.redirect(302, started.url);
-  }));
 
   accountRoutes.get('/provider/:id/callback', asyncRoute(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const elsewhere = deps.providers?.returnedElsewhere(req.get('host'), req.originalUrl);
     if (elsewhere) return res.redirect(302, elsewhere);
-    const outcome = deps.providers
-      ? await deps.providers.finish(String(req.params.id), deps.providers.callbackUrl(req.originalUrl), getCookie(req, stateCookie), checkAndConsumeInvite)
-      : { kind: 'unknown' as const };
-    if (outcome.kind === 'unknown') return res.status(404).json({ error: 'This server does not offer that way to sign in' });
-    res.clearCookie(stateCookie, sessionCookieOptions);
-    if (outcome.kind === 'refused') return res.redirect(302, `${APP_URL}/?authError=${encodeURIComponent(outcome.why)}`);
-    if (outcome.kind === 'second-factor') return res.redirect(302, `${APP_URL}/?twoFactor=${encodeURIComponent(signJWT('two-factor', { twoFactorFor: outcome.user.id }, sessionKey, TWO_FACTOR_SECONDS))}`);
-    await holdAccount(req, outcome.user);
-    return res.redirect(302, `${APP_URL}/`);
+    const uid = getCookie(req, uidCookie);
+    if (!uid || !/^[\w-]+$/.test(uid)) return res.status(400).type('html').send(signInRefusedPage(INTERACTION_GONE, `${APP_URL}/`));
+    const search = new URL(req.originalUrl, APP_URL).search;
+    return res.redirect(302, `${deps.interactionPath}/${uid}/provider/${encodeURIComponent(String(req.params.id))}/callback${search}`);
   }));
   return router;
 }

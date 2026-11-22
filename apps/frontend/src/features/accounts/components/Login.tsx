@@ -1,23 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, Lock, LogIn, UserPlus, Github, Chrome, KeyRound, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
 import { errorMessage } from '../../../api/client';
-import { login, providerSignInUrl, resendSignUpCode, verifySignUp, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
+import { confirmSecondFactor, providerSignInUrl, register, resendSignUpCode, signIn, verifySignUp, type SignInAnswer } from '../../platform';
+import { safeHref } from '../../../shared/lib/safe-href';
 import { useSignInProviders } from '../hooks/useSignInProviders';
 import ForgotPassword from './ForgotPassword';
 
 interface LoginProps {
-  onSuccess: (user: SessionUser) => void;
+  resume: string;
+  start: string;
   invite?: { code: string; email?: string | undefined } | undefined;
 }
 
-export default function Login({ onSuccess, invite }: LoginProps) {
+const statusOf = (err: unknown): number | undefined => (err as { response?: { status?: number } }).response?.status;
+
+export default function Login({ resume, start, invite }: LoginProps) {
   const [isRegister, setIsRegister] = useState(Boolean(invite));
   const [email, setEmail] = useState(invite?.email ?? '');
   const [password, setPassword] = useState('');
   const [inviteCode, setInviteCode] = useState(invite?.code ?? '');
-  
+
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
-  const [challenge, setChallenge] = useState('');
   const [otpCode, setOtpCode] = useState('');
 
   const [signUpId, setSignUpId] = useState('');
@@ -32,22 +35,33 @@ export default function Login({ onSuccess, invite }: LoginProps) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const authError = params.get('authError');
-    const secondFactor = params.get('twoFactor');
+    const secondFactor = params.get('secondFactor');
     if (authError) {
       setError(authError);
       setIsRegister(true);
       params.delete('authError');
     }
     if (secondFactor) {
-      setChallenge(secondFactor);
       setTwoFactorRequired(true);
-      params.delete('twoFactor');
+      params.delete('secondFactor');
     }
     if (authError || secondFactor) {
       const rest = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
   }, []);
+
+  const goOn = (answer: SignInAnswer): void => {
+    const next = safeHref(answer.next);
+    if (next) return window.location.assign(next);
+    setError('The sign-in answered without saying where to go on; sign in again');
+  };
+
+  const failed = (err: unknown): void => {
+    const again = statusOf(err) === 410 ? safeHref(start) : undefined;
+    if (again) return window.location.assign(again);
+    setError(errorMessage(err));
+  };
 
   const handleNativeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,30 +70,26 @@ export default function Login({ onSuccess, invite }: LoginProps) {
     setLoading(true);
 
     try {
-      const data: LoginResult = await login(
-        isRegister ? { email, password, inviteCode } : { email, password },
-        { register: isRegister },
-      );
-
-      if (isRegister && data.verify) {
-        setSignUpId(data.verify);
-        setDevCode(data.devCode ?? '');
-        setSignUpCode('');
-        setPassword('');
-      } else if (isRegister) {
-        setMessage('Registration successful! Please sign in.');
-        setIsRegister(false);
-        setPassword('');
-      } else {
-        if (data.twoFactorRequired) {
-          setTwoFactorRequired(true);
-          setChallenge(data.challenge ?? '');
-        } else if (data.user) {
-          onSuccess(data.user);
+      if (isRegister) {
+        const data = await register({ email, password, inviteCode });
+        if (data.verify) {
+          setSignUpId(data.verify);
+          setDevCode(data.devCode ?? '');
+          setSignUpCode('');
+          setPassword('');
+        } else {
+          setMessage('Registration successful! Please sign in.');
+          setIsRegister(false);
+          setPassword('');
         }
+      } else {
+        const data = await signIn(resume, { email, password });
+        if (data.twoFactorRequired) setTwoFactorRequired(true);
+        else goOn(data);
       }
     } catch (err: unknown) {
-      setError(errorMessage(err));
+      if (isRegister) setError(errorMessage(err));
+      else failed(err);
     } finally {
       setLoading(false);
     }
@@ -91,11 +101,9 @@ export default function Login({ onSuccess, invite }: LoginProps) {
     setMessage('');
     setLoading(true);
     try {
-      const data = await verifySignUp({ id: signUpId, code: signUpCode });
-      if (data.user) onSuccess(data.user);
+      goOn(await verifySignUp(resume, { id: signUpId, code: signUpCode }));
     } catch (err: unknown) {
-      setError(errorMessage(err));
-      if ((err as { response?: { status?: number } }).response?.status === 410) setSignUpId('');
+      failed(err);
     } finally {
       setLoading(false);
     }
@@ -124,12 +132,9 @@ export default function Login({ onSuccess, invite }: LoginProps) {
     setLoading(true);
 
     try {
-      const data: LoginResult = await verifyTwoFactor({ challenge, code: otpCode });
-      if (data.user) {
-        onSuccess(data.user);
-      }
+      goOn(await confirmSecondFactor(resume, otpCode));
     } catch (err) {
-      setError(errorMessage(err));
+      failed(err);
     } finally {
       setLoading(false);
     }
@@ -137,7 +142,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
 
   const { providers, unreadable: providersUnreadable } = useSignInProviders();
   const handleProviderSignIn = (id: string) => {
-    window.location.href = providerSignInUrl(id, isRegister && inviteCode ? inviteCode : undefined);
+    window.location.href = providerSignInUrl(resume, id, isRegister && inviteCode ? inviteCode : undefined);
   };
 
   return (

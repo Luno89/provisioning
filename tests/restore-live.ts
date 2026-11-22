@@ -11,6 +11,9 @@ import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/no
 import { restoreRunNames, restoreRunStamp } from './lib/restore-lab.js';
 import { mailCheckFrom } from '../apps/backend/src/platform/lib/mail-reputation.js';
 import { until, waiting } from './lib/until.js';
+import { labFetch } from './lib/lab-fetch.js';
+import { browsing } from './lib/browsing.js';
+import { signInWithPassword } from '../apps/backend/src/accounts/services/sign-in/password-at-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const DOMAIN = 'koala.internal';
@@ -114,8 +117,12 @@ function offeredBy(root: Root, ca: string): { id: string; label: string }[] {
 async function signsInWithStandIn(root: Root, ca: string, label: string): Promise<void> {
   assert.deepEqual(offeredBy(root, ca), [{ id: 'oidc', label: SIGN_IN_LABEL }], `${label} does not offer the stand-in issuer`);
   const started = await until(`${label} starting a sign-in with the stand-in issuer`, async () => {
-    const answer = https(root.tlsPort, ca, '/api/auth/provider/oidc');
-    return answer.status === 302 && answer.location.startsWith(`${issuer!.issuer}/auth?`) ? answer : waiting(`HTTP ${answer.status}, location ${String(answer.location).slice(0, 200)}`);
+    const browser = browsing(`https://app.${DOMAIN}:${root.tlsPort}`, { send: labFetch(ca) });
+    const resumed = await browser.resume().catch((err: Error) => err);
+    if (resumed instanceof Error) return waiting(resumed.message.slice(0, 200));
+    const answer = await browser.hop(`${resumed}/provider/oidc`);
+    const location = answer.headers.get('location') ?? '';
+    return answer.status === 302 && location.startsWith(`${issuer!.issuer}/auth?`) ? { location } : waiting(`HTTP ${answer.status}, location ${location.slice(0, 200)}`);
   }, () => root.vm.gone());
   const asked = new URL(started.location).searchParams;
   assert.equal(asked.get('client_id'), issuer!.clientId, `${label} asked the issuer as another client`);
@@ -262,8 +269,7 @@ async function main(): Promise<void> {
   step('the first root holds an account, an instance, a node on its mesh and Temporal\'s history');
   const setupCode = (await sh(first.vm, `sudo grep '^ADMIN_SETUP_CODE=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
   assert.equal(https(first.tlsPort, firstCa, '/api/auth/register', { method: 'POST', body: { email: EMAIL, password: PASSWORD, inviteCode: setupCode } }).status, 200);
-  const signedIn = https(first.tlsPort, firstCa, '/api/auth/login', { method: 'POST', body: { email: EMAIL, password: PASSWORD } });
-  assert.equal(signedIn.status, 200, signedIn.body);
+  const signedIn = await signInWithPassword(`https://app.${DOMAIN}:${first.tlsPort}`, { email: EMAIL, password: PASSWORD }, labFetch(firstCa));
   const owner = (JSON.parse(https(first.tlsPort, firstCa, '/api/auth/me', { cookie: signedIn.cookie }).body) as { user?: { id: string }; id?: string });
   const ownerId = owner.user?.id ?? owner.id;
   assert.ok(ownerId, 'the account has no id');
@@ -308,8 +314,7 @@ async function main(): Promise<void> {
 
   step('the restored root is the first one: the same certificate authority, account, instance, mesh and history');
   assert.equal(https(second.tlsPort, firstCa, '/api/identity/keys').status, 200, 'the restored root does not serve the first root\'s certificates');
-  const again = https(second.tlsPort, firstCa, '/api/auth/login', { method: 'POST', body: { email: EMAIL, password: PASSWORD } });
-  assert.equal(again.status, 200, `the owner could not sign in on the restored root: ${again.body}`);
+  const again = await signInWithPassword(`https://app.${DOMAIN}:${second.tlsPort}`, { email: EMAIL, password: PASSWORD }, labFetch(firstCa)).catch((err: Error) => assert.fail(`the owner could not sign in on the restored root: ${err.message}`));
   const old = https(second.tlsPort, firstCa, '/api/auth/me', { cookie: signedIn.cookie });
   assert.equal(old.status, 200, 'a session the first root signed is refused by the restored one, so its session key was not restored');
   const mine = JSON.parse(https(second.tlsPort, firstCa, '/api/instances/mine', { cookie: again.cookie }).body) as { instance?: { id: string } };

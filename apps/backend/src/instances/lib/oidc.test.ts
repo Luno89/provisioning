@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
   asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, clientAt, claimsShaped, clientMetadata, instanceClient,
-  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal, signInWaitingFor,
+  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor,
 } from './oidc.js';
 
 const keys = identityKeysFrom(generateIdentityKey());
@@ -17,6 +17,26 @@ describe('who root signs in where', () => {
   it('issues an instance\'s owner the operator and owner claims there, and anyone else only a person\'s', () => {
     expect(claimsFor({ id: 'u1' }, { kind: 'instance', owner: 'u1' })).toEqual([{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }]);
     expect(claimsFor({ id: 'u2', roles: ['operator'] }, { kind: 'instance', owner: 'u1' })).toEqual([{ role: 'person' }]);
+  });
+
+  it('signs anyone in to root\'s own web app, with the claims root gives them', () => {
+    expect(signInRefusal({ kind: 'root-web' }, 'u2')).toBeUndefined();
+    expect(claimsFor({ id: 'u1', roles: ['operator'] }, { kind: 'root-web' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
+    expect(claimsFor({ id: 'u2' }, { kind: 'root-web' })).toEqual([{ role: 'person' }]);
+  });
+
+  it('describes root\'s own web app as a client signing in back at root, by the key root made as it started, with no back-channel', () => {
+    const metadata = rootWebMetadata('https://koala.example.com/', jwk);
+    expect(metadata).toMatchObject({
+      client_id: ROOT_WEB_CLIENT,
+      redirect_uris: [`https://koala.example.com${CALLBACK_PATH}`],
+      post_logout_redirect_uris: ['https://koala.example.com/'],
+      grant_types: ['authorization_code', 'refresh_token'],
+      token_endpoint_auth_method: 'private_key_jwt',
+      koala_kind: 'root-web',
+      jwks: { keys: [{ ...jwk, alg: 'Ed25519', use: 'sig' }] },
+    });
+    expect(metadata).not.toHaveProperty('backchannel_logout_uri');
   });
 
   it('reads back only claims it could have issued', () => {

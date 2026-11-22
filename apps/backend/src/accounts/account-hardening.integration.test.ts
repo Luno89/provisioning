@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { startThreeRoles, until, waiting, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { textOf, type Received, type SmtpSink } from '../platform/testing/smtp-sink.js';
 import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import { interactionAt, type Interaction } from './testing/interaction-driver.js';
 
 interface Answer { status: number; cookie: string | undefined; body: unknown }
 
@@ -66,6 +67,23 @@ const invite = async () => {
   return (minted.body as { code: string }).code;
 };
 const wrongFor = (code: string) => (code === '000000' ? '111111' : '000000');
+
+interface AtRoot extends Answer { interaction: Interaction }
+
+const throughRoot = async (interaction: Interaction, sent: Promise<Response>): Promise<AtRoot> => {
+  const response = await sent;
+  const body = await response.json() as { next?: string };
+  const cookie = response.status === 200 && body.next ? (await interaction.followed(body.next)).cookie : undefined;
+  return { status: response.status, cookie, body, interaction };
+};
+const logIn = async (email: string, password: string): Promise<AtRoot> => {
+  const interaction = await interactionAt(root.url);
+  return throughRoot(interaction, interaction.login({ email, password }));
+};
+const signedUp = async (id: string, code: string): Promise<AtRoot> => {
+  const interaction = await interactionAt(root.url);
+  return throughRoot(interaction, interaction.signUp(id, code));
+};
 const fresh = (who: string) => `${who}-${randomBytes(12).toString('base64url')}`;
 
 const patEmail = `pat-${STAMP}@hardening.test`;
@@ -100,7 +118,7 @@ describe('an account is hard to take over, on a root of its own beside an instan
     const registered = await rootCall('/api/auth/register', { body: { email: patEmail, password: patPassword, inviteCode: patInvite } });
     expect(registered.status, JSON.stringify(registered.body)).toBe(200);
     expect(Object.keys(registered.body as object)).toEqual(['verify']);
-    const verified = await rootCall('/api/auth/register/verify', { body: { id: (registered.body as { verify: string }).verify, code: await mailed(patEmail, SUBJECTS.signUp, from) } });
+    const verified = await signedUp((registered.body as { verify: string }).verify, await mailed(patEmail, SUBJECTS.signUp, from));
     expect(verified.status, JSON.stringify(verified.body)).toBe(200);
     patCookie = verified.cookie;
     expect(patCookie).toBeTruthy();
@@ -109,7 +127,7 @@ describe('an account is hard to take over, on a root of its own beside an instan
     const quinn = await rootCall('/api/auth/register', { body: { email: quinnEmail, password: fresh('quinn'), inviteCode: await invite() } });
     expect(quinn.status, JSON.stringify(quinn.body)).toBe(200);
     expect(Object.keys(quinn.body as object)).toEqual(['verify']);
-    const quinnVerified = await rootCall('/api/auth/register/verify', { body: { id: (quinn.body as { verify: string }).verify, code: await mailed(quinnEmail, SUBJECTS.signUp, quinnFrom) } });
+    const quinnVerified = await signedUp((quinn.body as { verify: string }).verify, await mailed(quinnEmail, SUBJECTS.signUp, quinnFrom));
     expect(quinnVerified.status, JSON.stringify(quinnVerified.body)).toBe(200);
     expect(quinnVerified.cookie).toBeTruthy();
   });
@@ -154,29 +172,29 @@ describe('an account is hard to take over, on a root of its own beside an instan
       return status === 401 ? true : waiting(`the instance answers ${status}`);
     });
     expect(await keptSocket.closed).toBe('io server disconnect');
-    const ownerAgain = await rootCall('/api/auth/login', { body: { email: owner.email, password: ownerPassword } });
+    const ownerAgain = await logIn(owner.email, ownerPassword);
     expect(ownerAgain.status, JSON.stringify(ownerAgain.body)).toBe(200);
     owner.cookie = ownerAgain.cookie!;
   });
 
-  it('changing a password asks for the current one, and ends every other session', async () => {
-    const elsewhere = (await rootCall('/api/auth/login', { body: { email: patEmail, password: patPassword } })).cookie;
+  it('changing a password asks for the current one, and ends every other session, keeping the one it was changed in', async () => {
+    const elsewhere = (await logIn(patEmail, patPassword)).cookie;
     expect(await me(elsewhere)).toBe(200);
     const nextPassword = fresh('pat');
     expect((await rootCall('/api/auth/password', { body: { password: nextPassword }, cookie: patCookie })).status).toBe(403);
     expect((await rootCall('/api/auth/password', { body: { password: nextPassword, current: 'not-the-password' }, cookie: patCookie })).status).toBe(403);
     const changed = await rootCall('/api/auth/password', { body: { password: nextPassword, current: patPassword }, cookie: patCookie });
     expect(changed.status, JSON.stringify(changed.body)).toBe(200);
-    expect([await me(elsewhere), await me(patCookie), await me(changed.cookie)]).toEqual([401, 401, 200]);
+    expect(changed.cookie).toBe(patCookie);
+    expect([await me(elsewhere), await me(patCookie)]).toEqual([401, 200]);
     patPassword = nextPassword;
-    patCookie = changed.cookie;
   });
 
   it('two-factor goes on only with the password, and then a risky change is refused without a current code', async () => {
     expect((await rootCall('/api/auth/2fa/settings', { body: { enabled: true, preferredMethod: 'email' }, cookie: patCookie })).status).toBe(403);
     const on = await rootCall('/api/auth/2fa/settings', { body: { enabled: true, preferredMethod: 'email', password: patPassword }, cookie: patCookie });
     expect(on.status, JSON.stringify(on.body)).toBe(200);
-    patCookie = on.cookie;
+    expect(on.cookie).toBe(patCookie);
     expect(((await rootCall('/api/auth/me', { cookie: patCookie })).body as { confirmWith: string }).confirmWith).toBe('two-factor');
     for (const [path, method, body] of [
       ['/api/auth/2fa/settings', 'POST', { enabled: false, password: patPassword }],
@@ -194,7 +212,7 @@ describe('an account is hard to take over, on a root of its own beside an instan
     const withCode = await rootCall('/api/auth/password', { body: { password: withCodePassword, current: patPassword, code: confirmCode }, cookie: patCookie });
     expect(withCode.status, JSON.stringify(withCode.body)).toBe(200);
     patPassword = withCodePassword;
-    patCookie = withCode.cookie;
+    expect(withCode.cookie).toBe(patCookie);
     expect(await me(patCookie)).toBe(200);
   });
 
@@ -216,25 +234,27 @@ describe('an account is hard to take over, on a root of its own beside an instan
   it('wrong two-factor codes count per account across sign-ins: a fresh password sign-in does not start the count again', async () => {
     const signIn = async () => {
       const from = mail.received.length;
-      const answer = await rootCall('/api/auth/login', { body: { email: patEmail, password: patPassword } });
-      if (answer.status !== 200) return { status: answer.status, body: answer.body, challenge: '', code: '' };
-      return { status: answer.status, body: answer.body, challenge: (answer.body as { challenge: string }).challenge, code: await mailed(patEmail, SUBJECTS.signIn, from) };
+      const answer = await logIn(patEmail, patPassword);
+      if (answer.status !== 200) return { ...answer, code: '' };
+      expect(answer.body).toEqual({ twoFactorRequired: true });
+      return { ...answer, code: await mailed(patEmail, SUBJECTS.signIn, from) };
     };
-    const verify = (challenge: string, code: string) => rootCall('/api/auth/2fa/verify', { body: { challenge, code } });
+    const verify = (at: AtRoot, code: string) => throughRoot(at.interaction, at.interaction.secondFactor(code));
     const signedInNow = await signIn();
-    const throughCode = await verify(signedInNow.challenge, signedInNow.code);
+    const throughCode = await verify(signedInNow, signedInNow.code);
     expect(throughCode.status, JSON.stringify(throughCode.body)).toBe(200);
     stillSignedIn = throughCode.cookie;
+    expect(await me(stillSignedIn)).toBe(200);
     const first = await signIn();
     expect(first.status, JSON.stringify(first.body)).toBe(200);
-    for (let n = 0; n < 3; n += 1) expect((await verify(first.challenge, wrongFor(first.code))).status).toBe(400);
+    for (let n = 0; n < 3; n += 1) expect((await verify(first, wrongFor(first.code))).status).toBe(400);
     const second = await signIn();
     expect(second.status, JSON.stringify(second.body)).toBe(200);
-    expect((await verify(second.challenge, wrongFor(second.code))).status).toBe(400);
-    const locked = await verify(second.challenge, wrongFor(second.code));
+    expect((await verify(second, wrongFor(second.code))).status).toBe(400);
+    const locked = await verify(second, wrongFor(second.code));
     expect(locked.status, JSON.stringify(locked.body)).toBe(429);
-    expect((await verify(second.challenge, second.code)).status).toBe(429);
-    const third = await rootCall('/api/auth/login', { body: { email: patEmail, password: patPassword } });
+    expect((await verify(second, second.code)).status).toBe(429);
+    const third = await logIn(patEmail, patPassword);
     expect(third.status, JSON.stringify(third.body)).toBe(429);
     expect((third.body as { error: string }).error).toMatch(/wrong codes/);
   });
@@ -242,8 +262,8 @@ describe('an account is hard to take over, on a root of its own beside an instan
   it('ten wrong passwords lock the account to other browsers and tell its person once, ending none of their sessions; the lock and a signed-out session both survive root restarting', async () => {
     onTestFailed(() => console.log(`── root ──\n${root.logs(80)}`));
     const stillOpen = await opened(root.url, stillSignedIn);
-    for (let n = 0; n < 10; n += 1) expect((await rootCall('/api/auth/login', { body: { email: patEmail, password: `wrong-${n}-password` } })).status).toBe(401);
-    const lockedOut = await rootCall('/api/auth/login', { body: { email: patEmail, password: patPassword } });
+    for (let n = 0; n < 10; n += 1) expect((await logIn(patEmail, `wrong-${n}-password`)).status).toBe(401);
+    const lockedOut = await logIn(patEmail, patPassword);
     expect(lockedOut.status, JSON.stringify(lockedOut.body)).toBe(429);
     expect((lockedOut.body as { error: string }).error).toMatch(/failed sign-ins/);
     await until('the lock mail to arrive', async () => {
@@ -259,7 +279,7 @@ describe('an account is hard to take over, on a root of its own beside an instan
     expect(stillOpen.socket.connected).toBe(true);
     await root.stop();
     await root.start();
-    const stillLocked = await rootCall('/api/auth/login', { body: { email: patEmail, password: patPassword } });
+    const stillLocked = await logIn(patEmail, patPassword);
     expect(stillLocked.status, JSON.stringify(stillLocked.body)).toBe(429);
     expect(await me(signedOutCookie)).toBe(401);
     expect(await me(owner.cookie)).toBe(200);

@@ -35,13 +35,14 @@ export const getMe = (): Promise<SessionUser | null> =>
 export const logout = (): Promise<string | undefined> =>
   api.post<{ endSession?: string }>('/auth/logout', {}).then((r) => r.data.endSession)
 
-export interface LoginResult {
-  user?: SessionUser
+export interface SignInAnswer {
+  next?: string
   twoFactorRequired?: boolean
-  challenge?: string
+}
+
+export interface SignUpAnswer {
   verify?: string
   devCode?: string
-  error?: string
 }
 
 export interface SignUpCode {
@@ -49,31 +50,32 @@ export interface SignUpCode {
   devCode?: string
 }
 
-export const login = (
-  credentials: { email: string; password: string; inviteCode?: string },
-  opts: { register?: boolean } = {},
-): Promise<LoginResult> =>
-  api
-    .post<LoginResult>(opts.register ? '/auth/register' : '/auth/login', credentials)
-    .then((r) => r.data)
+const site = (): { baseURL: string } => ({ baseURL: API_BASE.replace(/\/api$/, '') })
 
-export const verifySignUp = (body: { id: string; code: string }): Promise<LoginResult> =>
-  api.post<LoginResult>('/auth/register/verify', body).then((r) => r.data)
+export const register = (credentials: { email: string; password: string; inviteCode?: string }): Promise<SignUpAnswer> =>
+  api.post<SignUpAnswer>('/auth/register', credentials).then((r) => r.data)
+
+export const signIn = (resume: string, credentials: { email: string; password: string }): Promise<SignInAnswer> =>
+  api.post<SignInAnswer>(`${resume}/login`, credentials, site()).then((r) => r.data)
+
+export const confirmSecondFactor = (resume: string, code: string): Promise<SignInAnswer> =>
+  api.post<SignInAnswer>(`${resume}/second-factor`, { code }, site()).then((r) => r.data)
+
+export const verifySignUp = (resume: string, body: { id: string; code: string }): Promise<SignInAnswer> =>
+  api.post<SignInAnswer>(`${resume}/sign-up/verify`, body, site()).then((r) => r.data)
 
 export const resendSignUpCode = (id: string): Promise<SignUpCode> =>
   api.post<SignUpCode>('/auth/register/resend', { id }).then((r) => r.data)
-
-export const verifyTwoFactor = (body: { challenge: string; code: string }): Promise<LoginResult> =>
-  api.post<LoginResult>('/auth/2fa/verify', body).then((r) => r.data)
 
 export interface SignInProvider {
   id: string
   label: string
 }
 
-export type SignInPlace =
-  | { url: null; providers: SignInProvider[] }
-  | { url: string }
+export interface SignInPlace {
+  url: string
+  providers?: SignInProvider[]
+}
 
 export const signInKeys = {
   place: () => ['auth', 'sign-in'] as const,
@@ -82,8 +84,8 @@ export const signInKeys = {
 export const signInPlace = (): Promise<SignInPlace> =>
   api.get<SignInPlace>('/auth/sign-in').then((r) => r.data)
 
-export const providerSignInUrl = (id: string, invite?: string): string =>
-  `${API_BASE.replace(/\/api$/, '')}/api/auth/provider/${encodeURIComponent(id)}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`
+export const providerSignInUrl = (resume: string, id: string, invite?: string): string =>
+  `${site().baseURL}${resume}/provider/${encodeURIComponent(id)}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`
 
 export const accountRemovalPlace = (): Promise<string | null> =>
   api.get<{ url: string | null }>('/auth/account-removal').then((r) => r.data.url)

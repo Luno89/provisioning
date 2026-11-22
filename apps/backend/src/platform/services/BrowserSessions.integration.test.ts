@@ -45,12 +45,10 @@ async function backendOf(role: PlatformRole, publicUrl: string): Promise<number>
   const sessions = browserSessionsFor(role, publicUrl, { store: memoryDatabase().platform, secret: `behind-caddy-${role}` });
   app.use(sessions.handle);
   app.post('/hold', (req, res, next) => {
-    const held = role === 'root'
-      ? sessions.holdAccount(req, { sub: 'ann', sessionAt: 1 })
-      : sessions.hold(req, { sub: 'ann', email: 'ann@example.com', claims: [{ role: 'person' }], sessionAt: 1, accessExp: 2, rootSid: 'r', tokens: { access: 'a', refresh: 'r', id: 'i' } });
-    held.then(() => res.json({ ip: req.ip, secure: req.secure }), next);
+    sessions.hold(req, { sub: 'ann', email: 'ann@example.com', claims: [{ role: 'person' }], sessionAt: 1, accessExp: 2, rootSid: 'r', tokens: { access: 'a', refresh: 'r', id: 'i' } })
+      .then(() => res.json({ ip: req.ip, secure: req.secure }), next);
   });
-  app.get('/me', (req, res) => { res.json({ sub: req.session.account?.sub ?? req.session.person?.sub ?? null }); });
+  app.get('/me', (req, res) => { res.json({ sub: req.session.person?.sub ?? null }); });
   const server = createServer(app);
   servers.push(server);
   await new Promise<void>((done) => server.listen(0, LOOPBACK, done));

@@ -4,6 +4,8 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authRouter } from './auth.js';
+import { devicesFor } from './device.js';
+import { INTERACTION_GONE } from './interaction.js';
 import { rootAuthOver } from '../../platform/testing/root-auth.js';
 import { PasswordService } from '../services/PasswordService.js';
 import { breachedFrom } from '../lib/passwords.js';
@@ -13,7 +15,8 @@ import { AuthService } from '../services/AuthService.js';
 import { SignInProviders } from '../services/sign-in/SignInProviders.js';
 import { GITHUB_ISSUER, providerCallbackUrl, signInProvidersFrom, type SignInProvider } from '../lib/sign-in-providers.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
-import { signJWT } from '../../platform/lib/auth.js';
+import { INTERACTION_PATH, START_PATH } from '../../instances/lib/oidc.js';
+import { interactionAt, type Interaction } from '../testing/interaction-driver.js';
 import { startStandInIssuer, type StandInIssuer } from '../testing/stand-in-issuer.js';
 import { openRoutesOf } from '../../open-routes.js';
 
@@ -76,23 +79,51 @@ async function standInGithub(): Promise<StandInGithub> {
 const CODE_KEY = 'the-data-key-codes-are-kept-with';
 
 async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[], returnUrl?: string) {
-  const { auth } = rootAuthOver(db, { publicUrl: url, open: openRoutesOf('root'), setupCode: SETUP_CODE });
+  const root = rootAuthOver(db, { publicUrl: url, open: openRoutesOf('root'), setupCode: SETUP_CODE });
+  const { auth } = root;
   const authService = new AuthService(db, { codeKey: CODE_KEY });
+  const signInProviders = new SignInProviders({ providers, publicUrl: url, returnUrl, accounts: authService });
   const app = express();
   app.use(express.json());
   app.use('/api', auth.requireAuth);
+  root.mount(app, { authService, codeKey: CODE_KEY, appUrl: APP_URL, providers: signInProviders, devices: devicesFor({ auth, sessionKey: SESSION_KEY, authService }) });
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: APP_URL,
-    providers: new SignInProviders({ providers, publicUrl: url, returnUrl, sessionKey: SESSION_KEY, accounts: authService }),
+    db, authService, auth, sessionKey: SESSION_KEY, codeKey: CODE_KEY, appUrl: APP_URL, start: START_PATH, interactionPath: INTERACTION_PATH,
+    revocations: root.revocations,
+    providers: signInProviders,
     passwords: new PasswordService({ db, codeKey: CODE_KEY, auth: authService, breached: breachedFrom('') }),
   }));
   server.on('request', app);
   return { server, authService, url };
 }
 
-const cookieOf = (answer: Response): string => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('oauth_state=')) ?? '';
-const sessionOf = (answer: Response): string | undefined => answer.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^koala_sid=./.test(pair));
-const errorOf = (answer: Response): string | null => new URL(answer.headers.get('location')!).searchParams.get('authError');
+interface Returned {
+  answer: Response;
+  location: URL | undefined;
+  session: string | undefined;
+}
+
+const cookiesIn = (interaction: Interaction): string => [...interaction.jar].map(([name, value]) => `${name}=${value}`).join('; ');
+const errorOf = (returned: Returned): string | null => returned.location?.searchParams.get('authError') ?? null;
+const uidOf = (interaction: Interaction): string => interaction.path.split('/').at(-1)!;
+
+async function finished(interaction: Interaction, at: string, answer: Response): Promise<Returned> {
+  const location = answer.headers.get('location');
+  const url = location ? new URL(location, at) : undefined;
+  if (!url || url.searchParams.has('resume')) return { answer, location: url, session: undefined };
+  const landed = await interaction.onward(answer, (next) => next.hash.startsWith('#'));
+  const held = [...interaction.jar].find(([name]) => name === 'koala_sid');
+  const session = held ? `${held[0]}=${held[1]}` : undefined;
+  const me = await fetch(`${at}/api/auth/me`, { headers: { cookie: session ?? '' } });
+  return { answer, location: landed, session: me.status === 200 ? session : undefined };
+}
+
+async function cameBack(interaction: Interaction, at: string, callback: URL, cookie: string = cookiesIn(interaction)): Promise<Returned> {
+  const back = await fetch(callback, { redirect: 'manual', headers: cookie ? { cookie } : {} });
+  if (back.status !== 302) return { answer: back, location: undefined, session: undefined };
+  const onward = new URL(back.headers.get('location')!, at);
+  return finished(interaction, at, await interaction.ask(`${onward.pathname}${onward.search}`));
+}
 
 describe('signing in with an OpenID provider and with GitHub', () => {
   let db: Database;
@@ -118,16 +149,19 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     await new Promise<void>((resolve) => { app.server.closeAllConnections(); app.server.close(() => resolve()); });
   });
 
-  const start = (id: string, invite?: string) => fetch(`${app.url}/api/auth/provider/${id}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`, { redirect: 'manual' });
+  const start = async (id: string, invite?: string) => {
+    const interaction = await interactionAt(app.url);
+    const started = await interaction.ask(`${interaction.path}/provider/${id}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`);
+    return { interaction, started };
+  };
 
-  async function signIn(id: 'oidc' | 'github', invite?: string, back: (callback: URL) => URL = (callback) => callback, cookie?: (started: string) => string) {
-    const started = await start(id, invite);
+  async function signIn(id: 'oidc' | 'github', invite?: string, back: (callback: URL) => URL = (callback) => callback, cookie?: (interaction: Interaction) => string) {
+    const { interaction, started } = await start(id, invite);
     expect(started.status).toBe(302);
-    const stateCookie = cookieOf(started);
-    expect(stateCookie).toMatch(/^oauth_state=/);
+    expect(interaction.jar.get('koala_interaction')).toBe(uidOf(interaction));
     const callback = id === 'oidc' ? await issuer.authorize(started.headers.get('location')!) : await githubAuthorize(started.headers.get('location')!);
     expect(callback.href.startsWith(`${app.url}/api/auth/provider/${id}/callback?`)).toBe(true);
-    return fetch(back(callback), { redirect: 'manual', headers: { cookie: cookie ? cookie(stateCookie) : stateCookie } });
+    return cameBack(interaction, app.url, back(callback), cookie ? cookie(interaction) : undefined);
   }
 
   async function githubAuthorize(location: string): Promise<URL> {
@@ -136,13 +170,14 @@ describe('signing in with an OpenID provider and with GitHub', () => {
   }
 
   it('lists only the providers configured, and starting any other answers 404', async () => {
-    expect(await (await fetch(`${app.url}/api/auth/sign-in`)).json()).toEqual({ url: null, providers: [{ id: 'oidc', label: 'Stand-in' }, { id: 'github', label: 'GitHub' }] });
-    expect((await start('google')).status).toBe(404);
-    expect((await fetch(`${app.url}/api/auth/provider/google/callback?code=x&state=y`, { redirect: 'manual' })).status).toBe(404);
+    expect(await (await fetch(`${app.url}/api/auth/sign-in`)).json()).toEqual({ url: START_PATH, providers: [{ id: 'oidc', label: 'Stand-in' }, { id: 'github', label: 'GitHub' }] });
+    const { interaction, started } = await start('google');
+    expect(started.status).toBe(404);
+    expect((await interaction.ask(`${interaction.path}/provider/google/callback?code=x&state=y`)).status).toBe(404);
   });
 
   it('asks the provider with PKCE (S256), a state and a nonce, for openid, email and profile only', async () => {
-    const started = await start('oidc');
+    const { started } = await start('oidc');
     const asked = new URL(started.headers.get('location')!).searchParams;
     expect(asked.get('code_challenge_method')).toBe('S256');
     expect(asked.get('code_challenge')).toMatch(/^[\w-]{43}$/);
@@ -158,13 +193,13 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     issuer.signInAs({ sub: 'sub-ann', email: 'ann@example.com', email_verified: true });
 
     const uninvited = await signIn('oidc');
-    expect(sessionOf(uninvited)).toBeUndefined();
+    expect(uninvited.session).toBeUndefined();
     expect(errorOf(uninvited)).toMatch(/invite/i);
     expect(await db.accounts.getUserByEmail('ann@example.com')).toBeUndefined();
 
     const invited = await signIn('oidc', 'INVITE-1');
-    expect(invited.headers.get('location')).toBe(`${APP_URL}/`);
-    const session = sessionOf(invited)!;
+    expect(`${invited.location!.origin}${invited.location!.pathname}${invited.location!.hash}`).toBe(`${app.url}/#/`);
+    const session = invited.session!;
     expect(session).toBeTruthy();
     const made = await db.accounts.getUserByEmail('ann@example.com');
     expect(made).toMatchObject({ emailVerified: true, signInLinks: [{ issuer: issuer.issuer, subject: 'sub-ann' }] });
@@ -172,8 +207,8 @@ describe('signing in with an OpenID provider and with GitHub', () => {
 
     issuer.signInAs({ sub: 'sub-ann', email: 'ann-renamed@example.com', email_verified: false });
     const later = await signIn('oidc');
-    expect(later.headers.get('location')).toBe(`${APP_URL}/`);
-    expect(sessionOf(later)).toBeTruthy();
+    expect(`${later.location!.pathname}${later.location!.hash}`).toBe('/#/');
+    expect(later.session).toBeTruthy();
     expect((await db.accounts.getUsers()).length).toBe(2);
   });
 
@@ -191,8 +226,8 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     await db.accounts.saveUser({ ...ann, emailVerified: true, twoFactorEnabled: true });
     vi.spyOn(app.authService, 'send2FACode').mockResolvedValue(undefined);
     const asked = await signIn('oidc');
-    expect(new URL(asked.headers.get('location')!).searchParams.get('twoFactor')).toBeTruthy();
-    expect(sessionOf(asked)).toBeUndefined();
+    expect(asked.location!.searchParams.get('secondFactor')).toBe('1');
+    expect(asked.session).toBeUndefined();
     expect((await db.accounts.getUserById('ann'))?.signInLinks).toEqual([{ issuer: issuer.issuer, subject: 'sub-ann' }]);
 
     issuer.signInAs({ sub: 'sub-someone-else', email: 'ann@example.com', email_verified: true });
@@ -202,9 +237,16 @@ describe('signing in with an OpenID provider and with GitHub', () => {
   it('refuses a sign-in coming back to another browser, with another state, or to another provider\'s callback', async () => {
     await db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString(), signInLinks: [{ issuer: issuer.issuer, subject: 'sub-ann' }] });
     issuer.signInAs({ sub: 'sub-ann', email: 'ann@example.com', email_verified: true });
-    const elsewhere = await signIn('oidc', undefined, undefined, () => '');
+    const nowhere = await signIn('oidc', undefined, undefined, () => '');
+    expect(nowhere.answer.status).toBe(400);
+    expect(await nowhere.answer.text()).toContain(INTERACTION_GONE);
+    expect(nowhere.session).toBeUndefined();
+
+    const another = await start('oidc');
+    const mine = await start('oidc');
+    const elsewhere = await cameBack(another.interaction, app.url, await issuer.authorize(mine.started.headers.get('location')!));
     expect(errorOf(elsewhere)).toContain('did not start here');
-    expect(sessionOf(elsewhere)).toBeUndefined();
+    expect(elsewhere.session).toBeUndefined();
 
     const otherState = await signIn('oidc', undefined, (callback) => { const changed = new URL(callback); changed.searchParams.set('state', 'A'.repeat(32)); return changed; });
     expect(errorOf(otherState)).toContain('did not start here');
@@ -212,7 +254,7 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     const crossed = await signIn('oidc', undefined, (callback) => new URL(`${callback.pathname.replace('/oidc/', '/github/')}${callback.search}`, callback));
     expect(errorOf(crossed)).toContain('did not start here');
 
-    expect(sessionOf(await signIn('oidc'))).toBeTruthy();
+    expect((await signIn('oidc')).session).toBeTruthy();
   });
 
   it.each([
@@ -225,18 +267,18 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     issuer.signInAs({ sub: 'sub-ann', email: 'ann@example.com', email_verified: true });
     issuer.mischief(mischief);
     const refused = await signIn('oidc');
-    expect(sessionOf(refused)).toBeUndefined();
+    expect(refused.session).toBeUndefined();
     expect(errorOf(refused)).toMatch(/^Stand-in did not sign you in: /);
     expect(errorOf(refused)).toMatch(said);
     issuer.mischief('none');
-    expect(sessionOf(await signIn('oidc'))).toBeTruthy();
+    expect((await signIn('oidc')).session).toBeTruthy();
   });
 
   it('signs in with GitHub through PKCE, by the account id and its primary verified address', async () => {
     await db.accounts.saveUser({ id: 'octo', email: 'octo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
     const signedIn = await signIn('github');
-    expect(signedIn.headers.get('location')).toBe(`${APP_URL}/`);
-    expect(sessionOf(signedIn)).toBeTruthy();
+    expect(`${signedIn.location!.pathname}${signedIn.location!.hash}`).toBe('/#/');
+    expect(signedIn.session).toBeTruthy();
     expect(github.challenges).toHaveLength(1);
     expect((await db.accounts.getUserById('octo'))?.signInLinks).toEqual([{ issuer: GITHUB_ISSUER, subject: '4242' }]);
 
@@ -248,13 +290,15 @@ describe('signing in with an OpenID provider and with GitHub', () => {
   it.each(['oidc', 'github'] as const)('refuses a %s code exchanged with another verifier than the one its challenge came from', async (id) => {
     await db.accounts.saveUser({ id: 'ann', email: 'octo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
     issuer.signInAs({ sub: 'sub-ann', email: 'octo@example.com', email_verified: true });
-    const started = await start(id);
+    const { interaction, started } = await start(id);
     const location = started.headers.get('location')!;
     const callback = id === 'oidc' ? await issuer.authorize(location) : await githubAuthorize(location);
-    const state = callback.searchParams.get('state')!;
-    const forged = `oauth_state=${signJWT('oauth-state', { oauthState: state, carried: '', held: { provider: id, verifier: randomBytes(32).toString('base64url'), nonce: new URL(location).searchParams.get('nonce') ?? 'none' } }, SESSION_KEY, 600)}`;
-    const refused = await fetch(callback, { redirect: 'manual', headers: { cookie: forged } });
-    expect(sessionOf(refused)).toBeUndefined();
+    const stored = (await db.instances.oidcFind('Interaction', uidOf(interaction)))!;
+    const result = stored.result as { koala: { provider: { verifier: string } } };
+    result.koala.provider.verifier = randomBytes(32).toString('base64url');
+    await db.instances.oidcUpsert('Interaction', uidOf(interaction), stored, 600);
+    const refused = await cameBack(interaction, app.url, callback);
+    expect(refused.session).toBeUndefined();
     expect(errorOf(refused)).toMatch(id === 'oidc' ? /^Stand-in did not sign you in: .*(PKCE|grant)/i : /^GitHub did not sign you in: bad_verification_code/);
   });
 
@@ -263,29 +307,32 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     for (const old of ['/api/auth/google/callback?code=mock-google-code&state=x', '/api/auth/github/callback?code=mock-github-code&state=x', '/api/auth/google', '/api/auth/github']) {
       const answer = await fetch(`${app.url}${old}`, { redirect: 'manual' });
       expect(answer.status, old).toBe(401);
-      expect(sessionOf(answer), old).toBeUndefined();
+      expect(answer.headers.getSetCookie().some((line) => /^koala_sid=./.test(line)), old).toBe(false);
     }
-    const unconfigured = await fetch(`${app.url}/api/auth/provider/google/callback?code=mock-google-code&state=x`, { redirect: 'manual' });
-    expect(unconfigured.status).toBe(404);
-    expect(sessionOf(unconfigured)).toBeUndefined();
+    const { interaction } = await start('oidc');
+    const unconfigured = await cameBack(interaction, app.url, new URL(`${app.url}/api/auth/provider/google/callback?code=mock-google-code&state=x`));
+    expect(unconfigured.answer.status).toBe(404);
+    expect(unconfigured.session).toBeUndefined();
 
     const keyed = await serve(db, await listening(), signInProvidersFrom({ GOOGLE_CLIENT_ID: 'real-id', GOOGLE_CLIENT_SECRET: 'real-secret' }).providers);
     try {
-      expect(await (await fetch(`${keyed.url}/api/auth/sign-in`)).json()).toEqual({ url: null, providers: [{ id: 'google', label: 'Google' }] });
-      const mock = await fetch(`${keyed.url}/api/auth/provider/google/callback?code=mock-google-code&state=x`, { redirect: 'manual' });
-      expect(mock.status).toBe(302);
-      expect(sessionOf(mock)).toBeUndefined();
+      expect(await (await fetch(`${keyed.url}/api/auth/sign-in`)).json()).toEqual({ url: START_PATH, providers: [{ id: 'google', label: 'Google' }] });
+      const unstarted = await interactionAt(keyed.url);
+      unstarted.jar.set('koala_interaction', uidOf(unstarted));
+      const mock = await cameBack(unstarted, keyed.url, new URL(`${keyed.url}/api/auth/provider/google/callback?code=mock-google-code&state=x`));
+      expect(mock.answer.status).toBe(302);
+      expect(mock.session).toBeUndefined();
       expect(errorOf(mock)).toContain('did not start here');
     } finally {
       await new Promise<void>((resolve) => { keyed.server.closeAllConnections(); keyed.server.close(() => resolve()); });
     }
 
     issuer.signInAs({ sub: 'google-mock-id', email: 'mock-google-user@example.com', email_verified: true });
-    const started = await start('oidc');
-    const callback = await issuer.authorize(started.headers.get('location')!);
+    const swapping = await start('oidc');
+    const callback = await issuer.authorize(swapping.started.headers.get('location')!);
     callback.searchParams.set('code', 'mock-google-code');
-    const swapped = await fetch(callback, { redirect: 'manual', headers: { cookie: cookieOf(started) } });
-    expect(sessionOf(swapped)).toBeUndefined();
+    const swapped = await cameBack(swapping.interaction, app.url, callback);
+    expect(swapped.session).toBeUndefined();
     expect(errorOf(swapped)).toMatch(/^Stand-in did not sign you in: /);
   });
 });
@@ -311,27 +358,27 @@ describe('a dev box whose providers return to localhost while its sign-in lives 
     await new Promise<void>((resolve) => { place.server.closeAllConnections(); place.server.close(() => resolve()); });
   });
 
-  it('asks the provider to return to localhost, sends that return on to its own name where the state cookie is, and signs the person in there', async () => {
+  it('asks the provider to return to localhost, sends that return on to its own name where the sign-in\'s cookie is, and signs the person in there', async () => {
     await db.accounts.saveUser({ id: 'first', email: 'first@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString(), roles: ['operator'] });
     await db.accounts.saveInvite({ id: 'inv', codeHash: inviteCodeHash('INVITE-1'), createdBy: 'first', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     issuer.signInAs({ sub: 'sub-dev', email: 'dev@example.com', email_verified: true });
 
-    const started = await fetch(`${place.url}/api/auth/provider/oidc?invite=INVITE-1`, { redirect: 'manual' });
+    const interaction = await interactionAt(place.url);
+    const started = await interaction.ask(`${interaction.path}/provider/oidc?invite=INVITE-1`);
     expect(new URL(started.headers.get('location')!).searchParams.get('redirect_uri')).toBe(`${returnUrl}/api/auth/provider/oidc/callback`);
-    const stateCookie = cookieOf(started);
 
     const callback = await issuer.authorize(started.headers.get('location')!);
     expect(callback.origin).toBe(returnUrl);
     const returned = await fetch(callback, { redirect: 'manual' });
     expect(returned.status).toBe(302);
-    expect(sessionOf(returned)).toBeUndefined();
+    expect(returned.headers.getSetCookie().some((line) => /^koala_sid=./.test(line))).toBe(false);
     const onward = new URL(returned.headers.get('location')!);
     expect(onward.origin).toBe(place.url);
     expect(onward.pathname + onward.search).toBe(callback.pathname + callback.search);
 
-    const finished = await fetch(onward, { redirect: 'manual', headers: { cookie: stateCookie } });
-    expect(finished.headers.get('location')).toBe(`${APP_URL}/`);
-    expect(sessionOf(finished)).toBeTruthy();
+    const finishedThere = await cameBack(interaction, place.url, onward);
+    expect(`${finishedThere.location!.origin}${finishedThere.location!.pathname}${finishedThere.location!.hash}`).toBe(`${place.url}/#/`);
+    expect(finishedThere.session).toBeTruthy();
     expect(await db.accounts.getUserByEmail('dev@example.com')).toMatchObject({ signInLinks: [{ issuer: issuer.issuer, subject: 'sub-dev' }] });
   });
 });

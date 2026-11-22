@@ -17,6 +17,7 @@ import { selfUpgrade, selfUpgradeStep } from './self-upgrade.js';
 import { reopening } from '@koala/engine-core/reopening';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
 import { koalaPlacedAndUp } from '../instances/testing/placed-koala.js';
+import { rootWebFor } from '../instances/testing/root-web.js';
 import { RootProvider } from '../instances/services/RootProvider.js';
 import { RootClient } from '../instances/services/RootClient.js';
 import { InstanceReach } from '../instances/services/InstanceReach.js';
@@ -65,8 +66,8 @@ async function rootServing(given?: string, newData?: number, chart: string | Buf
     },
   });
   settings.rootUrl = harness.url('');
-  held.provider = new RootProvider({ issuer: harness.url('/oidc'), signing: identityKeysFrom(generateIdentityKey()), cookieKey: 'self-upgrade-provider-cookies', proxied: false, reach: new InstanceReach({ open: true }) }, harness.db);
-  held.oidc = oidcProviderRouter({ provider: held.provider, signedIn: async () => undefined });
+  held.provider = new RootProvider({ issuer: harness.url('/oidc'), signing: identityKeysFrom(generateIdentityKey()), cookieKey: 'self-upgrade-provider-cookies', proxied: false, reach: new InstanceReach({ open: true }), web: rootWebFor(harness.url('')) }, harness.db);
+  held.oidc = oidcProviderRouter({ provider: held.provider, signedIn: async () => undefined, interactions: Router() });
   const joined = await koalaPlacedAndUp(service!, harness.db, TEST_USER.id, { id: 'box', name: 'box', meshIp: '100.64.0.9' }, 'luno');
   const clientKey = generateIdentityKey();
   const client = new RootClient({ kind: 'instance', clientId: joined.instanceId, rootUrl: harness.url(''), publicUrl: 'https://luno.koala.dev', owner: TEST_USER.id, keys: identityKeysFrom(clientKey), registrationCode: joined.registrationCode });
