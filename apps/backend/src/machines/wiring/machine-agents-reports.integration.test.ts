@@ -19,7 +19,7 @@ import { testKeys } from '../../platform/testing/keys.js';
 import { testDatabase, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { machineClientsAt } from '../../instances/testing/registration-code.js';
+import { joiningRoot } from '../testing/joining-root.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machinesRouter } from '../routes/machines.js';
@@ -65,14 +65,13 @@ async function connected(koalaUrl: string, deviceId: string) {
 
 async function koala() {
   const db: MongoDB = await testDatabase();
+  const { app, url: rootUrl, root } = await joiningRoot(db, closers);
   const accounts = new MachineAccounts({
-    ...quietAccountSides(),
-    store: db.machines, signing, clients: machineClientsAt(db),
+    ...quietAccountSides(rootUrl),
+    store: db.machines, signing, clients: root.provider,
   });
-  const app = express();
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) } }));
-  const rootUrl = await listening(http.createServer(app));
   const machines = onlineMachines(db.machines);
   const koalaUrl = (await wired(db, machines)).url;
   return { accounts, machines, rootUrl, koalaUrl };

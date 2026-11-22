@@ -3,6 +3,8 @@ import * as client from 'openid-client';
 import { importJWK, type JWK } from 'jose';
 import { refusedByServer } from './failures.js';
 
+export const OIDC_PATH = '/oidc';
+export const rootIssuerOf = (rootUrl: string): string => `${rootUrl.replace(/\/+$/, '')}${OIDC_PATH}`;
 export const CLIENT_SIGNING_ALG = 'Ed25519';
 export const MACHINE_SCOPE = 'koala:machine';
 export const MACHINE_REGISTRATION_REFUSED = 'root refused this machine\'s registration code (it was used, or a newer join replaced it): run the command from My Machines again';
@@ -146,4 +148,26 @@ export class OidcClient {
     if (this.held && this.held.until > this.now()) return this.held.value;
     return this.freshToken();
   }
+}
+
+export interface MachineClientSettings {
+  rootUrl: string;
+  deviceId: string;
+  key: string;
+  registrationCode?: string | undefined;
+  reach?: typeof fetch | undefined;
+}
+
+export function machineClientOf(machine: MachineClientSettings): OidcClient {
+  const keys = clientKeysFrom(machine.key);
+  return new OidcClient({
+    clientId: machine.deviceId,
+    issuer: rootIssuerOf(machine.rootUrl),
+    keys,
+    registrationCode: machine.registrationCode ?? '',
+    registration: machineRegistration(clientPublicJwkOf(keys)),
+    refused: MACHINE_REGISTRATION_REFUSED,
+    scope: MACHINE_SCOPE,
+    reach: machine.reach,
+  });
 }

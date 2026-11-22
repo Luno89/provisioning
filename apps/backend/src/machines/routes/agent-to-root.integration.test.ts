@@ -1,6 +1,4 @@
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import express from 'express';
@@ -26,11 +24,10 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { KoalaInstalls } from '../services/KoalaInstalls.js';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { machinesRouter } from './machines.js';
-import { rootAuthOver } from '../../platform/testing/root-auth.js';
+import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED, machineClientOf } from '@koala/engine-core/root-client';
 import { closedAfterEach, quietAccountSides } from '../testing/wiring-world.js';
-import { openRoutesOf } from '../../open-routes.js';
+import { joiningRoot } from '../testing/joining-root.js';
 import { testInstanceClients } from '../../instances/testing/placed-koala.js';
-import { machineClientsAt } from '../../instances/testing/registration-code.js';
 
 const closers = closedAfterEach();
 
@@ -48,23 +45,20 @@ async function root(followBeatMs?: number) {
     toMachines: { placeKoala: async () => false, stopKoala: () => false },
     toOwner: { installChanged: () => undefined },
   });
+  const { app, url, root: atRoot } = await joiningRoot(db, closers);
   const accounts = new MachineAccounts({
-    ...quietAccountSides(),
-    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db),
+    ...quietAccountSides(url),
+    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: atRoot.provider,
     toOwner: { machinesChanged: (ownerId) => { installs.wake(ownerId); } },
     installs,
   });
   const watched = db.instances.watchInstalls((instance) => { void installs.relay(instance); });
   closers.push(() => watched.close());
   await watched.ready;
-  const app = express();
-  app.use('/api', rootAuthOver(db, { publicUrl: 'http://root.test', open: openRoutesOf('root') }).auth.requireAuth);
+  app.use('/api', atRoot.auth.requireAuth);
   app.use(express.json());
   app.use('/api/machines', machinesRouter({ accounts, installs, bundle: { path: async () => '/nowhere', sha256: async () => 'ab'.repeat(32) }, followBeatMs }));
-  const server = http.createServer(app);
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  closers.push(() => new Promise<void>((done) => { server.close(() => done()); }));
-  return { db, accounts, installs, instances, heard, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+  return { db, accounts, installs, instances, heard, provider: atRoot.provider, url };
 }
 
 async function joinContext(url: string, code: string): Promise<JoinContext> {
@@ -76,17 +70,42 @@ async function joinContext(url: string, code: string): Promise<JoinContext> {
 }
 
 describe('the machine agent\'s own HTTP calls, against root\'s real routes in the same process', () => {
-  it('joins with the code from My Machines, keeping the token root gives, and tells root the join\'s stages with that code', async () => {
+  it('joins with the code from My Machines, keeping the token root gives and the key it registered at root with as a client of its owner, and tells root the join\'s stages with that code', async () => {
     const { db, accounts, url } = await root();
     const { code } = await accounts.createJoinCode('bo');
     const ctx = await joinContext(url, code);
     const reporter = rootReporter(rootProgress(rootUrlOf(url, JOIN_PROGRESS_PATH), code, fetch, { pause: async () => undefined }));
     await runSteps([joinRootStep(url)], ctx, reporter);
-    expect(ctx.joined).toMatchObject({ rootUrl: 'http://root.test', meshLoginServer: 'https://mesh.test', meshAuthKey: 'hskey' });
-    const saved = JSON.parse(await readFile(path.join(ctx.host.env.XDG_CONFIG_HOME!, 'koala', 'machine.json'), 'utf8')) as { token: string; deviceId: string };
+    expect(ctx.joined).toMatchObject({ rootUrl: url, meshLoginServer: 'https://mesh.test', meshAuthKey: 'hskey' });
+    const settings = path.join(ctx.host.env.XDG_CONFIG_HOME!, 'koala', 'machine.json');
+    const saved = JSON.parse(await readFile(settings, 'utf8')) as { token: string; deviceId: string; key: string };
     expect(saved.token).toBe(ctx.joined!.token);
-    expect((await db.machines.getLocalAgentDevices()).map((device) => [device.id, device.ownerId, device.name])).toEqual([[saved.deviceId, 'bo', 'desk']]);
+    expect((await stat(settings)).mode & 0o777).toBe(0o600);
+    const [device] = await db.machines.getLocalAgentDevices();
+    expect([device?.id, device?.ownerId, device?.name]).toEqual([saved.deviceId, 'bo', 'desk']);
+    expect(device?.signIn?.jwk).toEqual(clientPublicJwkOf(clientKeysFrom(saved.key)));
+    expect(await machineClientOf({ rootUrl: url, deviceId: saved.deviceId, key: saved.key }).token()).toMatch(/^\S{20,}$/);
     expect((await accounts.joins('bo')).map((join) => [join.stage, join.state])).toEqual([['join', 'done']]);
+  });
+
+  it('stops at the join with what to do when a newer join replaced the code it registers with, and root keeps no key for the machine', async () => {
+    const { db, accounts, provider, url } = await root();
+    const { code } = await accounts.createJoinCode('bo');
+    const ctx = await joinContext(url, code);
+    const replacing: typeof fetch = async (input, init) => {
+      const answer = await fetch(input, init);
+      if (String(input).endsWith('/api/machines/join')) {
+        const { env } = await answer.clone().json() as { env: { KOALA_DEVICE_ID: string } };
+        await provider.machineRegistrationCode({ id: env.KOALA_DEVICE_ID, ownerId: 'bo' });
+      }
+      return answer;
+    };
+    ctx.host = { ...ctx.host, fetch: replacing };
+    const reporter = rootReporter(rootProgress(rootUrlOf(url, JOIN_PROGRESS_PATH), code, fetch, { pause: async () => undefined }));
+    await expect(runSteps([joinRootStep(url)], ctx, reporter)).rejects.toThrow(MACHINE_REGISTRATION_REFUSED);
+    expect((await db.machines.getLocalAgentDevices())[0]?.signIn).toBeUndefined();
+    const [join] = await accounts.joins('bo');
+    expect(join).toMatchObject({ stage: 'join', state: 'failed', why: MACHINE_REGISTRATION_REFUSED });
   });
 
   it('stops at the join when the settings this machine kept are not the ones Koala writes, tells root where and why with the code, and makes no machine', async () => {

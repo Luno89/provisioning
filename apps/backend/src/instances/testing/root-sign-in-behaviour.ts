@@ -9,7 +9,7 @@ import { AccessRevocations } from '../../platform/services/AccessRevocations.js'
 import { claimsFor, clientMetadata, publicJwkOf, runResourceOf, SERVICE_TOKEN_SECONDS } from '../lib/oidc.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
-import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED, MACHINE_SCOPE, machineRegistration, newClientKey, OidcClient, type ClientKeys } from '@koala/engine-core/root-client';
+import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED, machineClientOf, newClientKey, type OidcClient } from '@koala/engine-core/root-client';
 import { RootProvider } from '../services/RootProvider.js';
 import type { InstanceReach } from '../services/InstanceReach.js';
 import type { RootSignIn } from '../services/RootSignIn.js';
@@ -256,25 +256,23 @@ export function signingInThroughRoot<S extends Served>(world: SignInWorld<S>): v
     expect((await world.rootDb.instances.getInstances('u1'))[0]?.signIn?.jwk).toEqual(publicJwkOf(world.clientKeys));
   });
 
-  const machineAt = (code: string, keys: ClientKeys): OidcClient => new OidcClient({
-    clientId: 'desk-1', issuer: `${world.root.url}/oidc`, keys, registrationCode: code,
-    registration: machineRegistration(clientPublicJwkOf(keys)), refused: MACHINE_REGISTRATION_REFUSED, scope: MACHINE_SCOPE,
-  });
+  const machineAt = (code: string, key: string): OidcClient => machineClientOf({ rootUrl: world.root.url, deviceId: 'desk-1', key, registrationCode: code });
 
   it('registers a machine at root with the one-use code its join gave it, as a client of its owner that takes only its own tokens, and refuses the code a second time and the machine once it is removed', async () => {
     await world.rootDb.machines.saveLocalAgentDevice({ id: 'desk-1', ownerId: 'u1', name: 'desk', rootDir: '/home/u1/koala', createdAt: '2026-11-21T00:00:00.000Z' });
     const code = await world.provider.machineRegistrationCode({ id: 'desk-1', ownerId: 'u1' });
-    const keys = clientKeysFrom(newClientKey());
-    const machine = machineAt(code, keys);
+    const key = newClientKey();
+    const keys = clientKeysFrom(key);
+    const machine = machineAt(code, key);
     await machine.register();
     const [device] = await world.rootDb.machines.getLocalAgentDevices();
     expect(device?.signIn).toEqual({ jwk: clientPublicJwkOf(keys), since: matching(/^\d{4}-/) });
     expect(JSON.stringify(device)).not.toContain(String((keys.privateKey.export({ format: 'jwk' }) as { d?: string }).d));
     expect(await world.provider.serviceCaller(await machine.token())).toBeUndefined();
-    await expect(machineAt(code, clientKeysFrom(newClientKey())).register()).rejects.toThrow(MACHINE_REGISTRATION_REFUSED);
+    await expect(machineAt(code, newClientKey()).register()).rejects.toThrow(MACHINE_REGISTRATION_REFUSED);
     expect(await world.rootDb.instances.oidcTakeRegistration(world.registrationCode)).toEqual({ kind: 'instance', id: 'inst-u1' });
     await world.rootDb.machines.deleteLocalAgentDevice('desk-1');
-    await expect(machineAt(code, keys).token()).rejects.toMatchObject({ error: 'invalid_client' });
+    await expect(machineAt(code, key).token()).rejects.toMatchObject({ error: 'invalid_client' });
   });
 
   it('answers as its public address whatever name a request reached it by, so the issuer, every address it hands out and the tokens agree', async () => {

@@ -8,6 +8,8 @@ export interface Joined {
   rootUrl: string;
   deviceId: string;
   token: string;
+  registrationCode: string;
+  key: string;
   rootDir: string;
   meshLoginServer: string;
   meshAuthKey: string;

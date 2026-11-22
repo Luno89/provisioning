@@ -24,9 +24,9 @@ export async function until<T>(look: () => T | undefined | Promise<T | undefined
   }
 }
 
-export function quietAccountSides(): Pick<MachineAccountsDeps, 'settings' | 'mesh' | 'koala' | 'followers' | 'toOwner' | 'toMachines'> {
+export function quietAccountSides(rootUrl = 'http://root.test'): Pick<MachineAccountsDeps, 'settings' | 'mesh' | 'koala' | 'followers' | 'toOwner' | 'toMachines'> {
   return {
-    settings: { url: 'http://root.test', meshLoginServer: 'https://mesh.test' },
+    settings: { url: rootUrl, meshLoginServer: 'https://mesh.test' },
     mesh: { createPreAuthKey: async () => ({ key: 'hskey' }), removeNode: async () => undefined },
     koala: { of: async () => undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },

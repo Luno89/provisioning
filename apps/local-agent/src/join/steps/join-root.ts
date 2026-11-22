@@ -1,4 +1,5 @@
 import type { Progress, Step } from '@koala/provision';
+import { machineClientOf, newClientKey } from '@koala/engine-core/root-client';
 import { configFile } from '../../machine-config.js';
 import { configHome, joinedOf, type Joined, type JoinContext } from '../context.js';
 
@@ -23,24 +24,26 @@ const savedToken = async (ctx: JoinContext): Promise<string | undefined> => {
 };
 
 const settingsOf = (joined: Joined, agentsNotSetUp?: string): string =>
-  `${JSON.stringify({ rootUrl: joined.rootUrl, token: joined.token, deviceId: joined.deviceId, rootDir: joined.rootDir, ...(agentsNotSetUp ? { agentsNotSetUp } : {}) }, null, 2)}\n`;
+  `${JSON.stringify({ rootUrl: joined.rootUrl, token: joined.token, deviceId: joined.deviceId, rootDir: joined.rootDir, key: joined.key, ...(agentsNotSetUp ? { agentsNotSetUp } : {}) }, null, 2)}\n`;
 
 export const keepAgentsNotSetUp = (ctx: JoinContext, why: string): Promise<void> => ctx.host.writeOwn(machineFile(ctx), settingsOf(joinedOf(ctx), why), 0o600);
 
 const text = (env: Record<string, unknown> | undefined, name: string): string => (typeof env?.[name] === 'string' ? env[name] : '');
 
-function joinedFrom(raw: unknown): Joined {
+function joinedFrom(raw: unknown, key: string): Joined {
   const env = (raw as { env?: Record<string, unknown> } | undefined)?.env;
   const joined: Joined = {
     rootUrl: text(env, 'KOALA_ROOT_URL'),
     deviceId: text(env, 'KOALA_DEVICE_ID'),
     token: text(env, 'KOALA_DEVICE_TOKEN'),
+    registrationCode: text(env, 'KOALA_REGISTRATION_TOKEN'),
+    key,
     rootDir: text(env, 'KOALA_ROOT_DIR'),
     meshLoginServer: text(env, 'MESH_LOGIN_SERVER'),
     meshAuthKey: text(env, 'MESH_AUTH_KEY'),
     registry: text(env, 'KOALA_REGISTRY'),
   };
-  const absent = (['rootUrl', 'deviceId', 'token', 'rootDir'] as const).filter((name) => !joined[name]);
+  const absent = (['rootUrl', 'deviceId', 'token', 'registrationCode', 'rootDir'] as const).filter((name) => !joined[name]);
   if (absent.length > 0) throw new Error(`Koala's answer to the join named no ${absent.join(', ')}`);
   if (!joined.meshLoginServer || !joined.meshAuthKey) throw new Error('Koala\'s root named no private network for this machine, and a machine takes work only over it');
   return joined;
@@ -57,9 +60,10 @@ async function join(ctx: JoinContext, progress: Progress): Promise<void> {
     throw new Error(`${ctx.args.url} could not be reached: ${(err as Error).message}${cause}`, { cause: err });
   }
   if (response.status !== 200) throw new Error(`Koala refused this machine (${response.status}): ${(await response.text()).trim()}`);
-  const joined = joinedFrom(await response.json());
+  const joined = joinedFrom(await response.json(), newClientKey());
   const file = machineFile(ctx);
   await ctx.host.writeOwn(file, settingsOf(joined), 0o600);
+  await machineClientOf({ rootUrl: joined.rootUrl, deviceId: joined.deviceId, key: joined.key, registrationCode: joined.registrationCode, reach: ctx.host.fetch }).register();
   ctx.joined = joined;
   progress.line(`this machine is ${ctx.host.hostname} on your account`);
   progress.line(`its settings are in ${file}, readable only by you`);

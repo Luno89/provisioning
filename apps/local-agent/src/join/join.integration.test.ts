@@ -20,6 +20,8 @@ import { runJoin } from './join.js';
 import { K3S_CONFIG, K3S_SUDOERS, NVIDIA_CDI_MARKER } from './k3s-files.js';
 import { LAUNCHD_LABEL } from '../self-update.js';
 import { joinPins, type JoinPins } from './pins.js';
+import { OIDC_PATH } from '@koala/engine-core/root-client';
+import { rootRegistration } from '../testing/root-registration.js';
 
 const place = mkdtempSync(path.join(tmpdir(), 'koala-join-world-'));
 const machineRoot = path.join(place, 'machine');
@@ -39,6 +41,7 @@ const tool = (name: string, body: string) => {
   chmodSync(path.join(bin, name), 0o755);
 };
 
+const registration = rootRegistration();
 const heard: { auth: string | undefined; progress: MachineProgress }[] = [];
 const joins: Record<string, unknown>[] = [];
 let server: Server;
@@ -129,11 +132,19 @@ beforeAll(async () => {
     let body = '';
     req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
     req.on('end', () => {
+      if (req.url?.startsWith(OIDC_PATH)) {
+        const asked = new Request(`${url}${req.url}`, { method: req.method ?? 'GET', headers: req.headers as Record<string, string>, ...(req.method === 'POST' ? { body } : {}) });
+        void registration.answer(asked).then(async (answer) => {
+          res.writeHead(answer?.status ?? 404, { 'content-type': 'application/json' });
+          res.end(answer ? await answer.text() : 'not here');
+        });
+        return;
+      }
       if (req.method === 'POST' && req.url === '/api/machines/join') {
         const sent = JSON.parse(body) as Record<string, unknown>;
         joins.push(sent);
         res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({ env: { KOALA_ROOT_URL: url, KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_ROOT_DIR: String(sent.rootDir), MESH_LOGIN_SERVER: 'https://mesh.koala.test', MESH_AUTH_KEY: 'hskey-from-root', KOALA_REGISTRY: '' } }));
+        res.end(JSON.stringify({ env: { KOALA_ROOT_URL: url, KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_REGISTRATION_TOKEN: registration.codeFor(`device-${joins.length}`), KOALA_ROOT_DIR: String(sent.rootDir), MESH_LOGIN_SERVER: 'https://mesh.koala.test', MESH_AUTH_KEY: 'hskey-from-root', KOALA_REGISTRY: '' } }));
         return;
       }
       if (req.method === 'POST' && req.url === JOIN_PROGRESS_PATH) {

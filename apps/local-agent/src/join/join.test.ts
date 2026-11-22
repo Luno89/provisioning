@@ -5,6 +5,7 @@ import { AGENT_DIR, archive, HOME, joinWorld, NODE, type World, type WorldOption
 import { runJoin, type JoinDeps } from './join.js';
 import { K3S_CONFIG, K3S_FIREWALL, K3S_NODE_PORTS_FILE, K3S_REGISTRIES, K3S_SUDOERS, MACHINE_UNINSTALL_SCRIPT } from './k3s-files.js';
 import { joinPins } from './pins.js';
+import { clientKeysFrom, clientPublicJwkOf, MACHINE_REGISTRATION_REFUSED } from '@koala/engine-core/root-client';
 
 const pins = joinPins();
 const DOWNLOADS: Record<string, string> = {
@@ -81,8 +82,10 @@ describe('joining a fresh Linux machine with --yes', () => {
       'service started', 'service done',
     ]);
     expect(world.joins).toEqual([{ code: 'the-code', hostname: 'desk', rootDir: `${HOME}/koala`, os: 'Linux x86_64', replaces: '' }]);
-    expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toEqual({ rootUrl: 'https://root.test', token: 'token-1', deviceId: 'device-1', rootDir: `${HOME}/koala` });
+    const saved = JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!) as { key: string };
+    expect(saved).toEqual({ rootUrl: 'https://root.test', token: 'token-1', deviceId: 'device-1', rootDir: `${HOME}/koala`, key: expect.stringContaining('-----BEGIN PRIVATE KEY-----') as unknown });
     expect(world.modes.get(`${HOME}/.config/koala/machine.json`)).toBe(0o600);
+    expect(world.registration.registered).toEqual([{ clientId: 'device-1', code: 'registration-code-1', keys: [{ ...clientPublicJwkOf(clientKeysFrom(saved.key)), alg: 'Ed25519', use: 'sig' }] }]);
     expect(world.files.get(K3S_CONFIG)).toBe('disable:\n  - traefik\n  - servicelb\ntls-san:\n  - 100.64.0.7\nwrite-kubeconfig-mode: "0640"\nwrite-kubeconfig-group: ada\n');
     expect(world.files.get(K3S_NODE_PORTS_FILE)).toContain('nodeport-addresses=127.0.0.1/32,100.64.0.0/10');
     expect(world.files.get(K3S_REGISTRIES)).toBe('mirrors:\n  "registry.root.test:5000":\n    endpoint:\n      - "http://registry.root.test:5000"\n');
@@ -329,10 +332,27 @@ describe('a join that fails', () => {
   });
 
   it('stops, saying why, when root names no private network', async () => {
-    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_DEVICE_TOKEN: 't', KOALA_ROOT_DIR: '/home/ada/koala' } } }) });
+    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_DEVICE_TOKEN: 't', KOALA_REGISTRATION_TOKEN: 'c', KOALA_ROOT_DIR: '/home/ada/koala' } } }) });
     const ran = await join(world, ['--yes', 'the-code']);
     expect(ran.code).toBe(1);
     expect(ran.said).toContain('failed: Koala\'s root named no private network for this machine, and a machine takes work only over it');
+  });
+
+  it('stops at the join with what to do when root refuses the code the machine registers with, keeping the token so the next run replaces the machine', async () => {
+    const world = machine({ tailscale: { installed: true }, root: (body) => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'device-1', KOALA_DEVICE_TOKEN: 'token-1', KOALA_REGISTRATION_TOKEN: 'a-code-root-never-made', KOALA_ROOT_DIR: String(body.rootDir), MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'k' } } }) });
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain(`failed: ${MACHINE_REGISTRATION_REFUSED}`);
+    expect(ran.root.reported.at(-1)).toMatchObject({ kind: 'failed', id: 'join' });
+    expect(world.registration.registered).toEqual([]);
+    expect(JSON.parse(world.files.get(`${HOME}/.config/koala/machine.json`)!)).toMatchObject({ token: 'token-1', deviceId: 'device-1' });
+  });
+
+  it('stops, naming what is missing, when root gives no code to register with', async () => {
+    const world = machine({ tailscale: { installed: true }, root: () => ({ status: 200, body: { env: { KOALA_ROOT_URL: 'https://root.test', KOALA_DEVICE_ID: 'd', KOALA_DEVICE_TOKEN: 't', KOALA_ROOT_DIR: '/home/ada/koala', MESH_LOGIN_SERVER: 'https://mesh.root.test', MESH_AUTH_KEY: 'k' } } }) });
+    const ran = await join(world, ['--yes', 'the-code']);
+    expect(ran.code).toBe(1);
+    expect(ran.said).toContain('failed: Koala\'s answer to the join named no registrationCode');
   });
 
   it('says what root answered when it refuses the code', async () => {
