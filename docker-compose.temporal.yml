@@ -64,9 +64,8 @@ services:
       - POSTGRES_PWD=temporal
       - POSTGRES_SEEDS=postgresql
       - BIND_ON_IP=0.0.0.0
-      - SERVICES=frontend:internal-frontend:history:matching:worker
+      - TEMPORAL_SERVICES=frontend,internal-frontend,history,matching,worker
       - USE_INTERNAL_FRONTEND=true
-      - TEMPORAL_ADDRESS=127.0.0.1:7236
       - TEMPORAL_AUTH_AUTHORIZER=default
       - TEMPORAL_AUTH_CLAIM_MAPPER=default
       - TEMPORAL_JWT_KEY_SOURCE1=http://temporal-keys:7280/.well-known/temporal-jwks.json

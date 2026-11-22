@@ -188,9 +188,8 @@ describe('the instance chart', () => {
     const pod = podOf(find(docs, 'Deployment', 'luno-temporal'));
     const env = Object.fromEntries((pod.containers[0]!.env ?? []).flatMap((entry) => (entry.value !== undefined ? [[entry.name, entry.value]] : [])));
     expect(env).toMatchObject({
-      SERVICES: 'frontend:internal-frontend:history:matching:worker',
+      TEMPORAL_SERVICES: 'frontend,internal-frontend,history,matching,worker',
       USE_INTERNAL_FRONTEND: 'true',
-      TEMPORAL_ADDRESS: '127.0.0.1:7236',
       TEMPORAL_AUTH_AUTHORIZER: 'default',
       TEMPORAL_AUTH_CLAIM_MAPPER: 'default',
       TEMPORAL_JWT_KEY_SOURCE1: 'http://127.0.0.1:7280/.well-known/temporal-jwks.json',
