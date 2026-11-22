@@ -265,27 +265,37 @@ export class AccountRemovalService {
     return { ...(koala ? { koala } : {}), ...away, ...(machinesAway.length ? { machinesAway } : {}) };
   }
 
+  private async removing(ownerId: string, removal: NonNullable<UserMetadata['removal']>, instances: readonly InstanceRecord[], watches: readonly InstanceWatchRecord[], machines: readonly RemovedMachine[]): Promise<NonNullable<PersonEntry['removal']>> {
+    const state = await this.deps.workflows.state(removeAccountWorkflowId(ownerId));
+    return { ...removal, state, ...(this.deps.steps ? { steps: this.deps.steps } : {}), ...(await this.koalaOf(ownerId, state, instances, watches, machines)) };
+  }
+
+  async removalProgress(ownerId: string): Promise<{ removal: NonNullable<PersonEntry['removal']> } | { removed: true } | undefined> {
+    const user = await this.deps.store.accounts.getUserById(ownerId);
+    if (!user) return { removed: true };
+    if (!user.removal) return undefined;
+    const instances = this.deps.instances ? await this.deps.instances() : [];
+    const watches = this.deps.watches ? await this.deps.watches() : [];
+    const machines = this.deps.machines ? await this.deps.machines() : [];
+    return { removal: await this.removing(ownerId, user.removal, instances, watches, machines) };
+  }
+
   async people(): Promise<PersonEntry[]> {
     const users = (await this.deps.store.accounts.getUsers()).filter((user) => !user.space);
     const instances = this.deps.instances ? await this.deps.instances() : [];
     const releases = this.deps.releases ? await this.deps.releases() : [];
     const watches = this.deps.watches ? await this.deps.watches() : [];
     const logouts = this.deps.logouts ? await this.deps.logouts() : [];
-    const steps = this.deps.steps;
     const machines = this.deps.machines && users.some((user) => user.removal) ? await this.deps.machines() : [];
     return Promise.all(users.map(async (user) => {
       const instance = instances.find((entry) => entry.ownerId === user.id);
-      const removing = async (removal: NonNullable<UserMetadata['removal']>) => {
-        const state = await this.deps.workflows.state(removeAccountWorkflowId(user.id));
-        return { ...removal, state, ...(steps ? { steps } : {}), ...(await this.koalaOf(user.id, state, instances, watches, machines)) };
-      };
       return {
         id: user.id,
         email: user.email,
         operator: this.operator(user),
         createdAt: user.createdAt,
         ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id), logouts, this.deps.currentRelease) } : {}),
-        ...(user.removal ? { removal: await removing(user.removal) } : {}),
+        ...(user.removal ? { removal: await this.removing(user.id, user.removal, instances, watches, machines) } : {}),
       };
     }));
   }

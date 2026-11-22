@@ -10,10 +10,12 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
+import { anyOf } from '../../platform/lib/test-matchers.js';
 import { koalaPlacedAndUp, testInstanceClients } from '../../instances/testing/placed-koala.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', roles: ['operator' as const] };
 const PERSON = { ...TEST_USER };
+const PROGRESS_KEY = 'progress-key';
 
 let started: string[];
 let states: Map<string, RemovalWorkflowState>;
@@ -50,7 +52,7 @@ const mount = async (prefix: '/api/account' | '/api/admin') => {
       await seedPeople(db);
       const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', principalFor });
       return prefix === '/api/account'
-        ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); }, confirmed })
+        ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); }, confirmed, progressKey: PROGRESS_KEY })
         : adminRouter({ db, operatorOnly, removal, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }) });
     },
   });
@@ -87,10 +89,15 @@ describe('removing your own account', () => {
 
     const removed = await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF });
     expect(removed.status).toBe(202);
-    expect(removed.data).toEqual({ state: { state: 'running', done: [] } });
+    expect(removed.data).toEqual({ state: { state: 'running', done: [] }, progress: anyOf(String) });
     expect(started).toEqual([`remove-account-${PERSON.id}`]);
     expect(cleared).toBe(1);
     expect((await harness.db.accounts.getUserById(PERSON.id))?.removal).toEqual({ startedAt: 'now', requestedBy: PERSON.id });
+
+    const progress = () => axios.get<Record<string, unknown>>(harness.url('/api/account/removal/progress'), { headers: { authorization: `Bearer ${String(removed.data.progress)}` }, validateStatus: () => true });
+    expect((await progress()).data).toEqual({ removal: { startedAt: 'now', requestedBy: PERSON.id, state: { state: 'running', done: [] } } });
+    await harness.db.accounts.deleteUser(PERSON.id);
+    expect((await progress()).data).toEqual({ removed: true });
   });
 
   it('refuses while something of yours still runs on a cluster, naming it', async () => {
@@ -108,7 +115,7 @@ describe('removing your own account', () => {
     await mount('/api/account');
     states.set(`remove-account-${PERSON.id}`, { state: 'running', done: ['workflows'] });
 
-    expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).data).toEqual({ state: { state: 'running', done: ['workflows'] } });
+    expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).data).toEqual({ state: { state: 'running', done: ['workflows'] }, progress: anyOf(String) });
     expect(started).toEqual([]);
   });
 });
@@ -214,7 +221,7 @@ describe('a person removing their own account on root', () => {
           now: () => 'now',
           principalFor,
         });
-        return accountRouter({ removal, clearSession: () => { cleared += 1; }, confirmed });
+        return accountRouter({ removal, clearSession: () => { cleared += 1; }, confirmed, progressKey: PROGRESS_KEY });
       },
     });
     expect((await call('get', '/api/account/removal')).data).toEqual({ email: PERSON.email, blockers: [], instance: { name: 'bob', status: 'ready', url: 'https://bob.koala.dev', autoUpdates: true } });

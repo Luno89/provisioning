@@ -9,6 +9,7 @@ export { signInProvidersFrom, signInReturnUrlFrom } from './lib/sign-in-provider
 export { breachedFrom } from './lib/passwords.js';
 export { emailProblem, normalEmail } from './lib/sign-up.js';
 export { AUTH_OPEN, authRouter } from './routes/auth.js';
+export { ACCOUNT_OPEN } from './routes/account.js';
 export { devicesFor } from './routes/device.js';
 export { PASSWORD_OPEN, passwordRouter } from './routes/password.js';
 export { temporalRemovalWorkflows } from './services/AccountRemovalService.js';

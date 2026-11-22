@@ -1,8 +1,8 @@
 import { addPushDevice, getNotifications, getPush, notificationKeys, pushKeys, removePushDevice, sendTestEmail, sendTestPush, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
 import { abilitiesOf, pushSupport, subscribeThisDevice, thisDeviceEndpoint, unsubscribeThisDevice } from './lib/this-device'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountKeys, changePassword, endOtherSessions, forgotPassword, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson, resendPasswordReset, resetPassword, saveTwoFactor, sendConfirmCode, setOwnInviteAccounts, setProjectInviteLimits } from './api'
-import type { Proof, TwoFactorChange, TwoFactorSaved } from './types'
+import { accountKeys, changePassword, endOtherSessions, forgotPassword, getMyRemovalProgress, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson, resendPasswordReset, resetPassword, saveTwoFactor, sendConfirmCode, setOwnInviteAccounts, setProjectInviteLimits } from './api'
+import type { Proof, RemovalStarted, TwoFactorChange, TwoFactorSaved } from './types'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../instances'
 import { deploymentKeys } from '../infrastructure'
 import { accountRemovalPlace } from '../platform'
@@ -19,8 +19,16 @@ export function useRemovalPreview(enabled: boolean) {
   return useQuery({ queryKey: accountKeys.removal(), queryFn: getRemovalPreview, enabled })
 }
 
-export function useRemoveMyAccount(onRemoved: () => void) {
+export function useRemoveMyAccount(onRemoved: (started: RemovalStarted) => void) {
   return useMutation({ mutationFn: ({ confirm, proof }: { confirm: string; proof: Proof }) => removeMyAccount(confirm, proof), onSuccess: onRemoved })
+}
+
+export function useMyRemovalProgress(progress: string) {
+  return useQuery({
+    queryKey: accountKeys.myRemovalProgress(progress),
+    queryFn: () => getMyRemovalProgress(progress),
+    refetchInterval: (query) => (query.state.data && 'removed' in query.state.data ? false : 3_000),
+  })
 }
 
 export function useForgotPassword() {

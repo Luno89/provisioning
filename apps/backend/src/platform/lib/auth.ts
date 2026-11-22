@@ -44,13 +44,18 @@ function base64urlDecode(str: string): Record<string, unknown> | null {
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
 }
 
-export type TokenPurpose = 'two-factor' | 'device' | 'oauth-state';
+type LastingPurpose = 'removal-progress';
+export type TokenPurpose = 'two-factor' | 'device' | 'oauth-state' | LastingPurpose;
+const LASTING: ReadonlySet<TokenPurpose> = new Set<LastingPurpose>(['removal-progress']);
 
-export function signJWT(purpose: TokenPurpose, payload: Record<string, unknown>, key: SecretKey, expiresInSeconds: number): string {
+export function signJWT(purpose: Exclude<TokenPurpose, LastingPurpose>, payload: Record<string, unknown>, key: SecretKey, expiresInSeconds: number): string {
+  return signed(purpose, { ...payload, exp: Math.floor(Date.now() / 1000) + expiresInSeconds }, key);
+}
+
+function signed(purpose: TokenPurpose, payload: Record<string, unknown>, key: SecretKey): string {
   const secret = ringOf(key).current;
   const header = { alg: 'HS256', typ: 'JWT' };
-  const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
-  const fullPayload = { ...payload, purpose, exp };
+  const fullPayload = { ...payload, purpose };
 
   const encodedHeader = base64urlEncode(header);
   const encodedPayload = base64urlEncode(fullPayload);
@@ -82,7 +87,7 @@ export function verifyJWT(token: string, purpose: TokenPurpose, key: SecretKey):
 
     const payload = base64urlDecode(encodedPayload);
     if (!payload) return null;
-    if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) {
+    if (!LASTING.has(purpose) && (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000))) {
       return null;
     }
     if (payload.purpose !== purpose) return null;
@@ -120,5 +125,12 @@ export function deviceOf(token: string | undefined, key: SecretKey): SignedInDev
     : undefined;
 }
 
-export const arrivedOverHttps = (forwardedProto: string | string[] | undefined, encrypted: boolean): boolean =>
+export const removalProgressToken = (account: string, key: SecretKey): string => signed('removal-progress', { progressOf: account }, key);
+
+export function removalProgressOf(token: string, key: SecretKey): string | undefined {
+  const decoded = verifyJWT(token, 'removal-progress', key);
+  return decoded && typeof decoded.progressOf === 'string' && decoded.progressOf ? decoded.progressOf : undefined;
+}
+
+export const arrivedOverHttps =(forwardedProto: string | string[] | undefined, encrypted: boolean): boolean =>
   encrypted || String(forwardedProto ?? '').split(',')[0]?.trim() === 'https';

@@ -45,5 +45,6 @@ export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
     clearSession: site.auth.clearSession,
     devices: devicesFor({ auth: site.auth, sessionKey: SESSION_KEY, authService }),
     tellInstance: () => undefined,
+    sessionKey: SESSION_KEY,
   })
 }

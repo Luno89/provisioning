@@ -31,6 +31,14 @@ async function guarded(role: 'root' | 'instance', method: string, path: string) 
   return { statusCode, body, nexted };
 }
 
+describe('a person\'s removal on root, once they are signed out everywhere', () => {
+  it('shows its progress past root\'s session guard, and keeps what it would take behind it', async () => {
+    expect(await guarded('root', 'GET', '/api/account/removal/progress')).toEqual({ statusCode: 0, body: undefined, nexted: true });
+    expect((await guarded('root', 'GET', '/api/account/removal')).statusCode).toBe(401);
+    expect((await guarded('instance', 'GET', '/api/account/removal/progress')).statusCode).toBe(401);
+  });
+});
+
 describe('the routes a machine calls on root with its own credential', () => {
   it('reach their route past root\'s session guard, which a machine has no cookie for', async () => {
     for (const [method, path] of [

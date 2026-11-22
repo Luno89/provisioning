@@ -1,19 +1,51 @@
 import { describe, expect, it, vi } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { Principal } from '../../platform/lib/permissions.js';
+import { deviceToken, removalProgressOf, removalProgressToken } from '../../platform/lib/auth.js';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 import { accountRouter } from './account.js';
 
-type Removal = Pick<AccountRemovalService, 'preview' | 'remove'>;
+type Removal = Pick<AccountRemovalService, 'preview' | 'remove' | 'removalProgress'>;
 
-const set = async () => {
+const KEY = 'progress-key';
+
+const set = async (user: typeof PERSON | null = PERSON) => {
   const removal = mock<Removal>();
   const clearSession = vi.fn();
   const confirmed = vi.fn(async () => undefined);
-  const routes = await routesInProcess({ prefix: '/api/account', router: () => accountRouter({ removal, clearSession, confirmed }), user: PERSON });
+  const routes = await routesInProcess({ prefix: '/api/account', router: () => accountRouter({ removal, clearSession, confirmed, progressKey: KEY }), user, open: user === null });
   return { removal, clearSession, confirmed, routes };
 };
+
+describe('the person\'s own page while their account is removed', () => {
+  const removal = { startedAt: 'then', requestedBy: PERSON.id, state: { state: 'running' as const, done: [] } };
+
+  it('hands the person, as their removal starts, what reads its progress for their account alone', async () => {
+    const { removal: service, routes } = await set();
+    service.remove.mockResolvedValue({ ok: true, state: { state: 'running', done: [] } });
+    const answer = await routes.delete<{ progress: string }>('/api/account', { body: { confirm: PERSON.email } });
+    expect(removalProgressOf(answer.data.progress, KEY)).toBe(PERSON.id);
+  });
+
+  it('shows the removal\'s progress to whoever holds it, signed in or not, and then that it is removed', async () => {
+    const { removal: service, routes } = await set(null);
+    service.removalProgress.calledWith('bob').mockResolvedValue({ removal });
+    const progress = { authorization: `Bearer ${removalProgressToken('bob', KEY)}` };
+    expect(await routes.get('/api/account/removal/progress', { headers: progress })).toMatchObject({ status: 200, data: { removal } });
+    service.removalProgress.calledWith('bob').mockResolvedValue({ removed: true });
+    expect(await routes.get('/api/account/removal/progress', { headers: progress })).toMatchObject({ status: 200, data: { removed: true } });
+  });
+
+  it('shows nothing without it, with one signed for something else or with another key, or once the account is not being removed', async () => {
+    const { removal: service, routes } = await set();
+    for (const headers of [{}, { authorization: 'Bearer nonsense' }, { authorization: `Bearer ${deviceToken(PERSON.email, KEY)}` }, { authorization: `Bearer ${removalProgressToken(PERSON.id, 'other-key')}` }]) {
+      expect(await routes.get('/api/account/removal/progress', { headers }), JSON.stringify(headers)).toMatchObject({ status: 401, data: { error: 'This does not show a removal' } });
+    }
+    expect(service.removalProgress).not.toHaveBeenCalled();
+    expect(await routes.get('/api/account/removal/progress', { headers: { authorization: `Bearer ${removalProgressToken(PERSON.id, KEY)}` } })).toMatchObject({ status: 404, data: { error: 'This account is not being removed' } });
+  });
+});
 
 describe('/api/account', () => {
   it('shows what removing the signed-in person\'s own account would take with it', async () => {
@@ -38,7 +70,7 @@ describe('/api/account', () => {
     ).mockResolvedValue({ ok: true, state: { state: 'running', done: [] } });
     const answer = await routes.delete('/api/account', { body: { confirm: PERSON.email } });
     expect(answer.status).toBe(202);
-    expect(answer.data).toEqual({ state: { state: 'running', done: [] } });
+    expect(answer.data).toEqual({ state: { state: 'running', done: [] }, progress: removalProgressToken(PERSON.id, KEY) });
     expect(clearSession).toHaveBeenCalledTimes(1);
     expect(confirmed).not.toHaveBeenCalled();
   });

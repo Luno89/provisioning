@@ -1,8 +1,9 @@
 import { api } from '../../api/client'
-import type { Invite, MintedInvite, PasswordReset, PersonEntry, ProjectInviteLimits, ProjectInvitePerson, Proof, RemovalPreview, RemovalState, TwoFactorChange, TwoFactorSaved } from './types'
+import type { Invite, MintedInvite, MyRemovalProgress, PasswordReset, PersonEntry, ProjectInviteLimits, ProjectInvitePerson, Proof, RemovalPreview, RemovalStarted, RemovalState, TwoFactorChange, TwoFactorSaved } from './types'
 
 export const accountKeys = {
   removal: () => ['account', 'removal'] as const,
+  myRemovalProgress: (progress: string) => ['account', 'removal', 'progress', progress] as const,
   people: () => ['admin', 'people'] as const,
   personRemoval: (id: string) => ['admin', 'people', id, 'removal'] as const,
   invites: () => ['admin', 'invites'] as const,
@@ -27,8 +28,11 @@ export const mintInvite = (): Promise<MintedInvite> =>
 export const getRemovalPreview = (): Promise<RemovalPreview> =>
   api.get<RemovalPreview>('/account/removal').then((r) => r.data)
 
-export const removeMyAccount = (confirm: string, proof: Proof): Promise<RemovalState> =>
-  api.delete<{ state: RemovalState }>('/account', { data: { confirm, ...proof } }).then((r) => r.data.state)
+export const removeMyAccount = (confirm: string, proof: Proof): Promise<RemovalStarted> =>
+  api.delete<RemovalStarted>('/account', { data: { confirm, ...proof } }).then((r) => r.data)
+
+export const getMyRemovalProgress = (progress: string): Promise<MyRemovalProgress> =>
+  api.get<MyRemovalProgress>('/account/removal/progress', { headers: { authorization: `Bearer ${progress}` } }).then((r) => r.data)
 
 export const listPeople = (): Promise<PersonEntry[]> =>
   api.get<{ people: PersonEntry[] }>('/admin/people').then((r) => r.data.people)
