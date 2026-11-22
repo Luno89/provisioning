@@ -34,7 +34,6 @@ interface Container {
 type Restarts = Map<string, number>;
 
 const LOG_LINES = 40;
-const EXITS_THAT_REPEAT = 2;
 const ENDED_FOR_GOOD = new Set(['exited', 'dead']);
 const ONE_SHOT = 'koala.one-shot';
 const completed = (container: Container): boolean => container.oneShot && container.state === 'exited' && container.exitCode === '0';
@@ -100,10 +99,9 @@ async function endedForGood(ctx: ComposeContext, compose: ComposeProject, progre
       await logs(service);
       return `${service} exited with ${ended.exitCode}`;
     }
-    const again = Math.max(...own.map((container) => (restarts.get(container.id) ?? 0) - (before.get(container.id) ?? 0)));
-    if (again >= EXITS_THAT_REPEAT) {
+    if (own.some((container) => (restarts.get(container.id) ?? 0) > (before.get(container.id) ?? 0))) {
       await logs(service);
-      return `${service} keeps exiting as it starts: Docker started it again ${again} times since it was started`;
+      return `${service} keeps exiting as it starts`;
     }
   }
   return undefined;

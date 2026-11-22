@@ -212,23 +212,23 @@ describe('a service started through its compose file', () => {
     const answers = async (): Promise<StepState> => ({ done: false, why: 'its system worker polls none of its queues yet' });
     const commands = docker(host);
     const failure = await stepFailureOf(runSteps([composeStep({ id: 'temporal', title: 'Temporal', compose: PROJECT, answers })], { commands, wait: instant }, memoryReporter()));
-    expect(failure.why).toContain('Temporal to answer: temporal keeps exiting as it starts: Docker started it again 2 times since it was started');
+    expect(failure.why).toContain('Temporal to answer: temporal keeps exiting as it starts');
     expect(failure.tail).toContain('temporal-1  | Unable to start server. Error: failed to start service worker: context deadline exceeded');
     expect(verbs(commands.ran)).toContain('up -d --force-recreate');
   });
 
-  it('keeps waiting on a container Docker started again once, as one exit is not yet a way it always ends', async () => {
-    let listed = 0;
+  it('fails with the log tail the first time a container exits as it starts and Docker starts it again', async () => {
     const host: Host = {
       configured: { mongodb: 'h1' },
       containers: {},
-      afterUp: (h) => { h.containers['mongodb'] = { state: 'running', hash: 'h1', id: 'm', restarts: 1 }; },
-      onPs: () => { listed += 1; },
+      logs: 'mongodb-1  | exiting: replica set config invalid\n',
+      afterUp: (h) => { h.containers['mongodb'] = { state: 'running', hash: 'h1', id: 'm', restarts: 0 }; },
+      onPs: (h) => { if (h.containers['mongodb'] !== undefined) h.containers['mongodb'] = { state: 'running', hash: 'h1', id: 'm', restarts: 1 }; },
     };
-    const answers = async (): Promise<StepState> => (listed >= 8 ? { done: true } : { done: false, why: 'not a replica set member yet' });
-    const reporter = memoryReporter();
-    await runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers })], { commands: docker(host), wait: instant }, reporter);
-    expect(reporter.reported.at(-1)).toEqual({ kind: 'done', id: 'mongo' });
+    const answers = async (): Promise<StepState> => ({ done: false, why: 'not a replica set member yet' });
+    const failure = await stepFailureOf(runSteps([composeStep({ id: 'mongo', title: 'Mongo', compose: PROJECT, answers })], { commands: docker(host), wait: instant }, memoryReporter()));
+    expect(failure.why).toContain('mongodb keeps exiting as it starts');
+    expect(failure.tail).toContain('mongodb-1  | exiting: replica set config invalid');
   });
 
   it('fails at once on an answer that says it can never come, with that reason', async () => {
