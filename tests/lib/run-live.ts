@@ -47,9 +47,9 @@ function record(script: string, passed: boolean): void {
 
 const FAILURES = fileURLToPath(new URL(`../../${FAILURES_FILE}`, import.meta.url));
 
-function recordFailure(name: string): void {
+function recordFailure(name: string, why: string): void {
   const failures = existsSync(FAILURES) ? JSON.parse(readFileSync(FAILURES, 'utf8')) as Failures : {};
-  writeFileSync(FAILURES, `${JSON.stringify(withFailure(failures, name, new Date().toISOString()), null, 1)}\n`);
+  writeFileSync(FAILURES, `${JSON.stringify(withFailure(failures, name, { at: new Date().toISOString(), why }), null, 1)}\n`);
 }
 
 const script = process.argv[2];
@@ -60,7 +60,7 @@ if (script && process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath
   child.on('exit', (code, signal) => {
     const passed = code === 0;
     record(script, passed);
-    if (!passed) recordFailure(`tests/${script}.ts`);
+    if (!passed) recordFailure(`tests/${script}.ts`, signal ? `stopped by ${signal}` : `exited with code ${code}`);
     process.exit(code ?? (signal ? 1 : 0));
   });
 }

@@ -2,16 +2,21 @@ export const AUDITS_DIR = 'tests/audits';
 export const FAILURES_FILE = 'tests/test-failures.json';
 export const AUDIT_AFTER = 2;
 
-export type Failures = Record<string, string[]>;
+export interface Failure {
+  at: string;
+  why?: string;
+}
+
+export type Failures = Record<string, Failure[]>;
 
 export const auditFileOf = (name: string): string => `${AUDITS_DIR}/${name.replace(/^tests\//, '').replace(/[^A-Za-z0-9.-]+/g, '_')}.md`;
 
-export function withFailure(failures: Failures, name: string, at: string): Failures {
-  return { ...failures, [name]: [...(failures[name] ?? []), at] };
+export function withFailure(failures: Failures, name: string, failure: Failure): Failures {
+  return { ...failures, [name]: [...(failures[name] ?? []), failure] };
 }
 
-export function auditOwed(failed: readonly string[], auditedAt: string | undefined): boolean {
-  const since = auditedAt ? failed.filter((at) => Date.parse(at) > Date.parse(auditedAt)) : failed;
+export function auditOwed(failed: readonly Failure[], auditedAt: string | undefined): boolean {
+  const since = auditedAt ? failed.filter(({ at }) => Date.parse(at) > Date.parse(auditedAt)) : failed;
   return since.length >= AUDIT_AFTER;
 }
 
