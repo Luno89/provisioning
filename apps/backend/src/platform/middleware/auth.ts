@@ -1,4 +1,5 @@
 import express from 'express';
+import { parseCookie as cookiesIn } from 'cookie';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import { arrivedOverHttps, cookieNamed } from '../lib/auth.js';
 import { BROWSER_SESSION_COOKIE, type BrowserPerson, type PersonThroughRoot } from '../lib/browser-session.js';
@@ -17,15 +18,8 @@ export interface ThroughRoot {
   signIn: PersonThroughRoot;
 }
 
-export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
-  if (!cookieHeader) return undefined;
-  const cookies = cookieHeader.split(';').map(c => c.trim());
-  for (const cookie of cookies) {
-    const [k, v] = cookie.split('=');
-    if (k === name) return v;
-  }
-  return undefined;
-}
+export const parseCookie = (cookieHeader: string | undefined, name: string): string | undefined =>
+  cookieHeader ? cookiesIn(cookieHeader)[name] : undefined;
 
 export interface AuthDeps {
   db: Database;
