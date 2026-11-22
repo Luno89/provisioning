@@ -11,7 +11,7 @@ export interface Koala {
 
 export interface RootLinkOptions {
   rootUrl: string;
-  client: { token(): Promise<string> };
+  client: { token(): Promise<string>; freshToken(): Promise<string> };
   meshIp: () => Promise<string | undefined>;
   onKoala: (koala: Koala) => void;
   onRemoved: () => Promise<void> | void;
@@ -41,7 +41,7 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
   const renewBefore = options.renewBeforeSeconds ?? 7 * 24 * 3600;
   let held: string | undefined;
   const auth = (answer: (data: { token?: string }) => void): void => {
-    options.client.token().then((token) => {
+    options.client.freshToken().then((token) => {
       held = token;
       answer({ token });
     }, (err: Error) => {

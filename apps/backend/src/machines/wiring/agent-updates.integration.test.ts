@@ -133,7 +133,7 @@ describe('a machine\'s sessions and the runs that hold them', () => {
     await until(async () => (ended.includes('chat-gone-koala-1') && ending.has('chat-1-koala-1') ? true : undefined));
     expect(ended).toEqual(['chat-gone-koala-1']);
     ending.get('chat-1-koala-1')!();
-    await until(async () => (ended.length === 2 ? true : undefined));
+    await until(async () => (ended.length >= 2 ? true : undefined));
     expect(ended).toEqual(['chat-gone-koala-1', 'chat-1-koala-1']);
   });
 });

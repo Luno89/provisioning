@@ -28,14 +28,14 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentHandOffListsMoved, handOffGrantsWritten, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, approveAskDropped, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentHandOffListsMoved, handOffGrantsWritten, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, shareTokensSealed, unkeptAttachmentsDropped, clusterProvidersDropped, githubCredentialsDropped, joinTokensDropped, vllmLatestPinned, approveAskDropped, ...counts } = await seedAll(db);
     expect(approveAskDropped).toBe(0);
     expect(clusterProvidersDropped).toBe(0);
     expect(vllmLatestPinned).toBe(0);
     expect(githubCredentialsDropped).toBe(0);
     expect(joinTokensDropped).toBe(0);
     expect(unkeptAttachmentsDropped).toBe(0);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokenLifetimes, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
@@ -162,25 +162,6 @@ describe('seed-all', () => {
       expect(await projects.countDocuments({})).toBe(2);
       expect(await seedAll(db)).toMatchObject({ clientFilesForgotten: 0 });
     });
-  });
-
-  it('gives a machine that joined before device tokens expired 90 days from now, once, leaving a dated one and one with no token alone', async () => {
-    const db = await testDatabase();
-    const dated = { id: 'dated', ownerId: 'ann', name: 'dated', rootDir: '/home/ann', createdAt: '2026-01-01T00:00:00.000Z', tokenHash: 'h-dated', issuedAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-12-30T00:00:00.000Z' };
-    await db.machines.saveLocalAgentDevice({ id: 'old', ownerId: 'ann', name: 'old', rootDir: '/home/ann', createdAt: '2026-01-01T00:00:00.000Z', tokenHash: 'h-old' });
-    await db.machines.saveLocalAgentDevice(dated);
-    await db.machines.saveLocalAgentDevice({ id: 'tokenless', ownerId: 'ann', name: 'tokenless', rootDir: '/home/ann', createdAt: '2026-01-01T00:00:00.000Z' });
-
-    const before = Date.now();
-    expect(await seedAll(db)).toMatchObject({ deviceTokenLifetimes: 1 });
-    expect(await seedAll(db)).toMatchObject({ deviceTokenLifetimes: 0 });
-    const devices = new Map((await db.machines.getLocalAgentDevices()).map((device) => [device.id, device]));
-    const old = devices.get('old')!;
-    expect(old.tokenHash).toBe('h-old');
-    expect(Date.parse(old.expiresAt!) - Date.parse(old.issuedAt!)).toBe(90 * 24 * 60 * 60 * 1000);
-    expect(Date.parse(old.issuedAt!)).toBeGreaterThanOrEqual(before - 1000);
-    expect(devices.get('dated')).toMatchObject(dated);
-    expect(devices.get('tokenless')?.expiresAt).toBeUndefined();
   });
 
   it('writes nothing on a second run', async () => {

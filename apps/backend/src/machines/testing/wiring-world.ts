@@ -59,6 +59,45 @@ export async function connectedSocket(url: string, closers: Array<() => Promise<
   return socket;
 }
 
+export interface Hearing<T> {
+  said: T[];
+  saidTimes(count: number): Promise<T[]>;
+}
+
+export function hearing<T>(socket: Socket, event: string): Hearing<T> {
+  const said: T[] = [];
+  const looks = new Set<() => void>();
+  socket.on(event, (value: T) => {
+    said.push(value);
+    for (const look of [...looks]) look();
+  });
+  return {
+    said,
+    saidTimes: (count) => new Promise<T[]>((resolve, reject) => {
+      const done = (): void => {
+        looks.delete(look);
+        socket.off('disconnect', gone);
+        socket.off('connect_error', refused);
+      };
+      const look = (): void => {
+        if (said.length < count) return;
+        done();
+        resolve([...said]);
+      };
+      const ended = (how: string): void => {
+        done();
+        reject(new Error(`${how} after ${said.length} of the ${count} ${event} the test waits for, so no more can come`));
+      };
+      const gone = (reason: string): void => ended(`the connection closed (${reason})`);
+      const refused = (err: Error): void => ended(`the connection was refused (${err.message})`);
+      looks.add(look);
+      socket.on('disconnect', gone);
+      socket.on('connect_error', refused);
+      look();
+    }),
+  };
+}
+
 export async function until<T>(look: () => T | undefined | Promise<T | undefined>): Promise<T> {
   for (;;) {
     const found = await look();

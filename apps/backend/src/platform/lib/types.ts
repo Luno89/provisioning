@@ -208,12 +208,7 @@ export interface LocalAgentDeviceMetadata {
   id: string;
   ownerId: string;
   name: string;
-  tokenHash?: string | undefined;
-  issuedAt?: string | undefined;
-  expiresAt?: string | undefined;
-  nextTokenHash?: string | undefined;
-  nextIssuedAt?: string | undefined;
-  nextExpiresAt?: string | undefined;
+  joinedAt?: string | undefined;
   rootDir: string;
   meshIp?: string | undefined;
   createdAt: string;

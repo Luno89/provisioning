@@ -41,7 +41,7 @@ describe('My Machines, as the browser asks for it', () => {
   it('lists a joined machine with the fields the machine cards read', async () => {
     const id = await joined('desk', createMachineJoinCode)
     const listed = await listLocalAgentDevices()
-    expect(listed).toEqual([objectWith({ id, name: 'desk', rootDir: '/home/me/desk', online: false, tokenExpired: false, agents: [], manualAgents: [] })])
+    expect(listed).toEqual([objectWith({ id, name: 'desk', rootDir: '/home/me/desk', online: false, agents: [], manualAgents: [] })])
     expect(typeof listed[0]?.createdAt).toBe('string')
   })
 

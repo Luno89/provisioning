@@ -144,7 +144,7 @@ beforeAll(async () => {
         const sent = JSON.parse(body) as Record<string, unknown>;
         joins.push(sent);
         res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({ env: { KOALA_ROOT_URL: url, KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_DEVICE_TOKEN: `token-${joins.length}`, KOALA_REGISTRATION_TOKEN: registration.codeFor(`device-${joins.length}`), KOALA_ROOT_DIR: String(sent.rootDir), MESH_LOGIN_SERVER: 'https://mesh.koala.test', MESH_AUTH_KEY: 'hskey-from-root', KOALA_REGISTRY: '' } }));
+        res.end(JSON.stringify({ env: { KOALA_ROOT_URL: url, KOALA_DEVICE_ID: `device-${joins.length}`, KOALA_REGISTRATION_TOKEN: registration.codeFor(`device-${joins.length}`), KOALA_ROOT_DIR: String(sent.rootDir), MESH_LOGIN_SERVER: 'https://mesh.koala.test', MESH_AUTH_KEY: 'hskey-from-root', KOALA_REGISTRY: '' } }));
         return;
       }
       if (req.method === 'POST' && req.url === JOIN_PROGRESS_PATH) {

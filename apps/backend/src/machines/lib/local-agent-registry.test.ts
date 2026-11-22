@@ -1,19 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { Socket } from 'socket.io';
-import type { LocalAgentDeviceMetadata } from '../../platform/lib/types.js';
 import {
-  deviceTokenHash, findDeviceByToken, registerDevice, unregisterDevice, localAgentStatus,
+  registerDevice, unregisterDevice, localAgentStatus,
   execOnDevice, readFileOnDevice, writeFileOnDevice,
   listDirOnDevice, deleteFileOnDevice,
 } from './local-agent-registry.js';
-
-function device(over: Partial<LocalAgentDeviceMetadata> = {}): LocalAgentDeviceMetadata {
-  return {
-    id: 'dev-1', ownerId: 'owner-1', name: 'Test box', rootDir: '/home/me',
-    tokenHash: deviceTokenHash('the-real-token'), createdAt: '2026-01-01T00:00:00Z',
-    ...over,
-  };
-}
 
 function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: unknown[]) => void, disconnect: () => void) => void): Socket {
   const gone = new Set<() => void>();
@@ -28,12 +19,6 @@ function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: un
   };
   return socket as unknown as Socket;
 }
-
-describe('findDeviceByToken', () => {
-  it('finds nothing for a token that matches no device', () => {
-    expect(findDeviceByToken([device()], 'wrong-token')).toBeUndefined();
-  });
-});
 
 describe('device registry status', () => {
   it('is offline until registered, online while connected, offline again after unregister', () => {

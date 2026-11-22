@@ -6,12 +6,11 @@ import { configHome, joinedOf, type Joined, type JoinContext } from '../context.
 const machineFile = (ctx: JoinContext): string => configFile({ ...ctx.host.env, XDG_CONFIG_HOME: configHome(ctx) });
 
 interface Saved {
-  token: string;
   deviceId?: string | undefined;
   key?: string | undefined;
 }
 
-const savedToken = async (ctx: JoinContext): Promise<string | undefined> => (await savedMachine(ctx))?.token;
+export const KEYLESS_JOINS_ANEW = 'this machine joined before machines held a key of their own, so it joins as a new machine: remove its old entry on My Machines';
 
 const savedMachine = async (ctx: JoinContext): Promise<Saved | undefined> => {
   const file = machineFile(ctx);
@@ -26,23 +25,25 @@ const savedMachine = async (ctx: JoinContext): Promise<Saved | undefined> => {
   } catch (err) {
     throw notKoalas((err as Error).message);
   }
-  const { token, deviceId, key } = (saved ?? {}) as { token?: unknown; deviceId?: unknown; key?: unknown };
-  if (typeof token !== 'string' || !token) throw notKoalas('it names no device token');
+  const { rootUrl, deviceId, key } = (saved ?? {}) as { rootUrl?: unknown; deviceId?: unknown; key?: unknown };
+  if (typeof rootUrl !== 'string' || !rootUrl) throw notKoalas('it names no root');
   const keyed = typeof key === 'string' && key !== '';
   if (keyed && (typeof deviceId !== 'string' || !deviceId)) throw notKoalas('it holds a key but names no machine');
-  return { token, ...(keyed ? { deviceId: deviceId as string, key } : {}) };
+  return keyed ? { deviceId: deviceId as string, key } : {};
 };
 
-const replacing = async (ctx: JoinContext): Promise<{ replaces: string; replacesKeyless?: string }> => {
+const replacing = async (ctx: JoinContext, progress: Progress): Promise<{ replaces: string }> => {
   const saved = await savedMachine(ctx);
   if (!saved) return { replaces: '' };
-  if (!saved.key || !saved.deviceId) return { replaces: '', replacesKeyless: saved.token };
-  const proof = await machineClientOf({ rootUrl: ctx.args.url, deviceId: saved.deviceId, key: saved.key, reach: ctx.host.fetch }).tokenIfKnown();
-  return proof ? { replaces: proof } : { replaces: '', replacesKeyless: saved.token };
+  if (!saved.key || !saved.deviceId) {
+    progress.line(KEYLESS_JOINS_ANEW);
+    return { replaces: '' };
+  }
+  return { replaces: await machineClientOf({ rootUrl: ctx.args.url, deviceId: saved.deviceId, key: saved.key, reach: ctx.host.fetch }).tokenIfKnown() ?? '' };
 };
 
 const settingsOf = (joined: Joined, agentsNotSetUp?: string): string =>
-  `${JSON.stringify({ rootUrl: joined.rootUrl, token: joined.token, deviceId: joined.deviceId, rootDir: joined.rootDir, key: joined.key, ...(agentsNotSetUp ? { agentsNotSetUp } : {}) }, null, 2)}\n`;
+  `${JSON.stringify({ rootUrl: joined.rootUrl, deviceId: joined.deviceId, rootDir: joined.rootDir, key: joined.key, ...(agentsNotSetUp ? { agentsNotSetUp } : {}) }, null, 2)}\n`;
 
 export const keepAgentsNotSetUp = (ctx: JoinContext, why: string): Promise<void> => ctx.host.writeOwn(machineFile(ctx), settingsOf(joinedOf(ctx), why), 0o600);
 
@@ -53,7 +54,6 @@ function joinedFrom(raw: unknown, key: string): Joined {
   const joined: Joined = {
     rootUrl: text(env, 'KOALA_ROOT_URL'),
     deviceId: text(env, 'KOALA_DEVICE_ID'),
-    token: text(env, 'KOALA_DEVICE_TOKEN'),
     registrationCode: text(env, 'KOALA_REGISTRATION_TOKEN'),
     key,
     rootDir: text(env, 'KOALA_ROOT_DIR'),
@@ -61,14 +61,14 @@ function joinedFrom(raw: unknown, key: string): Joined {
     meshAuthKey: text(env, 'MESH_AUTH_KEY'),
     registry: text(env, 'KOALA_REGISTRY'),
   };
-  const absent = (['rootUrl', 'deviceId', 'token', 'registrationCode', 'rootDir'] as const).filter((name) => !joined[name]);
+  const absent = (['rootUrl', 'deviceId', 'registrationCode', 'rootDir'] as const).filter((name) => !joined[name]);
   if (absent.length > 0) throw new Error(`Koala's answer to the join named no ${absent.join(', ')}`);
   if (!joined.meshLoginServer || !joined.meshAuthKey) throw new Error('Koala\'s root named no private network for this machine, and a machine takes work only over it');
   return joined;
 }
 
 async function join(ctx: JoinContext, progress: Progress): Promise<void> {
-  const body = { code: ctx.args.code, hostname: ctx.host.hostname, rootDir: ctx.folder, os: ctx.host.os, ...await replacing(ctx) };
+  const body = { code: ctx.args.code, hostname: ctx.host.hostname, rootDir: ctx.folder, os: ctx.host.os, ...await replacing(ctx, progress) };
   let response: Response;
   try {
     response = await ctx.host.fetch(`${ctx.args.url}/api/machines/join`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -91,7 +91,8 @@ export const joinRootStep = (url: string): Step<JoinContext> => ({
   title: `Joining ${url}`,
   check: async (ctx) => {
     if (!ctx.joined) return { done: false, why: 'this machine has not joined in this run: each run joins with its own code' };
-    return await savedToken(ctx) === ctx.joined.token ? { done: true } : { done: false, why: `${machineFile(ctx)} does not hold the token Koala just gave this machine` };
+    const saved = await savedMachine(ctx);
+    return saved?.deviceId === ctx.joined.deviceId && saved.key === ctx.joined.key ? { done: true } : { done: false, why: `${machineFile(ctx)} does not hold the machine and key this join just made` };
   },
   apply: join,
 });

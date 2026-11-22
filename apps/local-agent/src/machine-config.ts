@@ -13,7 +13,6 @@ export function folderProblem(folder: string, home: string): string | undefined 
 
 export interface MachineConfig {
   rootUrl: string;
-  token: string;
   rootDir: string;
   deviceId: string;
   key: string;
@@ -28,16 +27,14 @@ const text = (value: unknown): string | undefined => (typeof value === 'string' 
 
 export function machineConfigFrom(env: NodeJS.ProcessEnv, saved: Record<string, unknown>, cwd: string): MachineConfig {
   const rootUrl = text(env.KOALA_ROOT_URL) ?? text(saved.rootUrl);
-  const token = text(env.KOALA_DEVICE_TOKEN) ?? text(saved.token);
   if (!rootUrl) throw new Error(text(saved.backendUrl) ? 'this machine was added before machines joined through root: run the command from My Machines again' : 'this machine has no root to connect to: run the command from My Machines, or set KOALA_ROOT_URL');
-  if (!token) throw new Error('this machine has no device token: run the command from My Machines, or set KOALA_DEVICE_TOKEN');
   const deviceId = text(env.KOALA_DEVICE_ID) ?? text(saved.deviceId);
   const key = text(saved.key);
   if (!deviceId || !key) throw new Error(KEYLESS);
   const rootDir = path.resolve(text(env.KOALA_ROOT_DIR) ?? text(saved.rootDir) ?? cwd);
   const tooWide = folderProblem(rootDir, os.homedir());
   if (tooWide) throw new Error(tooWide);
-  return { rootUrl, token, rootDir, deviceId, key };
+  return { rootUrl, rootDir, deviceId, key };
 }
 
 const savedSettings = (env: NodeJS.ProcessEnv): Promise<Record<string, unknown>> => readFile(configFile(env), 'utf8').then(

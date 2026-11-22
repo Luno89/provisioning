@@ -119,9 +119,6 @@ export default function MyMachines() {
                     {!d.online && d.lastSeenAt && ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}`}
                   </div>
                   {gpuLines(d).map((line) => <div key={line} className="text-[11px] text-slate-400 mt-0.5">{line}</div>)}
-                  {!d.online && d.tokenExpired && (
-                    <div className="text-[11px] text-amber-400 mt-1">Its token expired while it was offline; run the command from My Machines again.</div>
-                  )}
                   <MachineAgentUpdate device={d} />
                 </div>
                 <button

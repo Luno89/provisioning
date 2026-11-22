@@ -7,7 +7,6 @@ import type { Arch, JoinPins } from './pins.js';
 export interface Joined {
   rootUrl: string;
   deviceId: string;
-  token: string;
   registrationCode: string;
   key: string;
   rootDir: string;

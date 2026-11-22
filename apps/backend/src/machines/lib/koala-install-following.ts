@@ -30,7 +30,7 @@ export function installFollowing(device: LocalAgentDeviceMetadata | undefined, i
   const unfinished = mine.find((instance) => installUnfinished(instance.install));
   if (unfinished) return followed(unfinished);
   if (device.koalaWanted) return { kind: 'waiting' };
-  const joined = timeOf(device.issuedAt ?? device.createdAt);
+  const joined = timeOf(device.joinedAt ?? device.createdAt);
   const ended = mine.find((instance) => timeOf(instance.install.at) >= joined);
   const refused = device.koalaRefused && timeOf(device.koalaRefused.at) >= joined ? device.koalaRefused : undefined;
   if (ended && !(refused && timeOf(refused.at) > timeOf(ended.install.at))) return followed(ended);

@@ -1,6 +1,5 @@
 import path from 'path';
 import { type ClusterMetadata, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
-import { tokenExpired } from '../lib/device-tokens.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
   machineAgentsReportFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem,
@@ -49,7 +48,6 @@ export interface MachineView {
   createdAt: string;
   lastSeenAt?: string | undefined;
   online: boolean;
-  tokenExpired: boolean;
   connectedAt?: string | undefined;
   agents: MachineAgent[];
   agentsAt?: string | undefined;
@@ -89,7 +87,6 @@ export class MachineService {
       createdAt: device.createdAt,
       ...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
       online: status.online,
-      tokenExpired: tokenExpired(device, this.now()),
       ...(status.connectedAt ? { connectedAt: status.connectedAt } : {}),
       agents: device.agents ?? [],
       ...(device.agentsAt ? { agentsAt: device.agentsAt } : {}),

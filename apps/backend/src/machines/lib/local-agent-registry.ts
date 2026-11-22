@@ -1,6 +1,4 @@
 import type { Socket } from 'socket.io';
-import { deviceTokenHash, viaOf, withLifetime, type TokenVia } from './device-tokens.js';
-import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 
 interface DeviceConnection {
   socket: Socket;
@@ -10,50 +8,6 @@ interface DeviceConnection {
 }
 
 const devices = new Map<string, DeviceConnection>();
-
-export { deviceTokenHash } from './device-tokens.js';
-
-export interface TokenMatch {
-  device: LocalAgentDeviceMetadata;
-  via: TokenVia;
-  expired: boolean;
-}
-
-export function matchDeviceToken(
-  candidates: readonly LocalAgentDeviceMetadata[],
-  presentedToken: string,
-  now: Date = new Date(),
-): TokenMatch | undefined {
-  const presented = deviceTokenHash(presentedToken);
-  for (const device of candidates) {
-    const found = viaOf(device, presented, now);
-    if (found) return { device, ...found };
-  }
-  return undefined;
-}
-
-export function findDeviceByToken(
-  candidates: readonly LocalAgentDeviceMetadata[],
-  presentedToken: string,
-  now: Date = new Date(),
-): LocalAgentDeviceMetadata | undefined {
-  const match = matchDeviceToken(candidates, presentedToken, now);
-  return match && !match.expired ? match.device : undefined;
-}
-
-export async function giveDeviceTokenLifetimes(
-  store: { getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>; saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> },
-  now: Date,
-): Promise<number> {
-  let given = 0;
-  for (const device of await store.getLocalAgentDevices()) {
-    const dated = withLifetime(device, now);
-    if (dated === device) continue;
-    await store.saveLocalAgentDevice(dated);
-    given += 1;
-  }
-  return given;
-}
 
 export function registerDevice(
   deviceId: string,

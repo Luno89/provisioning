@@ -1,5 +1,5 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
-import { newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
+import { clientRefused, newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
 
 type Saved = Record<string, unknown> & { key?: unknown; nextKey?: unknown };
 
@@ -13,7 +13,7 @@ async function writeSaved(file: string, saved: Saved): Promise<void> {
 
 const withoutPending = ({ nextKey: _pending, ...rest }: Saved): Saved => rest;
 
-export async function replaceMachineKey(client: { replaceKey(offer: KeyReplacement, key: string): Promise<void> }, offer: KeyReplacement, file: string): Promise<void> {
+export async function replaceMachineKey(client: { replaceKey(offer: KeyReplacement, key: string): Promise<void> }, offer: KeyReplacement, file: string): Promise<string> {
   const key = newClientKey();
   await writeSaved(file, { ...await readSaved(file), nextKey: key });
   try {
@@ -23,6 +23,43 @@ export async function replaceMachineKey(client: { replaceKey(offer: KeyReplaceme
     throw err;
   }
   await writeSaved(file, { ...withoutPending(await readSaved(file)), key });
+  return key;
+}
+
+export interface MachineKeyClient {
+  token(): Promise<string>;
+  freshToken(): Promise<string>;
+  tokenIfKnown(): Promise<string | undefined>;
+  replaceKey(offer: KeyReplacement, key: string): Promise<void>;
+}
+
+export interface HeldMachineKey {
+  token(): Promise<string>;
+  freshToken(): Promise<string>;
+  replaceKey(offer: KeyReplacement): Promise<void>;
+}
+
+export async function heldMachineKey(file: string, clientOf: (key: string) => MachineKeyClient): Promise<HeldMachineKey> {
+  const settled = (): Promise<string> => settleMachineKey(file, async (held) => (await clientOf(held).tokenIfKnown()) !== undefined);
+  let key = await settled();
+  let client = clientOf(key);
+  const taken = async (take: (from: MachineKeyClient) => Promise<string>): Promise<string> => {
+    try {
+      return await take(client);
+    } catch (err) {
+      if (!clientRefused(err)) throw err;
+      const kept = await settled();
+      if (kept === key) throw err;
+      key = kept;
+      client = clientOf(kept);
+      return take(client);
+    }
+  };
+  return {
+    token: () => taken((from) => from.token()),
+    freshToken: () => taken((from) => from.freshToken()),
+    replaceKey: async (offer) => { key = await replaceMachineKey(client, offer, file); },
+  };
 }
 
 export async function settleMachineKey(file: string, rootKeeps: (key: string) => Promise<boolean>): Promise<string> {

@@ -98,6 +98,8 @@ const errorOf = (err: unknown): string | undefined => {
   return typeof challenge?.parameters?.error === 'string' ? challenge.parameters.error : undefined;
 };
 
+export const clientRefused = (err: unknown): boolean => errorOf(err) === 'invalid_client';
+
 export class OidcClient {
   private configured: Promise<client.Configuration> | undefined;
   private held: { value: string; until: number } | undefined;
@@ -148,7 +150,7 @@ export class OidcClient {
     return this.configured;
   }
 
-  private async freshToken(): Promise<string> {
+  async freshToken(): Promise<string> {
     const now = this.now();
     const granted = await client.clientCredentialsGrant(await this.config(), { scope: this.parts.scope });
     this.held = { value: granted.access_token, until: now + Math.max(30, (granted.expires_in ?? 60) - 30) * 1000 };
@@ -161,7 +163,7 @@ export class OidcClient {
       this.markRegistered();
       return;
     } catch (err) {
-      if (errorOf(err) !== 'invalid_client') throw err;
+      if (!clientRefused(err)) throw err;
     }
     try {
       await client.dynamicClientRegistration(new URL(this.issuer), this.parts.registration as Partial<client.ClientMetadata>, await this.authentication(), { ...this.options(), initialAccessToken: this.parts.registrationCode });
@@ -181,7 +183,7 @@ export class OidcClient {
     try {
       return await this.token();
     } catch (err) {
-      if (errorOf(err) === 'invalid_client') return undefined;
+      if (clientRefused(err)) return undefined;
       throw err;
     }
   }

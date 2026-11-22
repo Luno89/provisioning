@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
-import { replaceMachineKey, settleMachineKey } from './machine-key.js';
+import { heldMachineKey, replaceMachineKey, settleMachineKey, type MachineKeyClient } from './machine-key.js';
 
 let dir: string | undefined;
 afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
@@ -51,6 +51,50 @@ describe('a machine replacing its key when root offers', () => {
     const again = await savedFile({ nextKey: newClientKey() });
     expect(await settleMachineKey(again, async () => false)).toBe(OLD);
     expect(await read(again)).toEqual({ rootUrl: 'https://root.test', deviceId: 'desk', rootDir: dir, key: OLD });
+  });
+
+  it('takes a token of its new key the moment root refuses its old one, when root took the new key though its answer never came, and keeps only the new key', async () => {
+    const file = await savedFile();
+    const rootHolds = new Set([OLD]);
+    const refusedKey = Object.assign(new Error('client authentication failed'), { name: 'ResponseBodyError', error: 'invalid_client' });
+    const clientOf = (key: string): MachineKeyClient => {
+      const token = async (): Promise<string> => { if (!rootHolds.has(key)) throw refusedKey; return `token of ${key === OLD ? 'the old key' : 'the new key'}`; };
+      return {
+        token,
+        freshToken: token,
+        tokenIfKnown: async () => (rootHolds.has(key) ? token() : undefined),
+        replaceKey: async (_offer, next) => {
+          rootHolds.clear();
+          rootHolds.add(next);
+          throw new Error('the connection dropped before root answered');
+        },
+      };
+    };
+    const held = await heldMachineKey(file, clientOf);
+    expect(await held.token()).toBe('token of the old key');
+    await expect(held.replaceKey(OFFER)).rejects.toThrow('the connection dropped before root answered');
+    const pending = (await read(file)).nextKey as string;
+    expect(rootHolds).toEqual(new Set([pending]));
+    expect(await held.freshToken()).toBe('token of the new key');
+    expect(await held.token()).toBe('token of the new key');
+    expect(await read(file)).toEqual({ rootUrl: 'https://root.test', deviceId: 'desk', rootDir: dir, key: pending });
+  });
+
+  it('says root refused it when root holds neither key it keeps', async () => {
+    const file = await savedFile({ nextKey: newClientKey() });
+    const refusedKey = Object.assign(new Error('client authentication failed'), { name: 'ResponseBodyError', error: 'invalid_client' });
+    let known = true;
+    const clientOf = (key: string): MachineKeyClient => ({
+      token: async () => { if (!known) throw refusedKey; return key === OLD ? 'old' : 'next'; },
+      freshToken: async () => { if (!known) throw refusedKey; return key === OLD ? 'old' : 'next'; },
+      tokenIfKnown: async () => (known && key === OLD ? 'old' : undefined),
+      replaceKey: async () => undefined,
+    });
+    const held = await heldMachineKey(file, clientOf);
+    expect(await held.token()).toBe('old');
+    known = false;
+    await expect(held.freshToken()).rejects.toBe(refusedKey);
+    expect(await read(file)).toEqual({ rootUrl: 'https://root.test', deviceId: 'desk', rootDir: dir, key: OLD });
   });
 
   it('settles on its key without asking root when it holds no new key beside it', async () => {

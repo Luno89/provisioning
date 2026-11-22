@@ -1,16 +1,15 @@
-import { createHash } from 'node:crypto';
 import { describe, it, expect, afterAll } from 'vitest';
 import type { Socket } from 'socket.io';
 import { localAgentsRouter } from './local-agents.js';
 import { machinesRouter } from './machines.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { askDevice, dropDevice, findDeviceByToken, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
+import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
-import { machineClientsAt } from '../../instances/testing/registration-code.js';
+import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 
 const DATA_KEY = 'test-secret';
@@ -96,8 +95,9 @@ describe('adding a machine with the command from My Machines', () => {
     const device = (await harness.db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === env.KOALA_DEVICE_ID)!;
     expect(device).toMatchObject({ ownerId: TEST_USER.id, name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
     expect(device).not.toHaveProperty('tokenEnc');
-    expect(device.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));
-    expect(JSON.stringify(device)).not.toContain(env.KOALA_DEVICE_TOKEN);
+    expect(device).not.toHaveProperty('tokenHash');
+    expect(env).not.toHaveProperty('KOALA_DEVICE_TOKEN');
+    expect(JSON.stringify(device)).not.toContain(env.KOALA_REGISTRATION_TOKEN);
     const project = (await harness.db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === device.id);
     expect(project?.name).toBe('laptop - koala');
 
@@ -113,14 +113,15 @@ describe('adding a machine with the command from My Machines', () => {
     await harness.db.machines.saveLocalAgentDevice({ ...before, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
     const projects = (await harness.db.projects.getProjects()).length;
 
-    const again = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/work', replacesKeyless: first.env.KOALA_DEVICE_TOKEN })).json() as { deviceId: string; env: Record<string, string> };
+    await harness.db.machines.updateLocalAgentDevice(first.deviceId, { set: { signIn: machineSignInKey() } });
+    const again = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/work', replaces: await machineTokenAt(harness.db, first.deviceId) })).json() as { deviceId: string; env: Record<string, string> };
 
     expect(again.deviceId).toBe(first.deviceId);
     const devices = (await harness.db.machines.getLocalAgentDevices()).filter((device) => device.name === 'desk');
     expect(devices).toHaveLength(1);
     expect(devices[0]).toMatchObject({ rootDir: '/home/me/work', createdAt: before.createdAt, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
-    expect(devices[0]!.tokenHash).toBe(createHash('sha256').update(again.env.KOALA_DEVICE_TOKEN!).digest('hex'));
-    expect(again.env.KOALA_DEVICE_TOKEN).not.toBe(first.env.KOALA_DEVICE_TOKEN);
+    expect(devices[0]).not.toHaveProperty('signIn');
+    expect(again.env.KOALA_REGISTRATION_TOKEN).not.toBe(first.env.KOALA_REGISTRATION_TOKEN);
     expect((await harness.db.projects.getProjects()).length).toBe(projects);
 
     const stranger = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'desk', rootDir: '/home/me/koala', replaces: 'not-a-token-of-yours' })).json() as { deviceId: string };
@@ -240,13 +241,15 @@ describe('running the command again', () => {
   const devices = () => harness.db.machines.getLocalAgentDevices();
   const codeOf = async () => ((await (await post('/api/mesh/local-agents/join-code', {})).json()) as { code: string }).code;
 
-  it('replaces a machine whose token has expired, rather than adding a second', async () => {
-    const machines = machinesOf(harness.db, undefined, () => new Date('2020-01-01T00:00:00Z')).accounts;
+  it('replaces a machine whose key has lived its 90 days, rather than adding a second', async () => {
+    const machines = machinesOf(harness.db).accounts;
     const joined = await machines.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old' });
-    const token = joined.ok ? joined.value.env.KOALA_DEVICE_TOKEN! : '';
     const id = joined.ok ? joined.value.deviceId : '';
-    expect(findDeviceByToken(await devices(), token)).toBeUndefined();
-    const again = await machinesOf(harness.db).accounts.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old', replacesKeyless: token });
+    await harness.db.machines.updateLocalAgentDevice(id, { set: { signIn: { ...machineSignInKey(), since: '2020-01-01T00:00:00.000Z' } } });
+    const proof = await machineTokenAt(harness.db, id);
+    expect(await machineClientsAt(harness.db).machineCaller(proof)).toBeUndefined();
+    const again = await machines.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old', replaces: proof });
     expect(again.ok && again.value.deviceId).toBe(id);
+    expect((await devices()).filter((device) => device.name === 'old')).toHaveLength(1);
   });
 });

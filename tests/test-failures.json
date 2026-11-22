@@ -1,4 +1,10 @@
 {
+ "apps/frontend/src/features/machines/components/AccountMachines.integration.test.tsx": [
+  "2026-11-22T07:14:37.000Z"
+ ],
+ "apps/backend/src/machines/wiring/root-link.integration.test.ts": [
+  "2026-11-22T06:40:55.000Z"
+ ],
  "apps/frontend/src/features/infrastructure/components/InfrastructureView.test.tsx": [
   "2026-11-04T15:52:22.804Z"
  ],

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MachinesStore } from '../store.js';
 
-const device = { id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: '2026-10-10T00:00:00.000Z', tokenHash: 'old' };
+const device = { id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: '2026-10-10T00:00:00.000Z', os: 'old' };
 
 export function machinesStoreContract(make: () => Promise<MachinesStore>): void {
   describe('a person\'s machines', () => {
@@ -29,21 +29,21 @@ export function machinesStoreContract(make: () => Promise<MachinesStore>): void 
       await store.saveLocalAgentDevice(device);
       await Promise.all([
         store.updateLocalAgentDevice('desk', { set: { lastSeenAt: '2026-10-29T00:00:00.000Z' } }),
-        store.updateLocalAgentDevice('desk', { set: { nextTokenHash: 'new' }, when: { nextTokenHash: null } }),
+        store.updateLocalAgentDevice('desk', { set: { agentBundle: 'new' }, when: { agentBundle: null } }),
         store.updateLocalAgentDevice('desk', { set: { meshIp: '100.64.0.9' } }),
       ]);
-      expect((await store.getLocalAgentDevices())[0]).toMatchObject({ tokenHash: 'old', nextTokenHash: 'new', lastSeenAt: '2026-10-29T00:00:00.000Z', meshIp: '100.64.0.9' });
+      expect((await store.getLocalAgentDevices())[0]).toMatchObject({ os: 'old', agentBundle: 'new', lastSeenAt: '2026-10-29T00:00:00.000Z', meshIp: '100.64.0.9' });
     });
 
     it('applies a change only while its condition holds, and says whether it did', async () => {
       const store = await make();
-      await store.saveLocalAgentDevice({ ...device, nextTokenHash: 'new' });
-      expect(await store.updateLocalAgentDevice('desk', { set: { nextTokenHash: 'another' }, when: { nextTokenHash: null } })).toBe(false);
-      expect(await store.updateLocalAgentDevice('desk', { set: { tokenHash: 'new' }, unset: ['nextTokenHash'], when: { nextTokenHash: 'stale' } })).toBe(false);
-      expect(await store.updateLocalAgentDevice('desk', { set: { tokenHash: 'new' }, unset: ['nextTokenHash'], when: { nextTokenHash: 'new' } })).toBe(true);
+      await store.saveLocalAgentDevice({ ...device, agentBundle: 'new' });
+      expect(await store.updateLocalAgentDevice('desk', { set: { agentBundle: 'another' }, when: { agentBundle: null } })).toBe(false);
+      expect(await store.updateLocalAgentDevice('desk', { set: { os: 'new' }, unset: ['agentBundle'], when: { agentBundle: 'stale' } })).toBe(false);
+      expect(await store.updateLocalAgentDevice('desk', { set: { os: 'new' }, unset: ['agentBundle'], when: { agentBundle: 'new' } })).toBe(true);
       const [stored] = await store.getLocalAgentDevices();
-      expect(stored).toMatchObject({ tokenHash: 'new' });
-      expect(stored).not.toHaveProperty('nextTokenHash');
+      expect(stored).toMatchObject({ os: 'new' });
+      expect(stored).not.toHaveProperty('agentBundle');
     });
 
     it('changes nothing, and says so, for a machine it does not have or a change that names nothing', async () => {
