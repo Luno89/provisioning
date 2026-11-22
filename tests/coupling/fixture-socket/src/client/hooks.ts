@@ -14,3 +14,7 @@ export const listen = (): void => {
   useEvent('greeted', (payload) => { console.log(payload); });
   socket.on('connect', () => { console.log('connected'); });
 };
+
+export const sendToken = (): void => {
+  socket.emit('token:sent', 'me');
+};
