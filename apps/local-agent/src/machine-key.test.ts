@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { newClientKey, type KeyReplacement } from '@koala/engine-core/root-client';
 import { heldMachineKey, replaceMachineKey, settleMachineKey, type MachineKeyClient } from './machine-key.js';
+import { metricsClientFile } from './machine-config.js';
+import { metricsClientManifest } from './machine-metrics.js';
 
 let dir: string | undefined;
 afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
@@ -23,13 +25,16 @@ describe('a machine replacing its key when root offers', () => {
   it('keeps the new key, and only it, once root took it, leaving every other setting and the file readable only by the person', async () => {
     const file = await savedFile({ agentsNotSetUp: 'later' });
     const asked: Array<{ offer: KeyReplacement; key: string; pending: unknown }> = [];
-    const client = { replaceKey: async (offer: KeyReplacement, key: string) => { asked.push({ offer, key, pending: (await read(file)).nextKey }); } };
+    const client = { replaceKey: async (offer: KeyReplacement, key: string) => { asked.push({ offer, key, pending: (await read(file)).nextKey }); return { clientId: 'metrics.desk', clientSecret: 'the-new-secret' }; } };
     await replaceMachineKey(client, OFFER, file);
     const saved = await read(file);
     expect(asked).toEqual([{ offer: OFFER, key: saved.key, pending: saved.key }]);
     expect(saved.key).not.toBe(OLD);
     expect(saved).toEqual({ rootUrl: 'https://root.test', deviceId: 'desk', rootDir: dir, key: saved.key, agentsNotSetUp: 'later' });
     expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const metrics = metricsClientFile(file);
+    expect(await readFile(metrics, 'utf8')).toBe(metricsClientManifest({ clientId: 'metrics.desk', clientSecret: 'the-new-secret' }));
+    expect((await stat(metrics)).mode & 0o777).toBe(0o600);
   });
 
   it('keeps its old key when root answered that it did not take the new one, and says why', async () => {
@@ -89,7 +94,7 @@ describe('a machine replacing its key when root offers', () => {
       token: async () => { if (!known) throw refusedKey; return key === OLD ? 'old' : 'next'; },
       freshToken: async () => { if (!known) throw refusedKey; return key === OLD ? 'old' : 'next'; },
       tokenIfKnown: async () => (known && key === OLD ? 'old' : undefined),
-      replaceKey: async () => undefined,
+      replaceKey: async () => ({ clientId: 'metrics.desk', clientSecret: 'unused' }),
     });
     const held = await heldMachineKey(file, clientOf);
     expect(await held.token()).toBe('old');

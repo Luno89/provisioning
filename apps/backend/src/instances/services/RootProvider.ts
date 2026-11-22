@@ -3,14 +3,14 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type InteractionResults, type KoaContextWithOIDC, type ResourceServer } from 'oidc-provider';
 import { servingOf } from '../lib/instances.js';
 import { SignJWT } from 'jose';
-import { reopening, type AccessRevoked, type Database, type Reopening, type Watching } from '../../platform/index.js';
+import { decryptValue, encryptValue, reopening, type AccessRevoked, type Database, type Reopening, type SecretKey, type Watching } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
-  machineClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
+  machineClientMetadata, metricsClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
-import { MACHINE_SCOPE, machineKeyEnds, type KeyReplacement } from '@koala/engine-core/root-client';
+import { MACHINE_SCOPE, machineKeyEnds, machineOfMetricsClient, METRICS_CLIENT_FIELDS, METRICS_SCOPE, metricsClientIdOf, type KeyReplacement } from '@koala/engine-core/root-client';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
 import type { InstanceReach } from './InstanceReach.js';
@@ -24,6 +24,7 @@ export interface RootProviderSettings {
   proxied: boolean;
   reach: InstanceReach;
   web: { publicUrl: string; key: PublicJwk };
+  dataKey: SecretKey;
 }
 
 export interface ServiceCaller {
@@ -49,9 +50,14 @@ interface KoalaClient {
 
 const kindOf = (client: unknown): { kind: ClientKind; owner?: string | undefined } => {
   const known = client as KoalaClient;
-  if (known.koala_kind !== 'instance' && known.koala_kind !== 'machine' && known.koala_kind !== 'root-web') throw new errors.InvalidClient(`root does not know what kind of client ${known.clientId} is`);
+  if (known.koala_kind !== 'instance' && known.koala_kind !== 'machine' && known.koala_kind !== 'machine-metrics' && known.koala_kind !== 'root-web') throw new errors.InvalidClient(`root does not know what kind of client ${known.clientId} is`);
   return { kind: known.koala_kind, owner: known.koala_owner };
 };
+
+const metricsClientIssued = (deviceId: string): Record<string, string> => ({
+  [METRICS_CLIENT_FIELDS.id]: metricsClientIdOf(deviceId),
+  [METRICS_CLIENT_FIELDS.secret]: crypto.randomBytes(32).toString('base64url'),
+});
 
 export type InteractionHeld = Record<string, unknown>;
 
@@ -82,10 +88,10 @@ export class RootProvider {
 
   async resourceServerInfo(indicator: string, client: unknown): Promise<ResourceServer> {
     const kind = kindOf(client);
-    if (kind.kind === 'machine') {
+    if (kind.kind === 'machine' || kind.kind === 'machine-metrics') {
       const koala = kind.owner ? servingOf(await this.store.instances.getInstances(kind.owner)) : undefined;
       if (!koala || indicator !== runResourceOf(koala.id)) throw new errors.InvalidTarget('a machine takes tokens only for its owner\'s Koala');
-      return { audience: indicator, scope: MACHINE_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: MACHINE_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
+      return { audience: indicator, scope: kind.kind === 'machine' ? MACHINE_SCOPE : METRICS_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: MACHINE_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
     }
     if (indicator !== runResourceOf((client as KoalaClient).clientId)) throw new errors.InvalidTarget('root serves no such resource');
     return { audience: indicator, scope: RUN_SCOPE, accessTokenFormat: 'jwt', accessTokenTTL: RUN_TOKEN_SECONDS, jwt: { sign: { alg: SIGNING_ALG } } };
@@ -153,7 +159,7 @@ export class RootProvider {
       await replacing.destroy();
       const device = await this.device(replacing.clientId ?? '');
       if (!device?.signIn) throw new errors.InvalidToken('root keeps no key for this machine, so there is none to replace');
-      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }));
+      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }), metricsClientIssued(device.id));
       return;
     }
     const code = ctx.oidc.entities.InitialAccessToken?.jti;
@@ -162,7 +168,7 @@ export class RootProvider {
     if (taken.kind === 'machine') {
       const device = await this.device(taken.id);
       if (!device) throw new errors.InvalidToken('the machine this registration code was made for is gone');
-      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }));
+      Object.assign(properties, machineClientMetadata({ id: device.id, ownerId: device.ownerId, key }), metricsClientIssued(device.id));
       return;
     }
     const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === taken.id);
@@ -224,13 +230,21 @@ export class RootProvider {
           if (!key) throw new errors.InvalidClientMetadata('register one Ed25519 public key with its kid');
           const sinceFor = (held: SignInKey | undefined): string => (held?.jwk.kid === key.kid ? held.since : new Date(this.now()).toISOString());
           if ((payload as KoalaClient).koala_kind === 'machine') {
-            await this.store.machines.updateLocalAgentDevice(id, { set: { signIn: { jwk: key, since: sinceFor((await this.device(id))?.signIn) } } });
+            const secret = (payload as Record<string, unknown>)[METRICS_CLIENT_FIELDS.secret];
+            if (typeof secret !== 'string' || !secret) throw new errors.InvalidClientMetadata('root registers a machine only with a client for its Prometheus');
+            const since = new Date(this.now()).toISOString();
+            await this.store.machines.updateLocalAgentDevice(id, { set: { signIn: { jwk: key, since: sinceFor((await this.device(id))?.signIn) }, metricsClient: { secret: encryptValue(secret, this.settings.dataKey), since } } });
             return;
           }
           const held = (await instances.getInstances()).find((candidate) => candidate.id === id)?.signIn;
           await instances.saveSignInKey(id, { jwk: key, since: sinceFor(held) });
         },
         find: async (id) => {
+          const metricsOf = machineOfMetricsClient(id);
+          if (metricsOf) {
+            const device = await this.device(metricsOf);
+            return device?.metricsClient ? metricsClientMetadata({ id: device.id, ownerId: device.ownerId, secret: decryptValue(device.metricsClient.secret, this.settings.dataKey) }) as AdapterPayload : undefined;
+          }
           const client = await this.addressedClient(id);
           if (client) return clientMetadata(client) as AdapterPayload;
           const device = await this.device(id);
@@ -270,11 +284,11 @@ export class RootProvider {
         };
       },
       claims: { openid: ['sub'], email: ['email', 'email_verified'], [KOALA_SCOPE]: [KOALA_CLAIMS] },
-      scopes: [...SIGN_IN_SCOPES, SERVICE_SCOPE, RUN_SCOPE, MACHINE_SCOPE],
+      scopes: [...SIGN_IN_SCOPES, SERVICE_SCOPE, RUN_SCOPE, MACHINE_SCOPE, METRICS_SCOPE],
       conformIdTokenClaims: false,
       clientDefaults: { grant_types: ['authorization_code'], id_token_signed_response_alg: SIGNING_ALG, response_types: ['code'], token_endpoint_auth_method: 'private_key_jwt' },
-      clientAuthMethods: ['private_key_jwt'],
-      extraClientMetadata: { properties: ['koala_kind', 'koala_owner'] },
+      clientAuthMethods: ['private_key_jwt', 'client_secret_basic'],
+      extraClientMetadata: { properties: ['koala_kind', 'koala_owner', METRICS_CLIENT_FIELDS.id, METRICS_CLIENT_FIELDS.secret] },
       responseTypes: ['code'],
       pkce: { required: () => true },
       jwks: { keys: [{ ...privateJwkOf(this.settings.signing), alg: SIGNING_ALG, use: 'sig' }] as never },

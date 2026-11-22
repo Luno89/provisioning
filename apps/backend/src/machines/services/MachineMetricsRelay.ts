@@ -1,8 +1,8 @@
-import type { ClusterMetadata } from '../../platform/index.js';
-import { hashesEqual, metricsTokenHash, stampedBody } from '../lib/machine-metrics.js';
+import { machineClusterId } from '../lib/machine-clusters.js';
+import { stampedBody } from '../lib/machine-metrics.js';
 
 export interface MachineMetricsDeps {
-  clusters(): Promise<ClusterMetadata[]>;
+  admit(token: string): Promise<{ device: { id: string } } | string>;
   write(body: Buffer): Promise<{ status: number; text: string }>;
 }
 
@@ -12,13 +12,12 @@ export class MachineMetricsRelay {
   constructor(private readonly deps: MachineMetricsDeps) {}
 
   async write(token: string | undefined, body: Buffer): Promise<RelayAnswer> {
-    if (!token) return { status: 401, text: 'a machine sends its metrics with its cluster\'s metrics token' };
-    const hash = metricsTokenHash(token);
-    const cluster = (await this.deps.clusters()).find((entry) => entry.provider === 'machine' && entry.metricsTokenHash !== undefined && hashesEqual(entry.metricsTokenHash, hash));
-    if (!cluster) return { status: 401, text: 'no machine\'s cluster sends with that token' };
+    if (!token) return { status: 401, text: 'a machine\'s Prometheus sends its metrics with the token root gave it for this Koala' };
+    const admitted = await this.deps.admit(token);
+    if (typeof admitted === 'string') return { status: 401, text: admitted };
     let stamped: Buffer;
     try {
-      stamped = stampedBody(body, cluster.id);
+      stamped = stampedBody(body, machineClusterId(admitted.device.id));
     } catch (err) {
       return { status: 400, text: `not a remote-write request Koala reads: ${(err as Error).message}` };
     }

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, keyReplacementFrom, machineClientOf, machineKeyDue, machineKeyEnds, machineRegistration, MachineClient, MACHINE_SCOPE, newClientKey, rootIssuerOf } from './root-client.js';
+import { clientKeysFrom, clientPublicJwkOf, KEY_REPLACEMENT_REFUSED, keyReplacementFrom, machineClientOf, machineKeyDue, machineKeyEnds, machineRegistration, MachineClient, MACHINE_SCOPE, METRICS_CLIENT_FIELDS, newClientKey, rootIssuerOf } from './root-client.js';
 
 describe('a client of root', () => {
   it('names its key by the hash of its public half, the same for the same key and different for another', () => {
@@ -38,11 +38,11 @@ describe('a client of root', () => {
     let status = 200;
     const reach = (async (url: string, init: RequestInit) => {
       sent.push({ url, init });
-      return new Response(status === 200 ? '{}' : 'no', { status });
+      return new Response(status === 200 ? JSON.stringify({ client_id: 'desk-1', [METRICS_CLIENT_FIELDS.id]: 'metrics.desk-1', [METRICS_CLIENT_FIELDS.secret]: 'a-fresh-secret' }) : 'no', { status });
     }) as unknown as typeof fetch;
     const machine = machineClientOf({ rootUrl: 'https://koala.example', deviceId: 'desk-1', key: newClientKey(), reach });
     const next = newClientKey();
-    await machine.replaceKey({ registrationAccessToken: 'rat', registrationClientUri: 'https://koala.example/oidc/reg/desk-1' }, next);
+    expect(await machine.replaceKey({ registrationAccessToken: 'rat', registrationClientUri: 'https://koala.example/oidc/reg/desk-1' }, next)).toEqual({ clientId: 'metrics.desk-1', clientSecret: 'a-fresh-secret' });
     expect(sent[0]?.url).toBe('https://koala.example/oidc/reg/desk-1');
     expect(sent[0]?.init).toMatchObject({ method: 'PUT', headers: { authorization: 'Bearer rat' } });
     expect(JSON.parse(String(sent[0]?.init.body))).toEqual({ client_id: 'desk-1', ...machineRegistration(clientPublicJwkOf(clientKeysFrom(next))) });

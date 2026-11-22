@@ -6,7 +6,7 @@ export function stepsOn(access: MockProxy<ClusterAccess>, infra: MockProxy<Infra
   return {
     access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(),
     database: { mongo: { uri: 'mongodb://unused', dbName: 'unused' }, dataKey },
-    machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics',
+    machineMetricsUrl: { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://koala.example/oidc/token', resource: 'urn:koala:instance:inst-1' },
     provisioner: mock<Provisioner>(),
   };
 }

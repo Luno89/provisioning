@@ -1,4 +1,3 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { compress, uncompress } from 'snappyjs';
 import { CLUSTER_LABEL } from '../../monitoring/lib/cluster-scope.js';
 import { encodeVarint, wireFields } from './protobuf-wire.js';
@@ -31,18 +30,4 @@ export function stampedWrite(request: Buffer, cluster: string): Buffer {
 export function stampedBody(body: Buffer, cluster: string): Buffer {
   const request = Buffer.from(uncompress(body, METRICS_MAX_BYTES));
   return Buffer.from(compress(stampedWrite(request, cluster)));
-}
-
-
-export const metricsTokenHash = (token: string): string => createHash('sha256').update(token).digest('hex');
-
-export function hashesEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
-}
-
-export function newMetricsToken(): { token: string; hash: string } {
-  const token = randomBytes(32).toString('base64url');
-  return { token, hash: metricsTokenHash(token) };
 }

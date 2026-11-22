@@ -72,7 +72,13 @@ export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = fal
   return { stacks, keepIngress, crdsFirst: stackBehind };
 }
 
-export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
+export interface MetricsSending {
+  url: string;
+  tokenUrl: string;
+  resource: string;
+}
+
+export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; pool?: boolean | undefined; machine?: MetricsSending | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
   return {
     STACK_TYPE: 'cluster',
     CLUSTER_NAME: cluster.physicalName,
@@ -80,7 +86,7 @@ export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPa
     INGRESS_SERVICE: appServiceType(Boolean(cluster.pool)),
     ...(keepIngress ? { CLUSTER_INGRESS: 'existing' } : {}),
     ...(cluster.pool ? { CLUSTER_MONITORING: 'crds' } : {}),
-    ...(cluster.machine ? { CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: cluster.machine.metricsUrl } : {}),
+    ...(cluster.machine ? { CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: cluster.machine.url, METRICS_TOKEN_URL: cluster.machine.tokenUrl, METRICS_RESOURCE: cluster.machine.resource } : {}),
     ...(cluster.koala ? { KOALA_CLUSTER: 'true' } : {}),
   };
 }
@@ -95,12 +101,3 @@ export function monitoringStackName(physicalName: string, part: MonitoringStackP
   return part === 'cluster' ? physicalName : `${physicalName}-observability`;
 }
 
-export const METRICS_TOKEN_SECRET = 'koala-metrics';
-
-
-export function metricsTokenManifests(token: string): Array<Record<string, unknown>> {
-  return [
-    { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'monitoring' } },
-    { apiVersion: 'v1', kind: 'Secret', metadata: { name: METRICS_TOKEN_SECRET, namespace: 'monitoring' }, type: 'Opaque', stringData: { token } },
-  ];
-}

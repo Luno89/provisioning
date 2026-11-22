@@ -1,7 +1,7 @@
 import { uncompress, compress } from 'snappyjs';
 import { describe, expect, it, vi } from 'vitest';
-import type { ClusterMetadata } from '../../platform/lib/types.js';
-import { newMetricsToken } from '../lib/machine-metrics.js';
+import type { LocalAgentDeviceMetadata } from '../../platform/lib/types.js';
+import type { MachineAdmission } from '../wiring/machine-admission.js';
 import { MachineMetricsRelay } from './MachineMetricsRelay.js';
 
 const label = (name: string, value: string) => {
@@ -11,36 +11,33 @@ const label = (name: string, value: string) => {
 };
 const series = (...labels: Buffer[]) => { const body = Buffer.concat(labels); return Buffer.concat([Buffer.from([10, body.length]), body]); };
 
-const { token, hash } = newMetricsToken();
-const clusters = [
-  { id: 'machine-desk', provider: 'machine', metricsTokenHash: hash },
-  { id: 'machine-other', provider: 'machine' },
-  { id: 'c-remote', provider: 'hetzner', metricsTokenHash: hash },
-] as ClusterMetadata[];
+const DESK = { id: 'desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: 'then' } as LocalAgentDeviceMetadata;
 
 const relayWith = (status = 204) => {
   const write = vi.fn(async (_body: Buffer) => ({ status, text: status < 300 ? '' : 'out of bounds' }));
-  return { write, relay: new MachineMetricsRelay({ clusters: async () => clusters, write }) };
+  const admit = vi.fn(async (token: string): Promise<MachineAdmission | string> => (token === 'from-root' ? { device: DESK, until: Date.now() + 300_000 } : 'Unauthorized: the metrics token could not be checked: signature verification failed'));
+  return { write, admit, relay: new MachineMetricsRelay({ admit, write }) };
 };
 
 describe('the relay a machine sends its metrics through', () => {
-  it('passes a batch on under the cluster whose token sent it', async () => {
-    const { write, relay } = relayWith();
+  it('passes a batch on under the cluster of the machine root\'s token names', async () => {
+    const { write, admit, relay } = relayWith();
     const body = Buffer.from(compress(series(label('__name__', 'up'))));
-    expect(await relay.write(token, body)).toEqual({ status: 204 });
+    expect(await relay.write('from-root', body)).toEqual({ status: 204 });
+    expect(admit).toHaveBeenCalledWith('from-root');
     expect(Buffer.from(uncompress(write.mock.calls[0]![0])).includes(Buffer.from('machine-desk'))).toBe(true);
   });
 
-  it('refuses no token, a token no machine cluster holds, and a body that is not snappy, passing nothing on', async () => {
+  it('refuses no token and one admission refuses, saying why, and a body that is not snappy, passing nothing on', async () => {
     const { write, relay } = relayWith();
     expect(await relay.write(undefined, Buffer.alloc(0))).toMatchObject({ status: 401 });
-    expect(await relay.write('guess', Buffer.alloc(0))).toMatchObject({ status: 401 });
-    expect(await relay.write(token, Buffer.from('nope'))).toMatchObject({ status: 400 });
+    expect(await relay.write('guess', Buffer.alloc(0))).toEqual({ status: 401, text: 'Unauthorized: the metrics token could not be checked: signature verification failed' });
+    expect(await relay.write('from-root', Buffer.from('nope'))).toMatchObject({ status: 400 });
     expect(write).not.toHaveBeenCalled();
   });
 
   it('says what Prometheus refused', async () => {
     const { relay } = relayWith(400);
-    expect(await relay.write(token, Buffer.from(compress(series(label('__name__', 'up')))))).toEqual({ status: 400, text: 'out of bounds' });
+    expect(await relay.write('from-root', Buffer.from(compress(series(label('__name__', 'up')))))).toEqual({ status: 400, text: 'out of bounds' });
   });
 });

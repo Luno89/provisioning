@@ -23,6 +23,8 @@ const KEYLESS = 'this machine joined before machines held a key of their own: ru
 export const configFile = (env: NodeJS.ProcessEnv = process.env): string =>
   env.KOALA_MACHINE_CONFIG ?? path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'koala', 'machine.json');
 
+export const metricsClientFile = (machineFile: string): string => path.join(path.dirname(machineFile), 'metrics-client.json');
+
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
 
 export function machineConfigFrom(env: NodeJS.ProcessEnv, saved: Record<string, unknown>, cwd: string): MachineConfig {

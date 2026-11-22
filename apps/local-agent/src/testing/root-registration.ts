@@ -1,4 +1,4 @@
-import { OIDC_PATH } from '@koala/engine-core/root-client';
+import { METRICS_CLIENT_FIELDS, metricsClientIdOf, OIDC_PATH } from '@koala/engine-core/root-client';
 
 export interface Registered {
   clientId: string;
@@ -50,7 +50,7 @@ export function rootRegistration(): RootRegistration {
         codes.delete(code);
         const metadata = await request.json() as { jwks?: { keys?: Registered['keys'] } };
         registered.push({ clientId, code, keys: metadata.jwks?.keys ?? [] });
-        return json(201, { ...metadata, client_id: clientId });
+        return json(201, { ...metadata, client_id: clientId, [METRICS_CLIENT_FIELDS.id]: metricsClientIdOf(clientId), [METRICS_CLIENT_FIELDS.secret]: `metrics-secret-of-${clientId}` });
       }
       return undefined;
     },

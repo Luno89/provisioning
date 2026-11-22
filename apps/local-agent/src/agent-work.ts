@@ -12,7 +12,7 @@ import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { DeviceWorkerHost } from './device-worker-host.js';
 import { followEngineWorker, type WorkToken } from './device-worker-follow.js';
-import { clusterOnConnect, type ClusterHost } from './machine-cluster.js';
+import { clusterOnConnect, type MachineHost } from './machine-cluster.js';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding } from './idle-gate.js';
 import { SelfUpdate, type serviceManagerOf, type UpdateReport } from './self-update.js';
@@ -25,7 +25,7 @@ export interface AgentPlace {
   agentDir: string;
   ownBundle: string | undefined;
   service: ReturnType<typeof serviceManagerOf>;
-  cluster: ClusterHost;
+  cluster: MachineHost;
   discovery(rootDir: string): DiscoveryDeps;
   agentsNotSetUp(): Promise<string | undefined>;
   startDeviceWorker(options: DeviceWorkerOptions): Promise<DeviceWorker>;

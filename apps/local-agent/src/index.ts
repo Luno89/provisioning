@@ -16,7 +16,7 @@ import { runJoin } from './join/join.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { forgetThisMachine, meshIp, removeThisMachine } from './machine-removal.js';
-import { hostCluster, startIfWanted } from './machine-cluster.js';
+import { hostCluster, metricsClientInto, startIfWanted } from './machine-cluster.js';
 import { koalaPlacements, ownValuesFile } from './koala-install.js';
 import { useDependencyHttp } from '@koala/engine-core/http';
 import { machineClientOf } from '@koala/engine-core/root-client';
@@ -74,7 +74,10 @@ async function main() {
     onRemovedEnd: () => process.exit(0),
     onPlaceKoala: (raw) => placements.place(raw),
     onStopKoala: (raw) => { void placements.stop(raw); },
-    onReplaceKey: (offer) => client.replaceKey(offer),
+    onReplaceKey: async (offer) => {
+      await client.replaceKey(offer);
+      await metricsClientInto(machineCluster);
+    },
     onKoala: (koala) => {
       if (!working) {
         working = startWork(thisComputer(service), config, koala, client, (sessions) => { sessionsOf = sessions; });

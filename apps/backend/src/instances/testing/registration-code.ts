@@ -1,17 +1,23 @@
-import { clientKeysFrom, clientPublicJwkOf, MACHINE_SCOPE, newClientKey, rootIssuerOf, type ClientPublicJwk } from '@koala/engine-core/root-client';
-import type { Database } from '../../platform/index.js';
+import { createHash, randomBytes } from 'node:crypto';
+import { clientKeysFrom, clientPublicJwkOf, MACHINE_SCOPE, METRICS_SCOPE, metricsClientIdOf, newClientKey, rootIssuerOf, type ClientPublicJwk } from '@koala/engine-core/root-client';
+import { encryptValue, type Database } from '../../platform/index.js';
 import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../lib/identity-token.js';
 import { InstanceReach } from '../services/InstanceReach.js';
 import { RootProvider } from '../services/RootProvider.js';
 import { rootWebFor } from './root-web.js';
 import { createLocalJWKSet, createRemoteJWKSet, type JWTVerifyGetKey } from 'jose';
 import { publicJwkOf, runResourceOf, SIGNING_ALG } from '../lib/oidc.js';
-import { checkMachineAccess, type MachineAccess } from '../lib/machine-access.js';
+import { checkMachineAccess, checkMetricsAccess, type MachineAccess } from '../lib/machine-access.js';
 
 type RootDb = Pick<Database, 'instances' | 'accounts' | 'machines'>;
 
+const REGISTRATION_DATA = createHash('sha256').update('a-provider-that-only-makes-a-registration-code').digest('hex');
+
 const providerAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair }): RootProvider =>
-  new RootProvider({ issuer: `${root.url}/oidc`, signing: root.signing, cookieKey: 'a-provider-that-only-makes-a-registration-code', proxied: false, reach: new InstanceReach({ open: true }), web: rootWebFor(root.url) }, root.db);
+  new RootProvider({ issuer: `${root.url}/oidc`, signing: root.signing, cookieKey: 'a-provider-that-only-makes-a-registration-code', proxied: false, reach: new InstanceReach({ open: true }), web: rootWebFor(root.url), dataKey: REGISTRATION_DATA }, root.db);
+
+export const machineMetricsClient = (secret = randomBytes(32).toString('base64url')): { secret: string; since: string } =>
+  ({ secret: encryptValue(secret, REGISTRATION_DATA), since: new Date().toISOString() });
 
 export const registrationCodeAt = (root: { db: RootDb; url: string; signing: IdentityKeyPair }, instance: { id: string; ownerId: string }): Promise<string> =>
   providerAt(root).registrationCode(instance);
@@ -42,12 +48,25 @@ export async function machineAccessAt(db: RootDb, root: RootSigning, machine: { 
   return token.save();
 }
 
+export async function metricsAccessAt(db: RootDb, root: RootSigning, machine: { deviceId: string; koala: string }): Promise<string> {
+  const rootProvider = providerAt({ db, ...root });
+  const { provider } = rootProvider;
+  const client = await provider.Client.find(metricsClientIdOf(machine.deviceId));
+  if (!client) throw new Error(`root keeps no client for the Prometheus of the machine ${machine.deviceId}, so it gives it no token`);
+  const indicator = runResourceOf(machine.koala);
+  const token = new provider.ClientCredentials({ client, scope: METRICS_SCOPE });
+  token.resourceServer = new provider.ResourceServer(indicator, await rootProvider.resourceServerInfo(indicator, client));
+  return token.save();
+}
+
 export interface MachineAccessCheck {
   checkMachineToken(token: string): Promise<MachineAccess | string>;
+  checkMetricsToken(token: string): Promise<MachineAccess | string>;
 }
 
 export const machineAccessChecked = (rootUrl: string, keys: JWTVerifyGetKey, koala: string, now: () => number): MachineAccessCheck => ({
   checkMachineToken: (token) => checkMachineAccess(token, keys, { issuer: rootIssuerOf(rootUrl), audience: runResourceOf(koala), now: now() }),
+  checkMetricsToken: (token) => checkMetricsAccess(token, keys, { issuer: rootIssuerOf(rootUrl), audience: runResourceOf(koala), now: now() }),
 });
 
 export const machineAccessCheckedAt = (root: RootSigning, koala: string, now: () => number): MachineAccessCheck =>

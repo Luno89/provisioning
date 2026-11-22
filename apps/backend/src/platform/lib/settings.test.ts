@@ -216,7 +216,9 @@ describe('the settings each worker reads once, at start', () => {
   it('gives the cluster worker its services, its Terraform and the address machines send metrics to, or why there is none', () => {
     const env = { ...INSTANCE, ...WORKER, POD_NAMESPACE: 'nowrinkles', CRAWL4AI_API_TOKEN: 'crawlToken40' };
     expect(clusterWorkerSettingsFrom(env)).toMatchObject({ gitea: { url: TENANT.GITEA_URL }, terraform: { kind: 'local' }, registryPullHost: '127.0.0.1:31737', machineMetricsUrl: { off: saying('MACHINE_METRICS_URL') } });
-    expect(clusterWorkerSettingsFrom({ ...env, MACHINE_METRICS_URL: 'http://100.64.0.7:30320/api/machines/metrics' }).machineMetricsUrl).toBe('http://100.64.0.7:30320/api/machines/metrics');
+    expect(clusterWorkerSettingsFrom({ ...env, MACHINE_METRICS_URL: 'http://100.64.0.7:30320/api/machines/metrics' }).machineMetricsUrl).toEqual({
+      url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://app.koala.dev/oidc/token', resource: 'urn:koala:instance:inst-1',
+    });
     expect(problemsOf(() => clusterWorkerSettingsFrom({ ...env, TERRAFORM_STATE: '' }))).toContain('TERRAFORM_STATE is not set: it says where Terraform keeps each stack\'s state, local (in the data folder) or kubernetes (in this pod\'s namespace)');
   });
 

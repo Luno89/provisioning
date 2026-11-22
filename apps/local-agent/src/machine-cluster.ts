@@ -7,6 +7,7 @@ import path from 'node:path';
 import { allReporters, k3sStep, runSteps, type ChartCluster, type Provider, type ServiceContext } from '@koala/provision';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { GpuProbe } from './machine-gpus.js';
+import { configFile, metricsClientFile } from './machine-config.js';
 
 export const K3S_BINARY = '/usr/local/bin/k3s';
 export const K3S_KUBECONFIG = '/etc/rancher/k3s/k3s.yaml';
@@ -26,6 +27,12 @@ export interface ClusterHost extends GpuProbe {
   now(): number;
   pause(ms: number): Promise<void>;
 }
+
+export interface MachineHost extends ClusterHost {
+  metricsClient(): Promise<string | undefined>;
+}
+
+export const METRICS_CLIENT_MISSING = 'this machine holds no sign-in at root for its Prometheus, so its cluster could not send its metrics: run the command from My Machines again';
 
 export interface KoalaHeld {
   instanceId: string;
@@ -47,7 +54,7 @@ const present = (file: string) => access(file).then(() => true, (err: NodeJS.Err
 
 export const onMachine = (machineRoot: string) => (file: string): string => (machineRoot === '/' || !path.isAbsolute(file) ? file : path.join(machineRoot, file));
 
-export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), machineRoot = '/', processes = nodeProcesses }: { wantedAt?: string; koalaHere?: string; machineRoot?: string; processes?: Processes } = {}): ClusterHost => {
+export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedAt = wantedFile(), koalaHere = koalaHereFile(), metricsClientAt = metricsClientFile(configFile()), machineRoot = '/', processes = nodeProcesses }: { wantedAt?: string; koalaHere?: string; metricsClientAt?: string; machineRoot?: string; processes?: Processes } = {}): MachineHost => {
   const at = onMachine(machineRoot);
   return {
   platform: process.platform,
@@ -69,6 +76,7 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, { wantedA
   heldKoala: async () => (await present(koalaHere) ? koalaHeldOf(await readFile(koalaHere, 'utf8')) : undefined),
   letKoalaGo: () => rm(koalaHere, { force: true }),
   meshIp: () => meshIp(),
+  metricsClient: async () => (await present(metricsClientAt) ? metricsClientAt : undefined),
   now: () => Date.now(),
   pause: async (ms) => {
     const until = Date.now() + ms;
@@ -98,7 +106,7 @@ export const stoppedPause = (pause: (ms: number) => Promise<void>, stop: AbortSi
   }
 };
 
-export function stoppableHost(host: ClusterHost, stop: AbortSignal): ClusterHost {
+export function stoppableHost(host: MachineHost, stop: AbortSignal): MachineHost {
   return {
     platform: host.platform,
     run: async (file, args) => {
@@ -115,6 +123,7 @@ export function stoppableHost(host: ClusterHost, stop: AbortSignal): ClusterHost
     heldKoala: () => host.heldKoala(),
     letKoalaGo: () => host.letKoalaGo(),
     meshIp: () => host.meshIp(),
+    metricsClient: () => host.metricsClient(),
     now: () => host.now(),
     pause: stoppedPause((ms) => host.pause(ms), stop),
   };
@@ -170,14 +179,33 @@ export async function runMachineCluster(host: ClusterHost, op: MachineClusterOp)
   return { state: 'running', meshIp, kubeconfig: kubeconfigOnMesh(await host.read(K3S_KUBECONFIG), meshIp) };
 }
 
-export async function startIfWanted(host: ClusterHost, log: (line: string) => void): Promise<void> {
+async function heldMetricsClient(host: MachineHost): Promise<string> {
+  const metricsClient = await host.metricsClient();
+  if (!metricsClient) throw new Error(METRICS_CLIENT_MISSING);
+  return metricsClient;
+}
+
+export async function machineClusterOp(host: MachineHost, op: MachineClusterOp): Promise<MachineClusterResult> {
+  if (op.kind === 'stop' || !await host.exists(K3S_MARKER)) return runMachineCluster(host, op);
+  const metricsClient = await heldMetricsClient(host);
+  const result = await runMachineCluster(host, op);
+  await kubectl(host, ['apply', '-f', metricsClient]);
+  return result;
+}
+
+export async function metricsClientInto(host: MachineHost): Promise<void> {
+  if (await clusterState(host) !== 'running') return;
+  await kubectl(host, ['apply', '-f', await heldMetricsClient(host)]);
+}
+
+export async function startIfWanted(host: MachineHost, log: (line: string) => void): Promise<void> {
   if (!await host.isWanted() || await clusterState(host) !== 'stopped') return;
   log('this machine\'s cluster was running before it stopped, so it starts again for the apps on it');
-  await runMachineCluster(host, { kind: 'start' });
+  await machineClusterOp(host, { kind: 'start' });
   log('this machine\'s cluster is running again');
 }
 
-export async function clusterOnConnect(host: ClusterHost, log: (line: string) => void): Promise<'absent' | 'stopped' | 'running'> {
+export async function clusterOnConnect(host: MachineHost, log: (line: string) => void): Promise<'absent' | 'stopped' | 'running'> {
   await startIfWanted(host, log).catch((err: Error) => log(`this machine's cluster could not start again: ${err.message}`));
   return clusterState(host);
 }

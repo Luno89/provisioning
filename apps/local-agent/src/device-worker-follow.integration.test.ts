@@ -8,7 +8,7 @@ import { MockActivityEnvironment } from '@temporalio/testing';
 import { ExternalAgentSessions } from './external-agents.js';
 import { IdleGate } from './idle-gate.js';
 import { LocalMcpServer } from './local-mcp.js';
-import { hostCluster, type ClusterHost } from './machine-cluster.js';
+import { hostCluster, type MachineHost } from './machine-cluster.js';
 
 const world = temporalBehindTls('koala-follow-');
 
@@ -20,7 +20,7 @@ describe('the machine agent following its Koala for its device worker', () => {
     const gate = new IdleGate();
     const sessions = new ExternalAgentSessions({ rootDir: world.rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
     const handed: DeviceWorkerOptions[] = [];
-    const noKoalaK3s: ClusterHost = { ...hostCluster(async () => undefined), exists: async () => false };
+    const noKoalaK3s: MachineHost = { ...hostCluster(async () => undefined), exists: async () => false };
     const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir: world.rootDir } as never, { url: `http://127.0.0.1:${port}`, token: async () => 'koala-token' }, { value: 'work-token' }, sessions, gate, noKoalaK3s, (options) => { handed.push(options); return startDeviceWorker(options); });
     expect(host).toBeDefined();
 

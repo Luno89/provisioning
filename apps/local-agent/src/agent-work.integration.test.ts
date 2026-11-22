@@ -6,12 +6,12 @@ import { describe, expect, it } from 'vitest';
 import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { deviceQueue, startDeviceWorker } from './engine-worker.js';
-import type { ClusterHost } from './machine-cluster.js';
+import type { MachineHost } from './machine-cluster.js';
 import { koalaAnsweringPayloads, temporalBehindTls } from './testing/temporal-world.js';
 
 const world = temporalBehindTls('koala-agent-work-');
 
-const noKoalaK3s: ClusterHost = {
+const noKoalaK3s: MachineHost = {
   platform: 'linux',
   run: async (file) => {
     if (file === 'nvidia-smi') return 'NVIDIA GeForce RTX 3090, 24576\n';
@@ -28,6 +28,7 @@ const noKoalaK3s: ClusterHost = {
   heldKoala: async () => undefined,
   letKoalaGo: async () => undefined,
   meshIp: async () => undefined,
+  metricsClient: async () => undefined,
   now: () => Date.now(),
   pause: (ms) => new Promise((done) => setTimeout(done, ms)),
 };

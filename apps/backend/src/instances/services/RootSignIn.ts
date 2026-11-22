@@ -11,7 +11,7 @@ import {
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
 import { RootClient } from './RootClient.js';
-import { checkMachineAccess, type MachineAccess } from '../lib/machine-access.js';
+import { checkMachineAccess, checkMetricsAccess, type MachineAccess } from '../lib/machine-access.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -96,8 +96,8 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
     return this.client.config();
   }
 
-  register(): Promise<void> {
-    return this.client.register();
+  async register(): Promise<void> {
+    await this.client.register();
   }
 
   keepRegistering(log: (message: string) => void, again?: Reopening): void {
@@ -265,6 +265,10 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
 
   async checkMachineToken(token: string): Promise<MachineAccess | string> {
     return checkMachineAccess(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), now: this.now() });
+  }
+
+  async checkMetricsToken(token: string): Promise<MachineAccess | string> {
+    return checkMetricsAccess(token, await this.rootKeys(), { issuer: this.issuer, audience: runResourceOf(this.settings.clientId), now: this.now() });
   }
 
   async renewRunToken(refreshToken: string): Promise<RunToken> {

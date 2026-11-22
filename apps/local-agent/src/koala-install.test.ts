@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { KOALA_INSTALL_PROGRESS, koalaInstallProgressPath } from '@koala/engine-core/koala-install';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { INPUTS_VALUE, SETUP_LABEL } from '@koala/provision';
-import { K3S_BINARY, K3S_MARKER, type ClusterHost, type KoalaHeld } from './machine-cluster.js';
+import { K3S_BINARY, K3S_MARKER, type KoalaHeld, type MachineHost } from './machine-cluster.js';
 import { installKoala, koalaPlacements, koalaUrlOf, koalaValues, placedFrom, type PlacedKoala } from './koala-install.js';
 
 const CHART = Buffer.from('a chart');
@@ -23,7 +23,8 @@ const rolledOut = (ready: boolean) => ({ items: [
 ] });
 
 function machine(listings: unknown[] = [rolledOut(false), rolledOut(true), rolledOut(true)]) {
-  const host = mock<ClusterHost>();
+  const host = mock<MachineHost>();
+  host.metricsClient.mockResolvedValue('/home/bo/.config/koala/metrics-client.json');
   const ran: string[][] = [];
   let state = 'inactive';
   let release: { inputs: string } | undefined;
@@ -68,7 +69,7 @@ function root(chart = CHART, answer: (body: Record<string, unknown>) => Response
 }
 
 const noPause = { pause: async () => undefined };
-const deps = (host: ClusterHost, fetchImpl: typeof fetch, more: Record<string, unknown> = {}) => ({ cluster: host, helm: HELM, fetch: fetchImpl, token: async () => 'key-token', say: () => undefined, wait: noPause, ...more });
+const deps = (host: MachineHost, fetchImpl: typeof fetch, more: Record<string, unknown> = {}) => ({ cluster: host, helm: HELM, fetch: fetchImpl, token: async () => 'key-token', say: () => undefined, wait: noPause, ...more });
 const said = (heard: Array<{ body: Record<string, unknown> }>) => heard.map(({ body }) => [body.stage, body.state, body.line ?? body.why ?? body.url].filter((part) => part !== undefined).join(' '));
 
 describe('putting Koala on this machine', () => {

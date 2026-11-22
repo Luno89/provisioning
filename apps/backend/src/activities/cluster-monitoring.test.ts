@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { ClusterAccess, InfrastructureService, Reach } from '../infrastructure/index.js';
 import { ROLLOUT_KINDS } from '@koala/provision';
-import { metricsTokenHash } from '../machines/lib/machine-metrics.js';
 import { koalaClusterMonitoring, MONITORING_CHARTS } from '../monitoring/lib/cluster-monitoring.js';
 import { installClusterMonitoring } from './cluster-monitoring.js';
 
 const PROBES = 'probes.monitoring.coreos.com\n';
+const SENDING = { url: 'http://100.64.0.7:30320/api/machines/metrics', tokenUrl: 'https://koala.example/oidc/token', resource: 'urn:koala:instance:inst-1' };
 
 const DESK: Reach = { clusterId: 'machine-desk', kind: 'machine', kubeconfig: 'apiVersion: v1' };
 const OWN: Reach = { clusterId: 'machine-desk', kind: 'koala' };
@@ -34,28 +34,24 @@ function cluster(seen: { operator: boolean; blackbox: boolean; rolled?: (namespa
 }
 
 describe('monitoring a machine\'s cluster', () => {
-  it('puts a token of its own in a Secret beside the collectors, keeps only its hash, and installs the agent stack that sends to this Koala', async () => {
+  it('installs the agent stack that sends to this Koala with a token its Prometheus takes from root, and makes or keeps no token of its own', async () => {
     const steps = cluster({ operator: false, blackbox: false });
     const { access, infra } = steps;
-    const kept: string[] = [];
-    await installClusterMonitoring(steps, {
-      physicalName: 'machine-desk', reach: DESK,
-      machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', remember: async (hash) => { kept.push(hash); } },
-    });
-    expect(access.apply.mock.calls.map(([target]) => target)).toEqual([DESK, DESK]);
+    await installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: SENDING });
+    expect(access.apply).not.toHaveBeenCalled();
     expect(new Set(steps.reached)).toEqual(new Set([DESK]));
-    const manifests = access.apply.mock.calls.map(([, manifest]) => JSON.parse(manifest) as { kind: string; stringData?: { token: string } });
-    expect(manifests.map((manifest) => manifest.kind)).toEqual(['Namespace', 'Secret']);
-    const token = manifests[1]!.stringData!.token;
-    expect(kept).toEqual([metricsTokenHash(token)]);
     expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['machine-desk']);
-    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { KUBECONFIG_PATH: '/clusters/kubeconfig-machine', CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics', INGRESS_SERVICE: 'NodePort' } });
-    expect(JSON.stringify(infra.deploy.mock.calls)).not.toContain(token);
+    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({
+      env: {
+        KUBECONFIG_PATH: '/clusters/kubeconfig-machine', CLUSTER_MONITORING: 'agent', INGRESS_SERVICE: 'NodePort',
+        REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics', METRICS_TOKEN_URL: 'https://koala.example/oidc/token', METRICS_RESOURCE: 'urn:koala:instance:inst-1',
+      },
+    });
   });
 
   it('changes nothing on a machine whose collectors are already there', async () => {
     const steps = cluster({ operator: true, blackbox: true });
-    await installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: { metricsUrl: 'u', remember: async () => { throw new Error('no token should be made'); } } });
+    await installClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: SENDING });
     expect(steps.access.apply).not.toHaveBeenCalled();
     expect(steps.infra.deploy).not.toHaveBeenCalled();
   });

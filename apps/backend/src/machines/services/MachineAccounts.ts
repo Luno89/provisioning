@@ -234,7 +234,7 @@ export class MachineAccounts {
     const id = replaced?.id ?? uuidv4();
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
-    const { os: _formerOs, signIn: _formerKey, ...kept } = replaced ?? { os: undefined, signIn: undefined };
+    const { os: _formerOs, signIn: _formerKey, metricsClient: _formerMetrics, ...kept } = replaced ?? { os: undefined, signIn: undefined, metricsClient: undefined };
     const device: LocalAgentDeviceMetadata = {
       ...kept,
       id,
