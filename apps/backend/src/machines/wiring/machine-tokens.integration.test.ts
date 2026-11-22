@@ -2,22 +2,19 @@ import { testKeys } from '../../platform/testing/keys.js';
 import http from 'node:http';
 import http2 from 'node:http2';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
-import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { machineClientsAt } from '../../instances/testing/registration-code.js';
-import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
+import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
+import { deviceTokenHash } from '../lib/device-tokens.js';
 import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
-import { WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
+import { MACHINE_CLIENT_TOKEN, WORK_TOKEN_ENDED } from '@koala/engine-core/machine-join';
 import { dropDevice, localAgentStatus } from '../lib/local-agent-registry.js';
 import { MachineAccounts, type MachineMessages } from '../services/MachineAccounts.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -32,7 +29,7 @@ import { agentSockets, until } from '../testing/wiring-world.js';
 const fresh = await emptiedEachTime();
 
 const DAY = 24 * 60 * 60 * 1000;
-const ISSUED = new Date('2026-10-10T00:00:00Z');
+const ISSUED = new Date(Date.now() - 65 * DAY);
 const OLD_TOKEN = 'the-token-the-machine-joined-with-0123456789';
 const POLL_PATH = '/temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue';
 
@@ -65,7 +62,6 @@ let gateway: MachineTemporalGateway;
 let gatewayAddress = '';
 const TLS_DIR = path.dirname(inject('temporalCa'));
 let temporal: http2.Http2Server;
-let folder = '';
 const clients: ClientSocket[] = [];
 
 const device = (lifetime: { issuedAt: Date; expiresAt: Date }) => ({
@@ -77,30 +73,29 @@ const device = (lifetime: { issuedAt: Date; expiresAt: Date }) => ({
   tokenHash: deviceTokenHash(OLD_TOKEN),
   issuedAt: lifetime.issuedAt.toISOString(),
   expiresAt: lifetime.expiresAt.toISOString(),
+  signIn: machineSignInKey(),
 });
+const keyToken = (lifetime?: { seconds: number }) => machineTokenAt(db, 'desk', lifetime);
 
 const seconds = () => Math.floor(clock.getTime() / 1000);
 const workToken = (over: { by?: typeof root; audience?: string; machineId?: string; at?: number } = {}) =>
   issueWorkToken(over.by ?? root, { machineId: over.machineId ?? 'desk', ownerId: 'owner-1', audience: over.audience ?? 'inst-1' }, over.at ?? seconds());
 
-function connectTo(namespace: string, token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void): Promise<{ socket: ClientSocket; error?: string }> {
+function connectTo(namespace: string, token: string): Promise<{ socket: ClientSocket; error?: string }> {
   const socket = connect(`${url}${namespace}`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
   clients.push(socket);
-  if (onToken) socket.on('machine:token', ({ token: next }: { token: string }, ack: (answer: { taken: boolean }) => void) => onToken(next, ack));
   return new Promise((resolve) => {
     socket.once('connect', () => resolve({ socket }));
     socket.once('connect_error', (err: Error) => resolve({ socket, error: err.message }));
   });
 }
-const account = (token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void) => connectTo('/machine-account', token, onToken);
+const account = (token: string) => connectTo('/machine-account', token);
 const work = (token: string) => connectTo('/agent', token);
 
 const cutOrStill = (socket: ClientSocket, answered: () => Promise<void>) => {
   const cut = new Promise<string>((done) => socket.once('disconnect', (reason) => done(reason)));
   return () => Promise.race([cut, answered().then(() => 'still connected: Koala answered the machine after it should have been cut off')]);
 };
-
-const stored = async () => (await db.machines.getLocalAgentDevices()).find((one) => one.id === 'desk')!;
 
 function gatewayAnswer(token: string): Promise<string | undefined> {
   const session = http2.connect(`https://${gatewayAddress}`, { ca: readFileSync(path.join(TLS_DIR, 'ca.crt')), servername: 'temporal' });
@@ -129,7 +124,6 @@ const gitAnswer = async (token: string) => (await git().serve({ token, repo: 'no
 beforeEach(async () => {
   db = await fresh();
   clock = new Date(ISSUED.getTime() + 65 * DAY);
-  folder = await mkdtemp(path.join(tmpdir(), 'koala-machine-'));
   const forgotten = { listener: (_deviceId: string) => undefined as void };
   machines = new MachineService({
     store: db.machines,
@@ -144,7 +138,7 @@ beforeEach(async () => {
   let sockets: ReturnType<typeof wireMachineAccounts> = { watched: { ready: Promise.resolve(), close: async () => undefined }, removed: () => false, koala: () => false, placeKoala: async () => false, stopKoala: () => false, online: () => false };
   watching = () => sockets.watched;
   accounts = accountsOn(db.machines, { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) });
-  sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
+  sockets = wireMachineAccounts({ io, db, clients: machineClientsAt(db), accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
   wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens: trust, now: () => clock }));
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -174,96 +168,41 @@ afterEach(async () => {
   await new Promise<void>((done) => server.close(() => done()));
   await gateway.close();
   await new Promise<void>((done) => temporal.close(() => done()));
-  await rm(folder, { recursive: true, force: true });
 });
 
-describe('a machine\'s account token at root, in its last 30 days', () => {
-  it('is replaced over root\'s socket, written by the agent, and the old one is refused there', async () => {
+describe('a machine\'s connection to root, on tokens of its own key', () => {
+  const askedKoala = (socket: ClientSocket) => () => new Promise<void>((done) => { socket.once('machine:koala', () => done()); socket.emit('machine:koala?'); });
+
+  it('lets the machine in with a token of its key, and refuses none, the account token its join gave and a token of a key it no longer holds', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const file = path.join(folder, 'machine.json');
-    let received = '';
-    const first = await account(OLD_TOKEN, (next, ack) => {
-      received = next;
-      void saveDeviceToken(file, next).then(() => ack(tokenAnswer(true)));
-    });
-    expect(first.error).toBeUndefined();
-    await until(async () => ((await stored()).tokenHash === deviceTokenHash(received) && received ? true : undefined));
-    const saved = JSON.parse(await readFile(file, 'utf8')) as { token: string };
-    expect(saved.token).toBe(received);
-    expect(received).not.toBe(OLD_TOKEN);
-    const promoted = await stored();
-    expect(promoted.nextTokenHash).toBeUndefined();
-    expect(Date.parse(promoted.expiresAt!)).toBe(clock.getTime() + 90 * DAY);
-    expect((await account(saved.token)).error).toBeUndefined();
+    const replaced = await keyToken();
+    expect((await account(replaced)).error).toBeUndefined();
+    expect((await account('')).error).toBe('Unauthorized: send a token of this machine\'s key');
     expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
+    await db.machines.updateLocalAgentDevice('desk', { set: { signIn: machineSignInKey() } });
+    expect((await account(replaced)).error).toBe('Unauthorized');
+    expect((await account(await keyToken())).error).toBeUndefined();
   });
 
-  it('keeps both tokens working when the agent stops between receiving the new one and saying it took it', async () => {
+  const connectedWithKey = async (): Promise<ClientSocket> => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    let received = '';
-    const first = await account(OLD_TOKEN, (next) => { received = next; });
-    expect(first.error).toBeUndefined();
-    await until(async () => (received && (await stored()).nextTokenHash ? true : undefined));
-    first.socket.close();
-    expect((await account(OLD_TOKEN)).error).toBeUndefined();
-    expect((await account(received)).error).toBeUndefined();
-    await until(async () => ((await stored()).tokenHash === deviceTokenHash(received) ? true : undefined));
-    expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
-  });
-
-  it('is shown on the machine as not renewed, saying why, when the agent could not keep the new one', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const first = await account(OLD_TOKEN, (_next, ack) => ack(tokenAnswer(false)));
-    expect(first.error).toBeUndefined();
-    const renewal = await until(async () => (await stored()).tokenRenewal);
-    expect(renewal).toMatchObject({ reason: 'the machine did not keep its new token' });
-    expect((await account(OLD_TOKEN)).error).toBeUndefined();
-  });
-
-  it('is shown on the machine as not renewed, saying why, when Koala could not keep the new one itself', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const store = db.machines;
-    const refusing = Object.assign(Object.create(store) as typeof store, {
-      updateLocalAgentDevice: (id: string, change: Parameters<typeof store.updateLocalAgentDevice>[1]) => (change.set && 'nextTokenHash' in change.set
-        ? Promise.reject(new Error('the database refused the write'))
-        : store.updateLocalAgentDevice(id, change)),
-    });
-    accounts = accountsOn(refusing, { removed: () => false, koala: () => false });
-    let offered = false;
-    const first = await account(OLD_TOKEN, () => { offered = true; });
-    expect(first.error).toBeUndefined();
-    const renewal = await until(async () => (await stored()).tokenRenewal);
-    expect(renewal).toMatchObject({ reason: 'the database refused the write' });
-    expect(offered).toBe(false);
-    expect((await stored()).tokenHash).toBe(deviceTokenHash(OLD_TOKEN));
-    expect((await account(OLD_TOKEN)).error).toBeUndefined();
-  });
-
-  it('is refused past its expiry, saying to run the command from My Machines again', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    clock = new Date(ISSUED.getTime() + 91 * DAY);
-    expect((await account(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
-  });
-
-  it('closes the machine\'s connection at the first thing it sends once the token it connected with has run out, and refuses it again saying why', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const { socket, error } = await account(OLD_TOKEN, (_next, ack) => ack(tokenAnswer(false)));
+    const { socket, error } = await account(await keyToken());
     expect(error).toBeUndefined();
     await new Promise((done) => socket.once('machine:koala', done));
-    await until(async () => (await stored()).tokenRenewal);
-    const cut = cutOrStill(socket, () => new Promise<void>((done) => { socket.once('machine:koala', () => done()); socket.emit('machine:koala?'); }));
-    clock = new Date(ISSUED.getTime() + 91 * DAY);
+    return socket;
+  };
+
+  it('closes the machine\'s connection at the first thing it sends once the token it connected with has run out', async () => {
+    const socket = await connectedWithKey();
+    const cut = cutOrStill(socket, askedKoala(socket));
+    clock = new Date(Date.now() + DAY);
     expect(await cut()).toBe('io server disconnect');
-    expect((await account(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
   });
 
-  it('keeps the machine\'s connection past the old token\'s expiry once the machine took the new one over it', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    let received = '';
-    const { socket, error } = await account(OLD_TOKEN, (next, ack) => { received = next; ack(tokenAnswer(true)); });
-    expect(error).toBeUndefined();
-    await until(async () => (received && (await stored()).tokenHash === deviceTokenHash(received) ? true : undefined));
-    clock = new Date(ISSUED.getTime() + 91 * DAY);
+  it('keeps the machine\'s connection past that once the machine sent a fresh token of its key first', async () => {
+    const socket = await connectedWithKey();
+    clock = new Date(Date.now() + DAY);
+    socket.emit(MACHINE_CLIENT_TOKEN, { token: await keyToken({ seconds: 2 * 24 * 3600 }) });
     const answered = new Promise<string>((done) => {
       socket.once('machine:koala', () => done('answered'));
       socket.once('disconnect', (reason) => done(`cut: ${reason}`));
@@ -272,10 +211,17 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
     expect(await answered).toBe('answered');
   });
 
+  it('cuts the machine\'s connection when the fresh token it sends is not one of its key', async () => {
+    const socket = await connectedWithKey();
+    const cut = cutOrStill(socket, askedKoala(socket));
+    socket.emit(MACHINE_CLIENT_TOKEN, { token: OLD_TOKEN });
+    expect(await cut()).toBe('io server disconnect');
+  });
+
   it('hands the machine its Koala and a work token on connecting, and again when it asks', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const told: Array<{ url: string; workToken: string } | null> = [];
-    const socket = connect(`${url}/machine-account`, { auth: { token: OLD_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
+    const socket = connect(`${url}/machine-account`, { auth: { token: await keyToken() }, transports: ['websocket'], reconnection: false, forceNew: true });
     clients.push(socket);
     socket.on('machine:koala', (koala: { url: string; workToken: string } | null) => told.push(koala));
     await until(async () => (told.length ? true : undefined));
@@ -286,17 +232,15 @@ describe('a machine\'s account token at root, in its last 30 days', () => {
   });
 
   it('is cut off at root the moment the person removes the machine, after it is told why', async () => {
-    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    const { socket, error } = await account(OLD_TOKEN);
-    expect(error).toBeUndefined();
-    await new Promise((done) => socket.once('machine:koala', done));
+    const socket = await connectedWithKey();
+    const token = await keyToken();
     const heard: string[] = [];
     socket.on('machine:removed', () => heard.push('removed'));
-    const cut = cutOrStill(socket, () => new Promise<void>((done) => { socket.once('machine:koala', () => done()); socket.emit('machine:koala?'); }));
+    const cut = cutOrStill(socket, askedKoala(socket));
     expect(await accounts.remove('owner-1', 'desk')).toBe(true);
     expect(await cut()).toBe('io server disconnect');
     expect(heard).toEqual(['removed']);
-    expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
+    expect((await account(token)).error).toBe('Unauthorized');
   });
 });
 

@@ -6,7 +6,7 @@ import { allowed, asPerson, type LocalAgentDeviceMetadata } from '../../platform
 import type { IdentityKeyPair } from '../../instances/index.js';
 import type { KoalaInstalls } from './KoalaInstalls.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
+import { deviceTokenHash, newDeviceToken, tokenLifetime } from '../lib/device-tokens.js';
 import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, joinCodeLapsed, joinDismissable, joinEndsOnConnecting, joinShown, machineCommand, machineJoinView, meshAddress, newMachineCode } from '../lib/machines.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import type { MachinesStore } from '../store.js';
@@ -123,8 +123,6 @@ function adoptable(raw: unknown): AdoptedMachine | undefined {
 }
 
 export class MachineAccounts {
-  private readonly retiredListeners: ((tokenHash: string) => void)[] = [];
-
   constructor(private readonly deps: MachineAccountsDeps) {}
 
   private now(): Date {
@@ -135,22 +133,17 @@ export class MachineAccounts {
     return (await this.deps.store.getLocalAgentDevices()).find((device) => device.id === id);
   }
 
-  onTokenRetired(listener: (tokenHash: string) => void): void {
-    this.retiredListeners.push(listener);
-  }
-
   async list(ownerId: string): Promise<AccountMachine[]> {
     return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId).map(accountMachineOf);
   }
 
-  async listOnline(ownerId: string): Promise<Array<AccountMachine & { online: boolean; koalaWanted: boolean; koalaRefused?: { reason: string; at: string }; tokenRenewal?: { reason: string; failedAt: string; stopsAt?: string } }>> {
+  async listOnline(ownerId: string): Promise<Array<AccountMachine & { online: boolean; koalaWanted: boolean; koalaRefused?: { reason: string; at: string } }>> {
     return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId)
       .map((device) => ({
         ...accountMachineOf(device),
         online: this.deps.toMachines.online?.(device.id) ?? false,
         koalaWanted: Boolean(device.koalaWanted),
         ...(device.koalaRefused ? { koalaRefused: device.koalaRefused } : {}),
-        ...(device.tokenRenewal ? { tokenRenewal: { ...device.tokenRenewal, ...(device.expiresAt ? { stopsAt: device.expiresAt } : {}) } } : {}),
       }));
   }
 
@@ -198,10 +191,10 @@ export class MachineAccounts {
     return { ok: true, value: { dismissed: true } };
   }
 
-  async joinFinished(deviceId: string, tokenHash: string): Promise<void> {
+  async joinFinished(deviceId: string): Promise<void> {
     const device = await this.byId(deviceId);
     if (!device) return;
-    const finishing = (await this.deps.store.getMachineJoinsOf(device.id)).filter((join) => join.deviceTokenHash === tokenHash && !join.connectedAt);
+    const finishing = (await this.deps.store.getMachineJoinsOf(device.id)).filter((join) => !join.connectedAt);
     const connectedAt = this.now().toISOString();
     for (const join of finishing) {
       if (joinEndsOnConnecting(join)) await this.deps.store.deleteMachineJoin(join.hash);
@@ -249,7 +242,7 @@ export class MachineAccounts {
       ...(found.koalaName ? { koalaWanted: { name: found.koalaName } } : {}),
     };
     await this.deps.store.saveLocalAgentDevice(device);
-    await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id, deviceTokenHash: device.tokenHash }, unset: ['keptUntil'] });
+    await this.deps.store.updateMachineJoin(found.hash, { set: { deviceId: id }, unset: ['keptUntil'] });
     if (await this.deps.store.deleteMachineJoinsOf(id, found.hash)) this.deps.toOwner.machinesChanged(found.ownerId);
     if (!replaced) await this.deps.followers.joined(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${name} joined, but its Koala could not be told: ${err.message}`));
     const preAuthKey = (await this.deps.mesh.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key;
@@ -352,44 +345,6 @@ export class MachineAccounts {
       await this.deps.mesh.removeNode(ownerId, device.meshIp).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its mesh node ${device.meshIp} could not be: ${err.message}`));
     }
     await this.deps.followers.removed(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its Koala could not be told: ${err.message}`));
-  }
-
-  async rotationFor(deviceId: string, via: TokenVia): Promise<string | undefined> {
-    const device = await this.byId(deviceId);
-    if (!device) return undefined;
-    if (via === 'next') {
-      await this.promote(device);
-      return undefined;
-    }
-    if (!rotationDue(device, this.now())) return undefined;
-    const token = newDeviceToken();
-    const next = withNextToken(device, deviceTokenHash(token), this.now());
-    const saved = await this.deps.store.updateLocalAgentDevice(device.id, {
-      set: { nextTokenHash: next.nextTokenHash, nextIssuedAt: next.nextIssuedAt, nextExpiresAt: next.nextExpiresAt },
-      when: { nextTokenHash: null },
-    });
-    return saved ? token : undefined;
-  }
-
-  async tokenTaken(deviceId: string): Promise<void> {
-    const device = await this.byId(deviceId);
-    if (device?.nextTokenHash) await this.promote(device);
-  }
-
-  private async promote(device: LocalAgentDeviceMetadata): Promise<void> {
-    if (!device.nextTokenHash) return;
-    const retired = device.tokenHash;
-    const promoted = promotedNext(device);
-    const moved = await this.deps.store.updateLocalAgentDevice(device.id, {
-      set: { tokenHash: promoted.tokenHash, issuedAt: promoted.issuedAt, expiresAt: promoted.expiresAt },
-      unset: ['nextTokenHash', 'nextIssuedAt', 'nextExpiresAt', 'tokenRenewal'],
-      when: { nextTokenHash: device.nextTokenHash },
-    });
-    if (moved && retired) for (const listener of this.retiredListeners) listener(retired);
-  }
-
-  async renewalFailed(deviceId: string, reason: string): Promise<void> {
-    await this.deps.store.updateLocalAgentDevice(deviceId, { set: { tokenRenewal: { reason: reason.slice(0, 500), failedAt: this.now().toISOString() } } });
   }
 
   async seen(deviceId: string): Promise<void> {

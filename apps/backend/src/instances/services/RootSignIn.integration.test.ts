@@ -8,7 +8,7 @@ import { instancesRouter } from '../routes/instances.js';
 import { rootTokenOf } from '../wiring/sign-in.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
-import { rootSignInWorld, runBearersThroughRoot, runTokensThroughRoot, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, type Served } from '../testing/root-sign-in-behaviour.js';
+import { machinesThroughRoot, rootSignInWorld, runBearersThroughRoot, runTokensThroughRoot, signingInThroughRoot, sessionsThroughRoot, logoutKeptFromAPrivateAddress, type Served } from '../testing/root-sign-in-behaviour.js';
 
 const freshInstanceDb = await emptiedEachTime();
 const freshRootDb = await emptiedEachTime();
@@ -47,6 +47,10 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
   });
 
   sessionsThroughRoot(world);
+});
+
+describe('machines as clients of root', () => {
+  machinesThroughRoot(world);
 });
 
 describe('what an instance asks root for with what root signed', () => {

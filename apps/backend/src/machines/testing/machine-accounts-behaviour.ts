@@ -4,7 +4,6 @@ import { mock } from 'vitest-mock-extended';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { deviceTokenHash } from '../lib/device-tokens.js';
-import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import { MACHINE_CODE_TTL_SECONDS } from '../lib/machines.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import { anyOf, containing } from '../../platform/lib/test-matchers.js';
@@ -247,9 +246,8 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
       if (!outcome.ok) throw new Error(outcome.error);
       await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'started' });
-      const token = deviceTokenHash(outcome.value.env.KOALA_DEVICE_TOKEN!);
       browsersTold = [];
-      await machines.joinFinished(outcome.value.deviceId, token);
+      await machines.joinFinished(outcome.value.deviceId);
       expect(await machines.joins('bo')).toEqual([]);
       expect(browsersTold).toEqual(['bo']);
       expect(await db.machines.getMachineJoin(hash)).toBeDefined();
@@ -257,8 +255,8 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(await db.machines.getMachineJoin(hash)).toBeUndefined();
       expect(await machines.reportJoinProgress(code, started)).toMatchObject({ ok: false, status: 401 });
       browsersTold = [];
-      await machines.joinFinished(outcome.value.deviceId, token);
-      await machines.joinFinished('gone', token);
+      await machines.joinFinished(outcome.value.deviceId);
+      await machines.joinFinished('gone');
       expect(browsersTold).toEqual([]);
     });
 
@@ -268,7 +266,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
       if (!outcome.ok) throw new Error(outcome.error);
       await machines.reportJoinProgress(code, { stage: 'helm', title: 'Installing helm', state: 'done' });
-      await machines.joinFinished(outcome.value.deviceId, deviceTokenHash(outcome.value.env.KOALA_DEVICE_TOKEN!));
+      await machines.joinFinished(outcome.value.deviceId);
       expect(await db.machines.getMachineJoin(createHash('sha256').update(code).digest('hex'))).toBeUndefined();
       expect(await machines.joins('bo')).toEqual([]);
     });
@@ -279,14 +277,14 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const outcome = await machines.join(code, { hostname: 'desk', rootDir: '/home/me/koala' });
       if (!outcome.ok) throw new Error(outcome.error);
       await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'started' });
-      await machines.joinFinished(outcome.value.deviceId, deviceTokenHash(outcome.value.env.KOALA_DEVICE_TOKEN!));
+      await machines.joinFinished(outcome.value.deviceId);
       await machines.reportJoinProgress(code, { stage: 'service', title: 'Starting it', state: 'failed', why: 'systemctl --user enable failed' });
       const [shown] = await machines.joins('bo');
       expect(shown).toMatchObject({ stage: 'service', state: 'failed', why: 'systemctl --user enable failed' });
       expect(await machines.dismissJoin('bo', shown!.id)).toMatchObject({ ok: true });
     });
 
-    it('is finished only by the machine connecting with the token this join gave, never by the agent the command replaces', async () => {
+    it('is finished when the machine it joined in its own place connects, and not before', async () => {
       const machines = accounts();
       const before = await joined(machines, 'bo', { hostname: 'desk', rootDir: '/home/me/koala' });
       const { code } = await machines.createJoinCode('bo');
@@ -294,9 +292,8 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       if (!again.ok) throw new Error(again.error);
       expect(again.value.deviceId).toBe(before.deviceId);
       await machines.reportJoinProgress(code, started);
-      await machines.joinFinished(before.deviceId, deviceTokenHash(before.env.KOALA_DEVICE_TOKEN!));
       expect(await machines.joins('bo')).toEqual([expect.objectContaining(started)]);
-      await machines.joinFinished(again.value.deviceId, deviceTokenHash(again.value.env.KOALA_DEVICE_TOKEN!));
+      await machines.joinFinished(again.value.deviceId);
       expect(await machines.joins('bo')).toEqual([]);
     });
 
@@ -457,50 +454,6 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     });
   });
 
-  describe('a machine\'s account token rotates before it expires', () => {
-    it('is given a next token in its last thirty days, once, which replaces the current one when the agent has taken it', async () => {
-      const machines = accounts();
-      const first = await joined(machines);
-      const fresh = (await stored(first.deviceId))!;
-      expect(await machines.rotationFor(first.deviceId, 'current')).toBeUndefined();
-      clock = new Date(Date.parse(fresh.expiresAt!) - 20 * DAY);
-      const retired: string[] = [];
-      machines.onTokenRetired((hash) => retired.push(hash));
-      const next = await machines.rotationFor(first.deviceId, 'current');
-      expect(next).toBeDefined();
-      const rotating = (await stored(first.deviceId))!;
-      expect(rotating.nextTokenHash).toBe(deviceTokenHash(next!));
-      expect(findDeviceByToken([rotating], first.env.KOALA_DEVICE_TOKEN!, clock)?.id).toBe(first.deviceId);
-      expect(findDeviceByToken([rotating], next!, clock)?.id).toBe(first.deviceId);
-      expect(await machines.rotationFor(first.deviceId, 'current')).toBeUndefined();
-      await machines.tokenTaken(first.deviceId);
-      const promoted = (await stored(first.deviceId))!;
-      expect(promoted.nextTokenHash).toBeUndefined();
-      expect(promoted.tokenHash).toBe(deviceTokenHash(next!));
-      expect(retired).toEqual([fresh.tokenHash]);
-      await machines.tokenTaken(first.deviceId);
-      expect(retired).toHaveLength(1);
-    });
-
-    it('promotes the next token when the agent connects with it before root heard it was taken', async () => {
-      const machines = accounts();
-      const first = await joined(machines);
-      const fresh = (await stored(first.deviceId))!;
-      await db.machines.saveLocalAgentDevice({ ...fresh, nextTokenHash: 'n'.repeat(64), nextIssuedAt: fresh.issuedAt, nextExpiresAt: fresh.expiresAt });
-      expect(await machines.rotationFor(first.deviceId, 'next')).toBeUndefined();
-      expect((await stored(first.deviceId))?.tokenHash).toBe('n'.repeat(64));
-    });
-
-    it('gives nothing for a machine that is gone, and a next token to only one of two agents that ask at once', async () => {
-      const machines = accounts();
-      expect(await machines.rotationFor('gone', 'current')).toBeUndefined();
-      const first = await joined(machines);
-      clock = new Date(Date.parse((await stored(first.deviceId))!.expiresAt!) - 5 * DAY);
-      const [one, two] = await Promise.all([machines.rotationFor(first.deviceId, 'current'), machines.rotationFor(first.deviceId, 'current')]);
-      expect([one, two].filter((token) => token !== undefined)).toHaveLength(1);
-    });
-  });
-
   describe('putting Koala on one of the person\'s machines', () => {
     const placing = () => {
       const started: Array<[string, string, unknown]> = [];
@@ -553,19 +506,6 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const { machines: placingNow } = placing();
       expect(await placingNow.putKoalaOn('bo', deviceId, 'bobbie')).toEqual({ ok: true, value: { placing: true } });
       expect((await placingNow.listOnline('bo'))[0]).not.toHaveProperty('koalaRefused');
-    });
-
-    it('keeps a token renewal that failed on the machine, with when its token stops working, and clears it once one succeeds', async () => {
-      const machines = accounts();
-      const { deviceId } = await joined(machines);
-      await machines.renewalFailed(deviceId, 'the machine did not take its new token');
-      const expiresAt = (await stored(deviceId))!.expiresAt;
-      expect((await machines.listOnline('bo'))[0]).toMatchObject({ tokenRenewal: { reason: 'the machine did not take its new token', failedAt: clock.toISOString(), stopsAt: expiresAt } });
-      clock = new Date(Date.parse(expiresAt!) - 10 * DAY);
-      const next = await machines.rotationFor(deviceId, 'current');
-      expect(next).toBeDefined();
-      await machines.tokenTaken(deviceId);
-      expect((await machines.listOnline('bo'))[0]).not.toHaveProperty('tokenRenewal');
     });
 
     it('starts the install for a machine that is offline, to be asked of it once it connects, never puts Koala on another person\'s machine, and stops the install when the machine is removed', async () => {

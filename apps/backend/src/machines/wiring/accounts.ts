@@ -1,10 +1,8 @@
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { Database, DependencyStates, Watching } from '../../platform/index.js';
-import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { deviceTokenHash, TOKEN_EXPIRED_SAID, tokenUntil, type TokenVia } from '../lib/device-tokens.js';
-import { rotateDeviceToken } from '../lib/device-rotation.js';
 import { PLACE_KOALA, STOP_KOALA, type KoalaStop, type PlacedKoala } from '@koala/engine-core/koala-install';
-import type { MachineAccounts } from '../services/MachineAccounts.js';
+import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
+import type { MachineAccounts, MachineClients } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 
 export const ACCOUNT_NAMESPACE = '/machine-account';
@@ -21,24 +19,27 @@ export interface AccountSockets {
 export function wireMachineAccounts(deps: {
   io: Pick<SocketServer, 'of'>;
   db: Pick<Database, 'machines'>;
-  accounts: () => Pick<MachineAccounts, 'rotationFor' | 'tokenTaken' | 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'renewalFailed' | 'uninstalled' | 'wentOff'>;
+  clients: Pick<MachineClients, 'machineCaller'>;
+  accounts: () => Pick<MachineAccounts, 'seen' | 'joinFinished' | 'recordMeshIp' | 'koalaFor' | 'deliverKoala' | 'uninstalled' | 'wentOff'>;
   installs: () => Pick<KoalaInstalls, 'connected'>;
   dependencies: Pick<DependencyStates, 'whenAnswering'>;
   now?: (() => Date) | undefined;
 }): AccountSockets {
   const namespace = deps.io.of(ACCOUNT_NAMESPACE);
   const connected = new Map<string, Set<Socket>>();
-  const admitted = new WeakMap<object, { deviceId: string; via: TokenVia; tokenHash: string; until: number }>();
+  const admitted = new WeakMap<object, { deviceId: string; until: number }>();
   const now = deps.now ?? (() => new Date());
+  const tokenIn = (held: unknown): string => {
+    const token = held && typeof held === 'object' ? (held as { token?: unknown }).token : undefined;
+    return typeof token === 'string' ? token : '';
+  };
 
   namespace.use((socket, next) => {
-    const token = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
-    if (!token) return next(new Error('Missing device token'));
-    deps.db.machines.getLocalAgentDevices().then((devices) => {
-      const match = matchDeviceToken(devices, token, now());
-      if (!match) return next(new Error('Unauthorized'));
-      if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
-      admitted.set(socket, { deviceId: match.device.id, via: match.via, tokenHash: deviceTokenHash(token), until: tokenUntil(match.via === 'current' ? match.device.expiresAt : match.device.nextExpiresAt) });
+    const token = tokenIn(socket.handshake.auth);
+    if (!token) return next(new Error('Unauthorized: send a token of this machine\'s key'));
+    deps.clients.machineCaller(token).then((caller) => {
+      if (!caller) return next(new Error('Unauthorized'));
+      admitted.set(socket, { deviceId: caller.deviceId, until: caller.until });
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
@@ -49,26 +50,31 @@ export function wireMachineAccounts(deps: {
       socket.disconnect(true);
       return;
     }
-    const { deviceId, via, tokenHash } = machine;
+    const { deviceId } = machine;
     let { until } = machine;
-    socket.use((_packet, next) => {
-      if (now().getTime() < until) return next();
-      socket.disconnect(true);
+    let checked = Promise.resolve();
+    socket.use((packet, next) => {
+      checked = checked.then(async () => {
+        if (packet[0] === MACHINE_CLIENT_TOKEN) {
+          const caller = await deps.clients.machineCaller(tokenIn(packet[1]));
+          if (caller?.deviceId !== deviceId) return void socket.disconnect(true);
+          until = caller.until;
+          return next();
+        }
+        if (now().getTime() < until) return next();
+        socket.disconnect(true);
+      }).catch((err: Error) => {
+        console.warn(`[machines] ${deviceId}: what it sent could not be checked (${err.message}); it is cut off and connects again by itself`);
+        socket.disconnect(true);
+      });
     });
     const accounts = deps.accounts();
     const sockets = connected.get(deviceId) ?? new Set<Socket>();
     sockets.add(socket);
     connected.set(deviceId, sockets);
     accounts.seen(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: when it was last seen could not be recorded: ${err.message}`));
-    accounts.joinFinished(deviceId, tokenHash).catch((err: Error) => console.warn(`[machines] ${deviceId}: its join could not be marked finished: ${err.message}`));
+    accounts.joinFinished(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: its join could not be marked finished: ${err.message}`));
     deps.installs().connected(deviceId).catch((err: Error) => console.warn(`[machines] ${deviceId}: the install of Koala it was asked for could not be asked again: ${err.message}`));
-    const renewed = async (): Promise<void> => {
-      const held = (await deps.db.machines.getLocalAgentDevices()).find((device) => device.id === deviceId);
-      until = tokenUntil(held?.expiresAt);
-    };
-    void rotateDeviceToken(socket, deviceId, via, accounts)
-      .then((renewal) => (renewal === 'refused' ? accounts.renewalFailed(deviceId, 'the machine did not keep its new token') : renewal === 'renewed' ? renewed() : undefined), (err: Error) => accounts.renewalFailed(deviceId, err.message))
-      .catch((err: Error) => console.warn(`[machines] ${deviceId}: its token renewal could not be recorded: ${err.message}`));
     const tellKoala = () => accounts.koalaFor(deviceId).then(
       (koala) => { if (socket.connected) socket.emit('machine:koala', koala ?? null); },
       (err: Error) => console.warn(`[machines] ${deviceId}: where its Koala is could not be told: ${err.message}`),

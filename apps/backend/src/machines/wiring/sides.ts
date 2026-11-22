@@ -141,7 +141,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     deps.side?.hear('connect', quietly);
   }
   if (accounts && installs) {
-    const sockets = wireMachineAccounts({ io: deps.io, db, accounts: () => accounts, installs: () => installs, dependencies: deps.dependencies });
+    const sockets = wireMachineAccounts({ io: deps.io, db, clients: clientsOf(), accounts: () => accounts, installs: () => installs, dependencies: deps.dependencies });
     toMachines = sockets;
     watched = watchingAll([sockets.watched, db.instances.watchInstalls((instance) => {
       installs.relay(instance).catch((err: Error) => console.warn(`[machines] ${instance.id}'s install could not be passed on: ${err.message}`));

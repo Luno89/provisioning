@@ -1,6 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
-import { saveDeviceToken, tokenAnswer, workTokenExpiry } from './machine-token.js';
+import { workTokenExpiry } from './machine-token.js';
 import { PLACE_KOALA, STOP_KOALA } from '@koala/engine-core/koala-install';
+import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
 
 export interface Koala {
   url: string;
@@ -9,8 +10,7 @@ export interface Koala {
 
 export interface RootLinkOptions {
   rootUrl: string;
-  token: string;
-  configFile: string;
+  client: { token(): Promise<string> };
   meshIp: () => Promise<string | undefined>;
   onKoala: (koala: Koala) => void;
   onRemoved: () => Promise<void> | void;
@@ -37,10 +37,30 @@ export const koalaFrom = (raw: unknown): Koala | undefined => {
 export function linkToRoot(options: RootLinkOptions): RootLink {
   const { say } = options;
   const renewBefore = options.renewBeforeSeconds ?? 7 * 24 * 3600;
-  const socket = (options.connect ?? io)(`${options.rootUrl}/machine-account`, { auth: { token: options.token }, reconnection: true });
+  let held: string | undefined;
+  const auth = (answer: (data: { token?: string }) => void): void => {
+    options.client.token().then((token) => {
+      held = token;
+      answer({ token });
+    }, (err: Error) => {
+      say(`this machine could not take a token from root (${err.message}); it asks again as it connects again`);
+      answer({});
+    });
+  };
+  const socket = (options.connect ?? io)(`${options.rootUrl}/machine-account`, { auth, reconnection: true });
+  const send = (event: string, ...args: unknown[]): void => {
+    options.client.token().then((token) => {
+      if (!socket.connected) return;
+      if (token !== held) {
+        held = token;
+        socket.emit(MACHINE_CLIENT_TOKEN, { token });
+      }
+      socket.emit(event, ...args);
+    }, (err: Error) => say(`root was not told ${event}: this machine could not take a token from root (${err.message})`));
+  };
   let renewal: NodeJS.Timeout | undefined;
   let renewing: number | undefined;
-  const askKoala = () => { if (socket.connected) socket.emit('machine:koala?'); };
+  const askKoala = () => { if (socket.connected) send('machine:koala?'); };
   const renewFor = (token: string) => {
     const exp = workTokenExpiry(token);
     if (exp === undefined || (renewing !== undefined && exp <= renewing)) return;
@@ -52,22 +72,9 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
     renewal.unref();
   };
 
-  socket.on('machine:token', ({ token: next }: { token?: unknown } = {}, ack: (answer: { taken: boolean }) => void) => {
-    if (typeof next !== 'string' || !next) return ack(tokenAnswer(false));
-    saveDeviceToken(options.configFile, next)
-      .then(() => {
-        socket.auth = { ...(socket.auth as Record<string, unknown>), token: next };
-        say('this machine took a new token from root');
-        ack(tokenAnswer(true));
-      })
-      .catch((err: Error) => {
-        say(`a new token could not be kept: ${err.message}`);
-        ack(tokenAnswer(false));
-      });
-  });
   socket.on('connect', () => {
     say(`connected to root at ${options.rootUrl}`);
-    void options.meshIp().then((ip) => { if (ip) socket.emit('machine:mesh', { ip }); });
+    void options.meshIp().then((ip) => { if (ip) send('machine:mesh', { ip }); });
   });
   let removal: Promise<{ uninstalled: true } | { uninstalled: false; problem: string }> | undefined;
   socket.on('machine:removed', (ack?: (answer: { uninstalled: boolean; problem?: string }) => void) => {

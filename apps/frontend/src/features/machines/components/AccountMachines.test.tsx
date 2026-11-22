@@ -44,20 +44,11 @@ describe('a person\'s machines at root', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'bobby' }))
   })
 
-  it('says a machine\'s token could not be renewed, why, and when it stops working unless it is', async () => {
-    showing([], [machine({ tokenRenewal: { reason: 'the machine did not keep its new token', failedAt: '2026-11-17T10:00:00Z', stopsAt: '2026-12-01T00:00:00Z' } })])
-    renderPanel()
-    const line = await screen.findByText(/^Its token could not be renewed: the machine did not keep its new token; it stops working on /)
-    expect(line.textContent).toContain(new Date('2026-12-01T00:00:00Z').toLocaleDateString())
-    expect(line.textContent).toMatch(/unless it is$/)
-  })
-
-  it('says nothing of either when nothing went wrong', async () => {
+  it('says nothing of it when nothing went wrong', async () => {
     showing([], [machine()])
     renderPanel()
     await screen.findByText('desk')
     expect(screen.queryByText(/could not be put here/)).toBeNull()
-    expect(screen.queryByText(/could not be renewed/)).toBeNull()
   })
 })
 

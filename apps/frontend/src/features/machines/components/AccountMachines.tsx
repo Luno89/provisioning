@@ -154,11 +154,6 @@ export default function AccountMachines({ name, nameOk, hasKoala, onPlacing }: A
                   </button>
                 </p>
               )}
-              {machine.tokenRenewal && (
-                <p className="text-[11px] text-amber-300">
-                  {`Its token could not be renewed: ${machine.tokenRenewal.reason}; it stops working on ${machine.tokenRenewal.stopsAt ? new Date(machine.tokenRenewal.stopsAt).toLocaleDateString() : 'its expiry'} unless it is`}
-                </p>
-              )}
             </li>
             )
           })}

@@ -8,6 +8,8 @@ export const MACHINE_JOINS_CHANGED = 'machine-joins-changed';
 
 export const WORK_TOKEN_ENDED = 'machine:work-token-ended';
 
+export const MACHINE_CLIENT_TOKEN = 'machine:client-token';
+
 export interface MachineJoinView {
   id: string;
   stage: string;
