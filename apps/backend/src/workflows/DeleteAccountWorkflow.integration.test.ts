@@ -105,7 +105,7 @@ describe('removing an account through Temporal', () => {
     }), async (workflows) => {
       await workflows.start(DELETE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('hal'), [{ ownerId: 'hal', toRoot: true }], 'hal');
       await temporal.env.client.workflow.getHandle(removeAccountWorkflowId('hal')).result();
-    }, { AwaitProjectWorkActivity: async () => ({ frozen: [], killed: ['terraform'] }), RestartWorkerActivity: async () => 'restarted' }));
+    }, { AwaitProjectWorkActivity: async () => ({ frozen: [], killed: ['terraform'], machines: [] }), RestartWorkerActivity: async () => 'restarted' }));
     const states = told.map((change) => change.progress);
     expect(told.every((change) => change.ownerId === 'hal')).toBe(true);
     expect(states.some((progress) => progress.work.some((work) => work.workflowId === 'run-1' && work.state === 'stopping'))).toBe(true);

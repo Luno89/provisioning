@@ -78,7 +78,7 @@ export { backendSettingsFrom, clusterSettingsFrom, clusterWorkerSettingsFrom, da
 export type { BackendSettings, ClusterSettings, ClusterWorkerSettings, CommonSettings, ConnectionSettings, EngineWorkerSettings, HostWorkerSettings, InstanceClient, InstanceSettings, MemoryIndex, MeshSettings, Off, OperatorCredentials, PodStepSettings, RootSettings, SelfUpgradeSettings, TemporalSettings, TenantServices, WebToolSettings } from './lib/settings.js';
 export { cancelIfRunning } from './lib/stop-workflow.js';
 export type { CancellableWorkflow } from './lib/stop-workflow.js';
-export { cancelledDetailsIn, frozenWorkersIn, killedIn } from './lib/frozen-workers.js';
+export { cancelledDetailsIn, frozenWorkersIn, killedIn, machinesOffIn } from './lib/frozen-workers.js';
 export type { CancelPayload, HistoryEvent } from './lib/frozen-workers.js';
 export { carryingTrace, telemetrySettings } from './lib/telemetry.js';
 export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks } from './lib/temporal-auth.js';

@@ -5,6 +5,8 @@ import path from 'path';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { createDeviceActivities, deviceQueue, DEVICE_TOOLS } from './engine-worker.js';
 import { IdleGate } from './idle-gate.js';
+import { killOnCancel } from '@koala/engine-core';
+import { nodeRunner } from '@koala/engine-core/node-processes';
 
 let rootDir: string;
 
@@ -142,6 +144,21 @@ describe('a command on the person\'s own machine', () => {
 
     expect(outcome.ok).toBe(false);
     expect(outcome.content).toContain('[stopped because the run was stopped; everything it started was stopped too]');
+  });
+
+  it('is killed at once when Koala asks the machine, once back, to stop the work of the run it belongs to, which answers with the programs it killed', async () => {
+    const ready = path.join(rootDir, 'ready');
+    const made = await nodeRunner.run({ command: 'mkfifo', args: [ready] });
+    expect(made.code).toBe(0);
+    const gate = new IdleGate();
+    const machine = createDeviceActivities({ rootDir, deviceId: 'tallgeese', gate });
+    const env = new MockActivityEnvironment({ workflowExecution: { workflowId: 'run-going', runId: 'r' } }, { interceptors: [killOnCancel()] });
+    const running = env.run(machine.EngineToolActivity, call({ name: 'run_command', arguments: JSON.stringify({ command: 'echo up > ready; sleep 600' }) }));
+    expect(await fs.readFile(ready, 'utf8')).toBe('up\n');
+    expect(await machine.StopMachineWorkActivity({ workflowIds: ['run-elsewhere'] })).toEqual({ killed: [] });
+    expect(await machine.StopMachineWorkActivity({ workflowIds: ['run-going'] })).toEqual({ killed: ['bash'] });
+    expect(await running).toMatchObject({ ok: false });
+    expect(gate.idle).toBe(true);
   });
 
   it('stops at the timeoutSeconds the call set, and says so', async () => {

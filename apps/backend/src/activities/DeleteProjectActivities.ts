@@ -2,7 +2,7 @@ import { ignore } from '@koala/engine-core/failures';
 import type { Client } from '@temporalio/client';
 import { withWorkFor } from '@koala/engine-core/work-for';
 import { Context } from '@temporalio/activity';
-import { cancelIfRunning, cancelledDetailsIn, DEPENDENCIES, DependencyDownError, frozenWorkersIn, killedIn, projectQuery, startedFor, type CancellableWorkflow, type CancelPayload, type HistoryEvent } from '../platform/index.js';
+import { cancelIfRunning, cancelledDetailsIn, DEPENDENCIES, DependencyDownError, frozenWorkersIn, killedIn, machinesOffIn, projectQuery, startedFor, type CancellableWorkflow, type CancelPayload, type HistoryEvent } from '../platform/index.js';
 import { PURGE_PROJECT_WORKFLOW, SERVICE_BACK_SIGNAL, SERVICE_DOWN_SIGNAL, keptUntil, purgeStart, type OpenWork, type ProjectsStore, type ServiceDown } from '../projects/index.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from './RemoveProjectActivities.js';
 import type { ProjectDeletionMode } from '../platform/index.js';
@@ -33,9 +33,15 @@ export interface ProjectDeletionDeps {
   told: DeletionTold;
 }
 
+export interface MachineOff {
+  id: string;
+  name: string;
+}
+
 export interface FrozenWorkDeps {
   work: ProjectWork;
   workers: { restart(identity: string): Promise<'restarted' | 'not-here'> };
+  machines(): Promise<readonly MachineOff[]>;
 }
 
 export interface SweepPass {
@@ -46,7 +52,7 @@ export interface SweepPass {
 }
 
 export interface FrozenWorkActivities {
-  AwaitProjectWorkActivity(args: { workflowId: string }): Promise<{ frozen: string[]; killed: string[] }>;
+  AwaitProjectWorkActivity(args: { workflowId: string }): Promise<{ frozen: string[]; killed: string[]; machines: MachineOff[] }>;
   RestartWorkerActivity(args: { worker: string }): Promise<'restarted' | 'not-here'>;
 }
 
@@ -71,7 +77,9 @@ export function createFrozenWorkActivities(deps: FrozenWorkDeps): FrozenWorkActi
       await handle.result().catch(ignore('a workflow that ends cancelled or failed rejects its result, which is it closing all the same'));
       const events = await handle.history();
       const details = await Promise.all(cancelledDetailsIn(events).map((payloads) => deps.work.decode(payloads)));
-      return { frozen: frozenWorkersIn(events), killed: killedIn(details.flat()) };
+      const off = new Set(machinesOffIn(events));
+      const machines = off.size === 0 ? [] : (await deps.machines()).filter((machine) => off.has(machine.id)).map(({ id, name }) => ({ id, name }));
+      return { frozen: frozenWorkersIn(events), killed: killedIn(details.flat()), machines };
     },
     RestartWorkerActivity: ({ worker }) => deps.workers.restart(worker),
   };

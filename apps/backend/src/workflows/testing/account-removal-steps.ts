@@ -22,7 +22,7 @@ export const fakeRemovalSteps = (seen: string[], over: Partial<AccountRemovalAct
 });
 
 export const nothingFrozen = (seen: string[] = []): FrozenWorkActivities => ({
-  AwaitProjectWorkActivity: async ({ workflowId }) => { seen.push(`await ${workflowId}`); return { frozen: [], killed: [] }; },
+  AwaitProjectWorkActivity: async ({ workflowId }) => { seen.push(`await ${workflowId}`); return { frozen: [], killed: [], machines: [] }; },
   RestartWorkerActivity: async ({ worker }) => { seen.push(`restart ${worker}`); return 'restarted'; },
 });
 

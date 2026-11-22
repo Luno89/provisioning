@@ -4,6 +4,7 @@ import {
   workStopping,
   workClosed,
   workerRestarted,
+  machineWorkStopped,
   partDeleting,
   partDeleted,
   appRemoved,
@@ -29,7 +30,20 @@ describe('what a project being deleted shows as it goes', () => {
   it('shows a worker that did not answer as restarting, and restarted only once its restart is reported', () => {
     const closed = workClosed(workStopping(deletionBegun(), [run]), 'run-1', ['worker-engine-7d9f']);
     expect(closed.work[0]).toMatchObject({ state: 'restarting', worker: 'worker-engine-7d9f' });
-    expect(workerRestarted(closed, 'worker-engine-7d9f').work[0]).toMatchObject({ state: 'restarted', worker: 'worker-engine-7d9f' });
+    expect(workerRestarted(closed, 'worker-engine-7d9f', 'restarted').work[0]).toMatchObject({ state: 'restarted', worker: 'worker-engine-7d9f' });
+  });
+
+  it('shows work on a machine that is off as waiting for it to wake, never stopped first, and stopped with what the machine killed once it answers', () => {
+    const waiting = workClosed(workStopping(deletionBegun(), [run, build]), 'run-1', [], [], ['Desk']);
+    expect(waiting.work[0]).toMatchObject({ state: 'waiting-machine', machine: 'Desk' });
+    const stopped = machineWorkStopped(waiting, 'run-1', ['claude']);
+    expect(stopped.work.map((item) => [item.workflowId, item.state, item.killed])).toEqual([['run-1', 'stopped', ['claude']], ['build-1', 'stopping', undefined]]);
+    expect(machineWorkStopped(waiting, 'run-1', []).work[0]).not.toHaveProperty('killed');
+  });
+
+  it('shows a worker Kubernetes has no pod for as gone, never as restarted', () => {
+    const closed = workClosed(workStopping(deletionBegun(), [run]), 'run-1', ['worker-engine-7d9f']);
+    expect(workerRestarted(closed, 'worker-engine-7d9f', 'not-here').work[0]).toMatchObject({ state: 'gone', worker: 'worker-engine-7d9f' });
   });
 
   it('names the programs that were killed when a running thing stopped', () => {

@@ -8,7 +8,7 @@ import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { QUEUES } from '../platform/lib/work-places.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { appRemoved, deletionBegun, deletionEnded, deletionStuck, partDeleted, partDeleting, workStopping } from '../projects/lib/project-deletion.js';
-import { awaitStopped, deletingPart, innermostMessage, type Tell } from './deletion-telling.js';
+import { awaitStopped, deletingPart, innermostMessage, machineStops, type Tell } from './deletion-telling.js';
 
 const steps = proxyActivities<AccountRemovalActivities>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 
@@ -48,7 +48,7 @@ export async function DeleteAccountWorkflow(args: RemoveAccountArgs): Promise<Ac
     const open = await steps.StopAccountWorkActivity(args);
     stopped.push(...open.map((work) => work.workflowId));
     if (open.length > 0) await tell((current) => workStopping(current, open));
-    await Promise.all(open.map((work) => awaitStopped(work, tell, cluster)));
+    await Promise.all(open.map((work) => awaitStopped(work, tell, cluster, machineStops)));
     return open.length;
   };
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cancelledDetailsIn, frozenWorkersIn, killedIn, type HistoryEvent } from './frozen-workers.js';
+import { cancelledDetailsIn, frozenWorkersIn, killedIn, machinesOffIn, type HistoryEvent } from './frozen-workers.js';
 
 const scheduled = (id: number): HistoryEvent => ({ eventId: id, activityTaskScheduledEventAttributes: {} });
 const started = (id: number, of: number, identity: string): HistoryEvent => ({ eventId: id, activityTaskStartedEventAttributes: { scheduledEventId: of, identity } });
@@ -29,6 +29,20 @@ describe('a worker that stopped answering while its work was being cancelled, re
 
   it('names each program a cancelled activity killed once, in the order they were killed, ignoring details of another shape', () => {
     expect(killedIn([{ killed: ['terraform', 'kubectl'] }, { killed: ['kubectl', 'git'] }, 'cancelled', { killed: 'helm' }, { killed: [3] }])).toEqual(['terraform', 'kubectl', 'git']);
+  });
+
+  it('is the machine whose own queue held an activity whose heartbeat timed out after it was asked to cancel, and no worker to restart', () => {
+    const scheduledOn = (id: number, queue: string): HistoryEvent => ({ eventId: id, activityTaskScheduledEventAttributes: { taskQueue: { name: queue } } });
+    const events = [
+      scheduledOn(5, 'device-desk'), scheduledOn(6, 'device-desk'), scheduledOn(7, 'device-tower'), scheduledOn(8, 'engine'),
+      cancelAsked(9, 5), cancelAsked(10, 6), cancelAsked(11, 7), cancelAsked(12, 8),
+      started(13, 5, 'agent-desk'), started(14, 6, 'agent-desk'), started(15, 7, 'agent-tower'), started(16, 8, 'worker-engine-7d9f'),
+      timedOut(17, 5, 'TIMEOUT_TYPE_HEARTBEAT'), timedOut(18, 6, 'TIMEOUT_TYPE_HEARTBEAT'),
+      { eventId: 19, activityTaskCanceledEventAttributes: { scheduledEventId: 7 } },
+      timedOut(20, 8, 'TIMEOUT_TYPE_HEARTBEAT'),
+    ];
+    expect(machinesOffIn(events)).toEqual(['desk']);
+    expect(frozenWorkersIn(events)).toEqual(['worker-engine-7d9f']);
   });
 
   it('names each worker once', () => {

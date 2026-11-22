@@ -39,6 +39,8 @@ function workLine(work: StoppingWork): string {
     case 'stopped': return `${what}: stopped`
     case 'restarting': return `${what}: ${work.worker ?? 'its worker'} not answering: restarting`
     case 'restarted': return `${what}: ${work.worker ?? 'its worker'} restarted`
+    case 'gone': return `${what}: ${work.worker ?? 'its worker'} not answering: it is gone`
+    case 'waiting-machine': return `${what}: will stop when ${work.machine ?? 'its machine'} wakes`
   }
 }
 

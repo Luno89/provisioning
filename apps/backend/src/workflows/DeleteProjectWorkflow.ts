@@ -20,7 +20,7 @@ import {
 } from '../projects/lib/project-deletion.js';
 import type { DeleteProjectArgs, FrozenWorkActivities, ProjectDeletionActivities } from '../activities/DeleteProjectActivities.js';
 import { QUEUES } from '../platform/lib/work-places.js';
-import { awaitStopped, deletingPart, innermostMessage } from './deletion-telling.js';
+import { awaitStopped, deletingPart, innermostMessage, machineStops } from './deletion-telling.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ownerIn } from '../platform/lib/workflow-owner.js';
@@ -78,7 +78,7 @@ export async function DeleteProjectWorkflow(args: DeleteProjectArgs): Promise<Pr
     if (open.length === 0) return;
     stopped.push(...open.map((work) => work.workflowId));
     await tell((current) => workStopping(current, open));
-    await Promise.all(open.map(async (work) => { restarted.push(...(await awaitStopped(work, tell, cluster))); }));
+    await Promise.all(open.map(async (work) => { restarted.push(...(await awaitStopped(work, tell, cluster, machineStops))); }));
   };
 
   const part = deletingPart(tell);

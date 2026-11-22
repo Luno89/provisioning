@@ -25,7 +25,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
     const worker = await testWorker(env, { taskQueue, workflows: 'testing/project-probe-workflow.ts', workflowInterceptors: ['telemetry-interceptors.ts'], activities: {} });
     const restarts: string[] = [];
     const deletion = createProjectDeletionActivities({ work: temporalProjectWork(async () => client), removal: mock<ProjectRemovalSteps>(), archive: mock<ProjectArchive>(), told: firstTry });
-    const frozen = createFrozenWorkActivities({ work: temporalProjectWork(async () => client), workers: { restart: async (identity) => { restarts.push(identity); return 'restarted'; } } });
+    const frozen = createFrozenWorkActivities({ work: temporalProjectWork(async () => client), workers: { restart: async (identity) => { restarts.push(identity); return 'restarted'; } }, machines: async () => [] });
     const going = uniqueName('run');
     const staying = uniqueName('run');
     await worker.runUntil(async () => {
@@ -39,7 +39,7 @@ describe('stopping a project\'s work, found in Temporal by the project it names'
       const stopped = await deletion.StopProjectWorkActivity({ projectId: project });
       expect(stopped.map((work) => work.workflowId).sort()).toEqual([going, `${going}-child`].sort());
       expect(new Set(stopped.map((work) => work.type)), 'each is listed with its type, which names it for the person').toEqual(new Set(['projectProbeWorkflow', 'projectProbeChildWorkflow']));
-      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [], killed: [] });
+      for (const work of stopped) expect(await frozen.AwaitProjectWorkActivity({ workflowId: work.workflowId })).toEqual({ frozen: [], killed: [], machines: [] });
       expect((await client.workflow.getHandle(going).describe()).status.name).toBe('CANCELLED');
       expect((await client.workflow.getHandle(staying).describe()).status.name).toBe('RUNNING');
       await client.workflow.getHandle(staying).cancel();

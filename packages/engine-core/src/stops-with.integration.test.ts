@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { CancelledFailure } from '@temporalio/common';
 import { describe, expect, it } from 'vitest';
 import { nodeRunner, nodeStreams } from './node-processes.js';
-import { killOnCancel, stopsWith } from './stops-with.js';
+import { killOnCancel, stopsWith, stopWorkOf } from './stops-with.js';
 
 const alive = (pid: number): boolean => {
   try {
@@ -66,6 +66,28 @@ describe('a program started for a piece of work that is cancelled', () => {
     const reported = await ran.catch((err: unknown) => err);
     expect(reported).toBeInstanceOf(CancelledFailure);
     expect((reported as CancelledFailure).details).toEqual([{ killed: ['sleep', 'sh'] }]);
+  });
+
+  it('kills at once what the named workflows\' activities started, waits until those activities ended, names the programs, and leaves another workflow\'s alone', async () => {
+    const neverCancelled = new AbortController();
+    const inWorkflow = (workflowId: string) => killOnCancel()({ cancellationSignal: neverCancelled.signal, info: { workflowExecution: { workflowId, runId: 'r' } } } as never).inbound;
+    let started = 0;
+    let bothStarted!: () => void;
+    const begun = new Promise<void>((done) => { bothStarted = done; });
+    const running = (workflowId: string, command: string) => inWorkflow(workflowId).execute({}, async () => {
+      const program = nodeStreams.start({ command, args: ['600'] });
+      started += 1;
+      if (started === 2) bothStarted();
+      return program.exited;
+    });
+    const going = running('run-going', '/bin/sleep');
+    const staying = running('run-staying', 'sleep');
+    await begun;
+    expect(await stopWorkOf(['run-going'], 'the project is being deleted')).toEqual(['sleep']);
+    expect(await going).toMatchObject({ signal: 'SIGKILL' });
+    expect(await stopWorkOf(['run-staying'], 'done with it'), 'the other workflow\'s program was still running until its own stop').toEqual(['sleep']);
+    expect(await staying).toMatchObject({ signal: 'SIGKILL' });
+    expect(await stopWorkOf(['run-going', 'run-staying'], 'again')).toEqual([]);
   });
 
   it('leaves alone a program whose work goes on', async () => {

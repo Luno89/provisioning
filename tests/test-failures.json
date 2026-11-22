@@ -145,5 +145,8 @@
  "apps/backend/src/machines/wiring/sides.integration.test.ts": [
   "2026-11-21T23:30:00.000Z",
   "2026-11-21T23:53:00.000Z"
+ ],
+ "apps/local-agent/src/device-worker.integration.test.ts": [
+  "2026-11-22T01:15:27.000Z"
  ]
 }

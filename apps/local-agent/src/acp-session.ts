@@ -76,6 +76,7 @@ export interface AcpSession {
   setModel(modelId: string): Promise<AgentModels>;
   cancel(): Promise<void>;
   close(): Promise<void>;
+  kill(): Promise<void>;
   exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
 }
 
@@ -115,6 +116,7 @@ interface AgentChild {
   spawnFailed: Promise<never>;
   stream: ReturnType<typeof ndJsonStream>;
   stop(): Promise<void>;
+  kill(): Promise<void>;
 }
 
 function startAgent(streams: Streams, launch: AcpLaunch, cwd: string): AgentChild {
@@ -152,11 +154,15 @@ function startAgent(streams: Streams, launch: AcpLaunch, cwd: string): AgentChil
     await Promise.race([exited, spawnFailed.catch(ignore('a program that never started has nothing to stop'))]);
     clearTimeout(timer);
   };
-  return { running, stderr, exited, spawnFailed, stream, stop };
+  const kill = async (): Promise<void> => {
+    running.stop('SIGKILL');
+    await Promise.race([exited, spawnFailed.catch(ignore('a program that never started has nothing to kill'))]);
+  };
+  return { running, stderr, exited, spawnFailed, stream, stop, kill };
 }
 
 export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSession> {
-  const { stderr, exited, spawnFailed, stream, stop } = startAgent(options.streams ?? nodeStreams, options.launch, options.cwd);
+  const { stderr, exited, spawnFailed, stream, stop, kill } = startAgent(options.streams ?? nodeStreams, options.launch, options.cwd);
   const endedEarly = exited.then(({ code, signal }) => {
     throw new AcpSessionError(`${options.launch.command} exited (${signal ?? code}) before the session opened`, stderr.join('\n'));
   });
@@ -276,6 +282,10 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
     async close() {
       releasePending();
       await stop();
+    },
+    async kill() {
+      releasePending();
+      await kill();
     },
     exited,
   };

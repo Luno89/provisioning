@@ -93,6 +93,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
       ...createFrozenWorkActivities({
         work: temporalProjectWork(() => getTemporalClient()),
         workers: new WorkerRestart({ access, target: () => access.own(), namespace: settings.podNamespace }),
+        machines: () => db.machines.getLocalAgentDevices(),
       }),
     },
   });
