@@ -85,7 +85,8 @@
     "title": "Sign in through root",
     "entries": [
       "apps/frontend/src/features/platform/api.ts#signInPlace",
-      "apps/frontend/src/features/platform/api.ts#login"
+      "apps/frontend/src/features/platform/api.ts#signIn",
+      "apps/backend/src/instances/routes/sign-in.ts#rootClientRouter"
     ],
     "concepts": [
       "work",

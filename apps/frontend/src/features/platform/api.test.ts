@@ -6,16 +6,20 @@ vi.mock('../../api/client', () => ({
     post: vi.fn(),
     delete: vi.fn(),
   },
+  site: {
+    post: vi.fn(),
+  },
   API_BASE: 'https://koala.test/api',
+  SITE_BASE: 'https://koala.test',
 }));
 
-import { api } from '../../api/client';
+import { api, site } from '../../api/client';
 import { confirmSecondFactor, getMe, logout, providerSignInUrl, register, resendSignUpCode, signIn, verifySignUp } from './api';
 
 const RESUME = '/oidc/interaction/u1';
-const SITE = { baseURL: 'https://koala.test' };
 
 const mocked = vi.mocked(api);
+const onSite = vi.mocked(site);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,10 +59,11 @@ describe('logout', () => {
 
 describe('signIn', () => {
   it('posts credentials to the sign-in it resumes, on the site beside the API, and unwraps where to go on', async () => {
-    mocked.post.mockResolvedValue({ data: { next: 'https://koala.test/oidc/auth/u1' } });
+    onSite.post.mockResolvedValue({ data: { next: 'https://koala.test/oidc/auth/u1' } });
 
     await expect(signIn(RESUME, { email: 'a@b.c', password: 'pw' })).resolves.toEqual({ next: 'https://koala.test/oidc/auth/u1' });
-    expect(mocked.post).toHaveBeenCalledWith('/oidc/interaction/u1/login', { email: 'a@b.c', password: 'pw' }, SITE);
+    expect(onSite.post).toHaveBeenCalledWith('/oidc/interaction/u1/login', { email: 'a@b.c', password: 'pw' });
+    expect(mocked.post).not.toHaveBeenCalled();
   });
 
   it('posts an inviteCode when registering', async () => {
@@ -75,9 +80,9 @@ describe('signIn', () => {
 
 describe('confirming a sign-up', () => {
   it('posts the pending sign-up and its code to the sign-in it resumes, and asks for a new code by the sign-up alone', async () => {
-    mocked.post.mockResolvedValueOnce({ data: { next: 'https://koala.test/oidc/auth/u1' } });
+    onSite.post.mockResolvedValueOnce({ data: { next: 'https://koala.test/oidc/auth/u1' } });
     await expect(verifySignUp(RESUME, { id: 'p1', code: '123456' })).resolves.toEqual({ next: 'https://koala.test/oidc/auth/u1' });
-    expect(mocked.post).toHaveBeenCalledWith('/oidc/interaction/u1/sign-up/verify', { id: 'p1', code: '123456' }, SITE);
+    expect(onSite.post).toHaveBeenCalledWith('/oidc/interaction/u1/sign-up/verify', { id: 'p1', code: '123456' });
     mocked.post.mockResolvedValueOnce({ data: { verify: 'p1' } });
     await expect(resendSignUpCode('p1')).resolves.toEqual({ verify: 'p1' });
     expect(mocked.post).toHaveBeenCalledWith('/auth/register/resend', { id: 'p1' });
@@ -86,10 +91,10 @@ describe('confirming a sign-up', () => {
 
 describe('confirmSecondFactor', () => {
   it('posts the code to the sign-in it resumes and unwraps where to go on', async () => {
-    mocked.post.mockResolvedValue({ data: { next: 'https://koala.test/oidc/auth/u1' } });
+    onSite.post.mockResolvedValue({ data: { next: 'https://koala.test/oidc/auth/u1' } });
 
     await expect(confirmSecondFactor(RESUME, '123456')).resolves.toEqual({ next: 'https://koala.test/oidc/auth/u1' });
-    expect(mocked.post).toHaveBeenCalledWith('/oidc/interaction/u1/second-factor', { code: '123456' }, SITE);
+    expect(onSite.post).toHaveBeenCalledWith('/oidc/interaction/u1/second-factor', { code: '123456' });
   });
 });
 

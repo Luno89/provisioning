@@ -1,6 +1,10 @@
+import type { InteractionPath } from '../api'
+
 const INTERACTION = /^\/oidc\/interaction\/[A-Za-z0-9_-]+$/
 
-export const resumePathFrom = (search: string): string | undefined => {
+const isInteraction = (path: string): path is InteractionPath => INTERACTION.test(path)
+
+export const resumePathFrom = (search: string): InteractionPath | undefined => {
   const resume = new URLSearchParams(search).get('resume')
-  return resume && INTERACTION.test(resume) ? resume : undefined
+  return resume && isInteraction(resume) ? resume : undefined
 }

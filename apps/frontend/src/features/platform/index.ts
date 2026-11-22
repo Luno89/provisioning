@@ -1,5 +1,5 @@
 export { accountRemovalPlace, confirmSecondFactor, getMe, logout, providerSignInUrl, register, resendSignUpCode, signIn, signInKeys, signInPlace, verifySignUp } from './api'
-export type { ConfirmWith, SessionUser, SignInAnswer, SignInPlace, SignInProvider, SignUpAnswer, SignUpCode } from './api'
+export type { ConfirmWith, InteractionPath, SessionUser, SignInAnswer, SignInPlace, SignInProvider, SignUpAnswer, SignUpCode } from './api'
 export { useCan } from './hooks/useCan'
 export type { Can } from './hooks/useCan'
 export { canOn } from './lib/permissions'

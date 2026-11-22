@@ -9,25 +9,27 @@ import { describe, expect, it } from 'vitest';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { principalOf } from '../../platform/lib/permissions.js';
+import type { UserMetadata } from '../../platform/lib/types.js';
 import { testKeys } from '../../platform/testing/keys.js';
-import { closedAfterEach, onlineMachines, until } from '../testing/wiring-world.js';
-import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+import { closedAfterEach, onlineMachines, socketAuth, until } from '../testing/wiring-world.js';
+import { wireSockets } from './sockets.js';
 
 const fresh = await emptiedEachTime();
 const keys = testKeys('run-logs-secret');
-const PEOPLE: Record<string, { id: string; email: string }> = { 'session=bo': { id: 'bo', email: 'bo@koala.test' }, 'session=al': { id: 'al', email: 'al@koala.test' } };
+const person = (id: string): UserMetadata => ({ id, email: `${id}@koala.test`, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
+const PEOPLE: Record<string, UserMetadata> = { 'session=bo': person('bo'), 'session=al': person('al') };
 const closers = closedAfterEach();
 
 const signedInAs = (cookie: string | undefined) => {
   const user = cookie ? PEOPLE[cookie] : undefined;
-  return user ? { user, sessionId: `${user.id}-session`, sessionAt: new Date().toISOString() } : undefined;
+  return user ? { user, sessionId: `${user.id}-session`, sessionAt: Date.now() } : undefined;
 };
 
 async function koalaServing(db: MongoDB): Promise<string> {
   const io = new SocketServer(http.createServer());
   wireSockets({
     io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'bo', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async (cookie: string | undefined) => signedInAs(cookie), securedFor: () => false, principalFor: (user: { id: string }) => principalOf(user, { role: 'instance', instanceOwnerId: 'bo' }) } as unknown as SocketsWiringDeps['auth'],
+    auth: socketAuth({ signedIn: signedInAs, principalFor: (user) => principalOf(user, { role: 'instance', instanceOwnerId: 'bo' }) }),
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines: onlineMachines(db.machines),
     clusters: { access: {}, getById: async () => undefined } as never,

@@ -10,7 +10,7 @@ import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest';
 import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
-import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -26,8 +26,8 @@ import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { wireMachineAccounts } from './accounts.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { deviceByWorkToken } from './machines.js';
-import { wireSockets, type SocketsWiringDeps } from './sockets.js';
-import { until } from '../testing/wiring-world.js';
+import { wireSockets } from './sockets.js';
+import { agentSockets, until } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 
@@ -145,14 +145,7 @@ beforeEach(async () => {
   watching = () => sockets.watched;
   accounts = accountsOn(db.machines, { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) });
   sockets = wireMachineAccounts({ io, db, accounts: () => accounts, installs: () => ({ connected: async () => undefined }), dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }), now: () => clock });
-  wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
-    sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, workTokens: trust, clusters: {} as never, apps: {} as never,
-    telemetry: { relay: async () => ({ ok: true }) } as never,
-    now: () => clock,
-  });
+  wireSockets(agentSockets({ io, db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens: trust, now: () => clock }));
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   temporal = http2.createServer();

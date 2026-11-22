@@ -1,18 +1,14 @@
 import { testKeys } from '../../platform/testing/keys.js';
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IdleGate } from '../../../../local-agent/src/idle-gate.js';
 import { SelfUpdate } from '../../../../local-agent/src/self-update.js';
-import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineService } from '../services/MachineService.js';
-import { wireSockets, type SocketsWiringDeps } from './sockets.js';
-import { until, onlineMachines } from '../testing/wiring-world.js';
+import { servedAgentSockets, until, onlineMachines } from '../testing/wiring-world.js';
 
 const fresh = await emptiedEachTime();
 
@@ -26,8 +22,7 @@ const keys = testKeys('agent-updates-test-secret');
 let db: MongoDB;
 let machines: MachineService;
 let served: string;
-let server: http.Server;
-let io: SocketServer;
+let koala: Awaited<ReturnType<typeof servedAgentSockets>>;
 let url = '';
 let ending: Map<string, () => void>;
 const clients: ClientSocket[] = [];
@@ -52,27 +47,19 @@ beforeEach(async () => {
   await db.machines.saveLocalAgentDevice({
     id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: new Date().toISOString(),
   });
-  server = http.createServer();
-  io = new SocketServer(server);
-  wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
-    auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
-    sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, workTokens, clusters: {} as never, apps: {} as never,
-    telemetry: { relay: async () => ({ ok: true }) } as never,
+  koala = await servedAgentSockets({
+    db, payloadKey: keys.payload, dataKey: keys.data, machines, workTokens,
     runs: {
       life: async (runId) => (runId === 'chat-gone-koala-1' ? 'ended' : 'running'),
       closed: (runId) => new Promise((resolve) => ending.set(runId, () => resolve('ended'))),
     },
   });
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
-  url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  url = koala.url;
 });
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
-  await io.close();
-  await new Promise<void>((done) => server.close(() => done()));
+  await koala.close();
 });
 
 describe('a machine\'s agent and the bundle Koala serves', () => {

@@ -30,8 +30,15 @@ export const API_BASE: string = address.apiBase
 export const SOCKET_URL: string = address.socketUrl
 export const BACKEND_ORIGIN: string = address.origin
 
+export const SITE_BASE: string = API_BASE.replace(/\/api$/, '')
+
 export const api = axios.create({
   baseURL: API_BASE,
+  withCredentials: true,
+})
+
+export const site = axios.create({
+  baseURL: SITE_BASE,
   withCredentials: true,
 })
 
