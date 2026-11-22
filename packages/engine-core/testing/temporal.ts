@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { Client } from '@temporalio/client';
+import { temporal as proto } from '@temporalio/proto';
 import { TestWorkflowEnvironment, TimeSkippingWorkflowClient } from '@temporalio/testing';
 import { bundleWorkflowCode, type Worker, type WorkflowBundle } from '@temporalio/worker';
 import { inject } from 'vitest';
@@ -133,3 +134,45 @@ export const workflowBundle = (): Promise<WorkflowBundle> => {
 };
 
 export const queueFor = (what: string): string => `${what}-${randomUUID()}`;
+
+export interface WatchedRun {
+  running: Promise<void>;
+  ended(): string | undefined;
+}
+
+export function watchedRun(worker: Pick<Worker, 'run'>): WatchedRun {
+  let why: string | undefined;
+  const running = worker.run().then(
+    () => { why = 'the worker stopped'; },
+    (err: unknown) => { why = `the worker failed: ${err instanceof Error ? err.message : String(err)}`; throw err; },
+  );
+  running.catch(() => undefined);
+  return { running, ended: () => why };
+}
+
+export interface ActivityQueue {
+  namespace?: string | undefined;
+  queue: string;
+}
+
+export interface PollingAs extends ActivityQueue {
+  identity?: string;
+  ended(): string | undefined;
+}
+
+export async function pollersOf(client: Client, at: ActivityQueue): Promise<string[]> {
+  const { pollers } = await client.workflowService.describeTaskQueue({
+    namespace: at.namespace ?? 'default', taskQueue: { name: at.queue }, taskQueueType: proto.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
+  });
+  return (pollers ?? []).map((poller) => poller.identity ?? '');
+}
+
+export async function untilPolling(client: Client, wait: PollingAs): Promise<string[]> {
+  for (;;) {
+    const identities = await pollersOf(client, wait);
+    if (wait.identity === undefined ? identities.length > 0 : identities.includes(wait.identity)) return identities;
+    const why = wait.ended();
+    if (why) throw new Error(`nothing polls ${wait.queue}${wait.identity === undefined ? '' : ` as ${wait.identity}`}, and nothing will: ${why}`);
+    await new Promise((done) => setTimeout(done, 100));
+  }
+}

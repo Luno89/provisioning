@@ -1,4 +1,4 @@
-import { temporal } from '@temporalio/proto';
+import { pollersOf, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import { afterAll, describe, expect, it } from 'vitest';
 import { startCorpusStandIn } from './engine/testing/corpus-stand-in.js';
 import { engineWorkerSettingsFrom, QUEUES } from './platform/index.js';
@@ -35,16 +35,14 @@ const runningOnAnInstance = async () => {
   const settings = engineWorkerSettingsFrom(placeFor('instance'));
   const { dependencies } = await engineWorkerSetup(settings);
   const { worker, activities } = await createEngineWorker(settings, dependencies);
-  return { worker, activities, dependencies, running: worker.run() };
+  return { worker, activities, dependencies, ...watchedRun(worker) };
 };
 
 describe('the engine worker, started the way its entry starts it', () => {
   it('on an instance builds its activities, polls the engine queue with them, the shared interceptors and the refusal of work being deleted, and stops when told', async () => {
-    const { worker, activities, running } = await runningOnAnInstance();
-    const pollers = async () => ((await env.client.workflowService.describeTaskQueue({
-      namespace: env.namespace ?? 'default', taskQueue: { name: QUEUES.engine }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
-    })).pollers ?? []).map((poller) => poller.identity);
-    while (!(await pollers()).includes('luno-worker-engine-7d9f-abcde')) await new Promise((done) => setTimeout(done, 100));
+    const { worker, activities, running, ended } = await runningOnAnInstance();
+    const polling = { namespace: env.namespace, queue: QUEUES.engine, identity: 'luno-worker-engine-7d9f-abcde', ended };
+    await untilPolling(env.client, polling);
     const registered = [...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort();
     expect(registered).toEqual(Object.keys(activities).sort());
     expect(registered).toEqual(expect.arrayContaining(['EngineNodeActivity', 'EngineToolActivity', 'CheckRunScenarioActivity', 'StoredFilesCommitActivity', 'StopProjectWorkActivity', 'SweepProjectActivity']));
@@ -55,7 +53,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     await db.projects.savePlanProposal({ id: 'plan-shop', ownerId: 'owner-1', conversationId: 'c1', status: 'adopting', plan: { treeId: 'tree-shop', planDoc: '', branches: [] }, createdAt: at, updatedAt: at } as never);
     const adoption = activities as unknown as { PlanAdoptProjectActivity(args: { ownerId: string; proposalId: string }): Promise<string | null> };
     expect(await new MockActivityEnvironment().run(adoption.PlanAdoptProjectActivity, { ownerId: 'owner-1', proposalId: 'plan-shop' }), 'adopting a plan into a tree works for the tree\'s project').toBe('project-shop');
-    expect(await pollers(), 'the worker is up, polling as its pod').toContain('luno-worker-engine-7d9f-abcde');
+    expect(await pollersOf(env.client, polling), 'the worker is up, polling as its pod').toContain('luno-worker-engine-7d9f-abcde');
     worker.shutdown();
     await running;
   });

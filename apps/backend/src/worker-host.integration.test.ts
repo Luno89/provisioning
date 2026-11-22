@@ -1,5 +1,5 @@
 import { hostname } from 'node:os';
-import { temporal } from '@temporalio/proto';
+import { pollersOf, untilPolling, watchedRun } from '@koala/engine-core/testing/temporal';
 import { describe, expect, it } from 'vitest';
 import { HOST_ACTIVITIES, hostWorkerSettingsFrom, QUEUES } from './platform/index.js';
 import { testIdentityKey } from './platform/testing/keys.js';
@@ -16,23 +16,18 @@ const placeFor = (role: 'root' | 'instance'): Record<string, string> => ({
     : { INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'http://127.0.0.1:1', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: 'http://127.0.0.1:1', CRAWL4AI_URL: 'http://127.0.0.1:1', CRAWL4AI_API_TOKEN: 'crawl-token', QUICKWIT_URL: 'http://127.0.0.1:1', QDRANT_URL: 'http://127.0.0.1:1', QDRANT_API_KEY: 'qdrantKey40', TEI_URL: 'http://127.0.0.1:1', POD_NAME: 'luno-worker-host-7d9f-abcde' }),
 });
 
-const pollers = async () => (await env.client.workflowService.describeTaskQueue({
-  namespace: env.namespace ?? 'default',
-  taskQueue: { name: QUEUES.host },
-  taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
-})).pollers ?? [];
-
 describe('the host worker, started the way its entry starts it', () => {
   for (const role of ['root', 'instance'] as const) {
     it(`on ${role === 'root' ? 'root' : 'an instance'} polls the host queue with exactly that role's activities and the shared interceptors`, async () => {
       const { worker } = await startHostWorker(hostWorkerSettingsFrom(placeFor(role)));
-      const running = worker.run();
+      const { running, ended } = watchedRun(worker);
       const identity = role === 'instance' ? 'luno-worker-host-7d9f-abcde' : `${process.pid}@${hostname()}`;
-      while (!(await pollers()).some((poller) => poller.identity === identity)) await new Promise((done) => setTimeout(done, 100));
+      const polling = { namespace: env.namespace, queue: QUEUES.host, identity, ended };
+      await untilPolling(env.client, polling);
       expect([...(worker.options.activities as unknown as Map<string, unknown>).keys()].sort()).toEqual([...HOST_ACTIVITIES[role]].sort());
       expect(worker.options.interceptors.activity).toHaveLength(6);
       expect(worker.options.identity, 'Temporal knows an instance\'s worker by its own pod, and root\'s by its process').toBe(identity);
-      expect((await pollers()).map((poller) => poller.identity), 'the worker is up, polling as itself').toContain(identity);
+      expect(await pollersOf(env.client, polling), 'the worker is up, polling as itself').toContain(identity);
       worker.shutdown();
       await running;
     });
