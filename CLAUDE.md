@@ -6,8 +6,8 @@ going to drift if the code changes"). When a change lands, add only the rule a f
 
 ## Where the work stands
 
-- **The plan is `~/.claude/plans/backend.md`** (approved 2026-11-05, evidence in `~/.claude/plans/backend-audit/`), progress in
-  `~/.claude/plans/now.md`. Owner: "I'm looking for structual changes in how we work cause its been like three months and we
+- **The plan is `~/.claude/plans/plan.md`** (2026-11-22, one plan from the audit of every plan against `main`; owner: "ok audit
+  the plans and make one plan"). The older plans are reference for detail and set no order. Owner: "I'm looking for structual changes in how we work cause its been like three months and we
   haven't really gotten anywhere", then "yes, the GPU machine story is v1, and your going to do all the structural changes first
   right?"
 - **v1 is done (2026-11-17)**: a person joins their GPU machine, Koala runs on it, they deploy TabbyAPI or vLLM and chat with their
