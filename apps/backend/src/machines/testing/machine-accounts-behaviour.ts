@@ -2,9 +2,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { MACHINE_CODE_TTL_SECONDS } from '../lib/machines.js';
-import { checkWorkToken } from '../lib/work-tokens.js';
 import { anyOf, containing } from '../../platform/lib/test-matchers.js';
 import { MachineAccounts, type MachineAccountsDeps, type MachineFollowers } from '../services/MachineAccounts.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
@@ -12,7 +10,6 @@ import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instan
 export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   const DAY = 24 * 60 * 60 * 1000;
   const ROOT_URL = 'https://app.koala.example';
-  const signing = identityKeysFrom(generateIdentityKey());
 
   let db: Database;
   let followers: ReturnType<typeof mock<MachineFollowers>>;
@@ -24,7 +21,6 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
 
   const accounts = (over: Partial<MachineAccountsDeps> = {}, meshLoginServer: string | undefined = 'https://mesh.koala.example') => new MachineAccounts({
     store: db.machines,
-    signing,
     settings: { url: ROOT_URL, meshLoginServer, registry: '100.64.0.1:5001' },
     koala: { of: async (ownerId) => (ownerId === 'bo' ? { url: 'https://bo.people.example', audience: 'inst-bo' } : undefined) },
     followers,
@@ -418,14 +414,10 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
   });
 
   describe('where a machine\'s Koala is', () => {
-    it('names its Koala, the resource the machine asks root tokens for there, and a work token root signed for that machine, owner and Koala', async () => {
+    it('names its Koala and the resource the machine asks root tokens for there, and no token of its own', async () => {
       const machines = accounts();
       const { deviceId } = await joined(machines, 'bo');
-      const koala = (await machines.koalaFor(deviceId))!;
-      expect(koala.url).toBe('https://bo.people.example');
-      expect(koala.resource).toBe('urn:koala:instance:inst-bo');
-      const check = checkWorkToken(koala.workToken, trustedKeys([publicKeyPem(signing.publicKey)]), 'inst-bo', Math.floor(clock.getTime() / 1000));
-      expect(check).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: 'inst-bo' } });
+      expect(await machines.koalaFor(deviceId)).toEqual({ url: 'https://bo.people.example', resource: 'urn:koala:instance:inst-bo' });
     });
 
     it('names none for a person with no Koala yet, or a machine that is gone, and tells each of a person\'s machines', async () => {

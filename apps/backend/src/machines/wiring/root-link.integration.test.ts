@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { linkToRoot, type Koala, type RootLink } from '../../../../local-agent/src/root-link.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { MachineAccounts, type MachineRemovals } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
@@ -33,7 +32,7 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
   await sockets.watched.ready;
   accounts = new MachineAccounts({
     ...(removals ? { removals } : {}),
-    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: machineClientsAt(db), settings: { url: 'http://root.test' },
+    store: db.machines, clients: machineClientsAt(db), settings: { url: 'http://root.test' },
     koala: { of: async () => koala ?? undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
     toOwner: { machinesChanged: () => undefined },
@@ -154,7 +153,7 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     expect([device?.signIn?.jwk, device?.previousSignIn]).toEqual([clientPublicJwkOf(clientKeysFrom(kept.key)), undefined]);
   });
 
-  it('tells root its mesh address, takes the Koala root names when it connects and when root tells it, and asks again without asking forever though root\'s clock is a month behind', async () => {
+  it('tells root its mesh address, takes the Koala root names when it connects, when root tells it and when it asks, and asks nothing by itself though root\'s clock is a month behind', async () => {
     const issued = new Date('2026-08-01T00:00:00Z');
     const now = new Date(issued.getTime() + 70 * DAY);
     const { db, url, accounts: accountsOf } = await root(() => now);
@@ -165,8 +164,8 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
       meshIp: async () => '100.64.0.42', onKoala: (koala) => koalas.push(koala), onRemoved: () => undefined, say: () => undefined,
     });
     closers.push(() => link.close());
-    await until(() => (koalas.length >= 2 ? true : undefined));
-    expect(koalas.map((koala) => koala.url)).toEqual(['http://koala.test', 'http://koala.test']);
+    await until(() => (koalas.length >= 1 ? true : undefined));
+    expect(koalas[0]).toEqual({ url: 'http://koala.test', resource: expect.any(String) as unknown });
     expect(await until(async () => (await db.machines.getLocalAgentDevices())[0]?.meshIp)).toBe('100.64.0.42');
     const before = koalas.length;
     await accountsOf.tellKoala('bo');

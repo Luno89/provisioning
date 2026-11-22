@@ -17,7 +17,6 @@ import { followInstall } from '../../../../local-agent/src/join/follow-install.j
 import { installFields, stageHeard } from '../../instances/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
@@ -53,7 +52,7 @@ async function root(followBeatMs?: number) {
   });
   const accounts = new MachineAccounts({
     ...quietAccountSides(url),
-    store: db.machines, signing: identityKeysFrom(generateIdentityKey()), clients: atRoot.provider,
+    store: db.machines, clients: atRoot.provider,
     toOwner: { machinesChanged: (ownerId) => { installs.wake(ownerId); } },
     installs,
   });

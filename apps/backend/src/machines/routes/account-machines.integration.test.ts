@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
-import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { machineClientsAt } from '../../instances/testing/registration-code.js';
 import { RootMachines } from '../../instances/services/RootMachines.js';
 import { MachineAccounts, type AccountMachine } from '../services/MachineAccounts.js';
@@ -21,7 +20,6 @@ async function root() {
     router: (db) => {
       accounts = new MachineAccounts({
         store: db.machines,
-        signing: identityKeysFrom(generateIdentityKey()),
         clients: machineClientsAt(db),
         settings: { url: 'https://app.koala.example', meshLoginServer: 'https://mesh.koala.example' },
         mesh: { createPreAuthKey: async () => ({ key: 'preauth-key' }), removeNode: async () => undefined },

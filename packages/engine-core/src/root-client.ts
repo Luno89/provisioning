@@ -206,6 +206,10 @@ export class OidcClient {
     return this.freshToken(resource);
   }
 
+  renewsAt(resource?: string): number | undefined {
+    return this.held.get(resource ?? '')?.until;
+  }
+
   async tokenIfKnown(): Promise<string | undefined> {
     try {
       return await this.token();

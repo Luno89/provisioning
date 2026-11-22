@@ -10,7 +10,6 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem } from '../../instances/lib/identity-token.js';
-import { checkWorkToken } from '../lib/work-tokens.js';
 import type { MachineDevices } from '../services/MachineService.js';
 import { accountMachinesRouter } from '../routes/account-machines.js';
 import { machineSides, type MachineSides } from './sides.js';
@@ -68,7 +67,7 @@ async function listening(app: express.Express): Promise<{ url: string; io: Socke
 
 const mesh = { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined };
 
-type Told = Hearing<{ url: string; resource: string; workToken: string } | null>;
+type Told = Hearing<{ url: string; resource: string } | null>;
 
 async function machineConnected(root: { url: string }, rootDb: Database, deviceId: string): Promise<Told> {
   await rootDb.machines.updateLocalAgentDevice(deviceId, { set: { signIn: machineSignInKey() } });
@@ -245,15 +244,13 @@ describe('a root and an instance wired as they run, against each other', () => {
     expect(await projectsOn()).toEqual([]);
   });
 
-  it('root names the instance to a connected machine with a work token the instance takes, once the instance connects to root', async () => {
+  it('root names the instance to a connected machine, and the resource the machine asks root tokens for there, once the instance connects to root', async () => {
     const world = await rootAndInstance();
-    const { instanceSide, instanceId, watch } = world;
-    const { deviceId, told } = await joinedAndConnected(world);
+    const { instanceId, watch } = world;
+    const { told } = await joinedAndConnected(world);
     watch();
     const [, named] = await told.saidTimes(2);
-    expect(named?.resource).toBe(`urn:koala:instance:${instanceId}`);
-    const trust = instanceSide.workTokens!;
-    expect(checkWorkToken(named!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: deviceId, owner: 'bo', aud: instanceId } });
+    expect(named).toEqual({ url: expect.any(String) as unknown, resource: `urn:koala:instance:${instanceId}` });
   });
 
   it('root tells the owner\'s connected machines again each time the instance reports to root that its status changed', async () => {
@@ -271,7 +268,7 @@ describe('a root and an instance wired as they run, against each other', () => {
     await report('ready');
     const said = await told.saidTimes(4);
     expect(said).toHaveLength(4);
-    expect(said[3]).toMatchObject({ url: expect.any(String) as unknown, workToken: expect.any(String) as unknown });
+    expect(said[3]).toEqual({ url: expect.any(String) as unknown, resource: `urn:koala:instance:${instanceId}` });
   });
 
   it('root tells the owner\'s browsers as a join reports, and ends the join when the machine it made first connects', async () => {

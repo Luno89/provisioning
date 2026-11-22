@@ -21,7 +21,7 @@ describe('the machine agent following its Koala for its device worker', () => {
     const sessions = new ExternalAgentSessions({ rootDir: world.rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
     const handed: DeviceWorkerOptions[] = [];
     const noKoalaK3s: MachineHost = { ...hostCluster(async () => undefined), exists: async () => false };
-    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir: world.rootDir } as never, { url: `http://127.0.0.1:${port}`, token: async () => 'koala-token' }, { value: 'work-token' }, sessions, gate, noKoalaK3s, (options) => { handed.push(options); return startDeviceWorker(options); });
+    const host = followEngineWorker(socket, { deviceId: 'follow-desk', rootDir: world.rootDir } as never, { url: `http://127.0.0.1:${port}`, resource: 'urn:koala:instance:follow', access: { token: async () => 'koala-token', freshToken: async () => 'koala-token', renewsAt: () => Date.now() + 60 * 60 * 1000 } }, sessions, gate, noKoalaK3s, (options) => { handed.push(options); return startDeviceWorker(options); });
     expect(host).toBeDefined();
 
     const pollers = async () => (await world.env.client.workflowService.describeTaskQueue({
@@ -43,6 +43,6 @@ describe('the machine agent following its Koala for its device worker', () => {
     const gate = new IdleGate();
     const socket = connect('http://127.0.0.1:1', { autoConnect: false });
     const sessions = new ExternalAgentSessions({ rootDir: world.rootDir, launches: {}, mcp: new LocalMcpServer({ log: () => undefined }), gate });
-    expect(followEngineWorker(socket, { rootDir: world.rootDir } as never, { url: 'http://127.0.0.1:1', token: async () => '' }, { value: '' }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker)).toBeUndefined();
+    expect(followEngineWorker(socket, { rootDir: world.rootDir } as never, { url: 'http://127.0.0.1:1', resource: 'urn:koala:instance:follow', access: { token: async () => '', freshToken: async () => '', renewsAt: () => undefined } }, sessions, gate, hostCluster(async () => undefined), startDeviceWorker)).toBeUndefined();
   });
 });

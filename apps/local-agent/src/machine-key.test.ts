@@ -67,6 +67,7 @@ describe('a machine replacing its key when root offers', () => {
       return {
         token,
         freshToken: token,
+        renewsAt: (resource) => (key === OLD ? 1_000 : 2_000) + (resource ? 1 : 0),
         tokenIfKnown: async () => (rootHolds.has(key) ? token() : undefined),
         replaceKey: async (_offer, next) => {
           rootHolds.clear();
@@ -77,12 +78,14 @@ describe('a machine replacing its key when root offers', () => {
     };
     const held = await heldMachineKey(file, clientOf);
     expect(await held.token()).toBe('token of the old key');
+    expect(held.renewsAt()).toBe(1_000);
     await expect(held.replaceKey(OFFER)).rejects.toThrow('the connection dropped before root answered');
     const pending = (await read(file)).nextKey as string;
     expect(rootHolds).toEqual(new Set([pending]));
     expect(await held.freshToken('urn:koala:instance:inst-1')).toBe('token of the new key for urn:koala:instance:inst-1');
     expect(await held.token()).toBe('token of the new key');
     expect(await held.token('urn:koala:instance:inst-1')).toBe('token of the new key for urn:koala:instance:inst-1');
+    expect(held.renewsAt('urn:koala:instance:inst-1')).toBe(2_001);
     expect(await read(file)).toEqual({ rootUrl: 'https://root.test', deviceId: 'desk', rootDir: dir, key: pending });
   });
 
@@ -93,6 +96,7 @@ describe('a machine replacing its key when root offers', () => {
     const clientOf = (key: string): MachineKeyClient => ({
       token: async () => { if (!known) throw refusedKey; return key === OLD ? 'old' : 'next'; },
       freshToken: async () => { if (!known) throw refusedKey; return key === OLD ? 'old' : 'next'; },
+      renewsAt: () => undefined,
       tokenIfKnown: async () => (known && key === OLD ? 'old' : undefined),
       replaceKey: async () => ({ clientId: 'metrics.desk', clientSecret: 'unused' }),
     });

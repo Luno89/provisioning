@@ -12,8 +12,26 @@ const bytes = (encoded: { finish(): Uint8Array }): Buffer => Buffer.from(encoded
 
 type Headers = http2.IncomingHttpHeaders;
 
+class FakeMachineSession extends EventEmitter {
+  closed = false;
+  destroyed = false;
+
+  close(): void {
+    this.closed = true;
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.emit('close');
+  }
+}
+
 class FakeStream extends EventEmitter {
   closed = false;
+  constructor(readonly session: FakeMachineSession = new FakeMachineSession()) {
+    super();
+  }
+
   headersSent = false;
   readonly responded: Array<{ headers: http2.OutgoingHttpHeaders; options: http2.ServerStreamResponseOptions | undefined }> = [];
   readonly trailers: http2.OutgoingHttpHeaders[] = [];
@@ -31,6 +49,11 @@ class FakeStream extends EventEmitter {
   end(body?: Buffer): void {
     this.ended = body;
     this.emit('wantTrailers');
+  }
+
+  refusal(): string | undefined {
+    const headers = this.responded[0]?.headers;
+    return headers?.['grpc-status'] === undefined ? undefined : `${String(headers['grpc-status'])}: ${String(headers['grpc-message'])}`;
   }
 
   sent(message: Buffer, ended = true): void {
@@ -102,7 +125,13 @@ let session: FakeSession;
 let connected: Array<{ authority: string; options: http2.SecureClientSessionOptions | undefined }>;
 let log: string[];
 let handed: Array<[string, string]>;
-let deviceLookups: string[];
+let admissions: string[];
+let clock: number;
+const MACHINE_TOKENS: Record<string, { id: string; until: number }> = {
+  'token-d1': { id: 'd1', until: 60_000 },
+  'token-d1-fresh': { id: 'd1', until: 600_000 },
+  'token-d2': { id: 'd2', until: 600_000 },
+};
 
 const gateway = (over: Partial<MachineTemporalGatewayDeps> = {}) => new MachineTemporalGateway({
   upstream: 'temporal:7233',
@@ -110,10 +139,12 @@ const gateway = (over: Partial<MachineTemporalGatewayDeps> = {}) => new MachineT
   tls: { cert: 'the-gateway-certificate', key: 'the-gateway-key' },
   namespace: 'default',
   keys: () => ['the-key'],
-  deviceOf: async (token) => {
-    deviceLookups.push(token);
-    return ({ 'token-d1': { id: 'd1' } } as Record<string, { id: string }>)[token];
+  admit: async (token) => {
+    admissions.push(token);
+    const known = MACHINE_TOKENS[token];
+    return known ? { device: { id: known.id }, until: known.until } : 'Unauthorized: the machine\'s token could not be checked: not root\'s';
   },
+  now: () => clock,
   handed: async (workflowId, deviceId) => { handed.push([workflowId, deviceId]); },
   log: (line) => log.push(line),
   connect: (authority, options) => {
@@ -123,8 +154,8 @@ const gateway = (over: Partial<MachineTemporalGatewayDeps> = {}) => new MachineT
   ...over,
 });
 
-async function call(machine: MachineTemporalGateway, headers: Headers, message?: Buffer) {
-  const stream = new FakeStream();
+async function call(machine: MachineTemporalGateway, headers: Headers, message?: Buffer, on?: FakeMachineSession) {
+  const stream = new FakeStream(on);
   const handling = machine.handle(asStream(stream), headers);
   if (message) stream.sent(message);
   await handling;
@@ -138,7 +169,8 @@ beforeEach(() => {
   connected = [];
   log = [];
   handed = [];
-  deviceLookups = [];
+  admissions = [];
+  clock = 0;
 });
 
 describe('a machine reaching Temporal through the gateway', () => {
@@ -161,42 +193,73 @@ describe('a machine reaching Temporal through the gateway', () => {
       options: { endStream: true },
     }]);
     expect(session.requests).toEqual([]);
-    expect(deviceLookups).toEqual([]);
+    expect(admissions).toEqual([]);
   });
 
-  it('refuses a machine that sends no token, or one that is not a machine\'s, as unauthenticated', async () => {
+  it('refuses a machine that sends no token, or one root did not give it for this Koala, as unauthenticated, saying why', async () => {
     const none = await call(gateway(), asMachine(SYSTEM_INFO, { authorization: undefined }), Buffer.alloc(0));
-    expect(none.responded[0]!.headers).toMatchObject({ 'grpc-status': '16' });
-    expect(String(none.responded[0]!.headers['grpc-message'])).toBe('this machine is not known here; add it again from My Machines');
+    expect(none.refusal()).toBe('16: Unauthorized: send a token root gave this machine for this Koala');
     const stranger = await call(gateway(), asMachine(SYSTEM_INFO, { authorization: 'Bearer who-is-this' }), Buffer.alloc(0));
-    expect(stranger.responded[0]!.headers).toMatchObject({ 'grpc-status': '16' });
+    expect(stranger.refusal()).toBe('16: Unauthorized: the machine\'s token could not be checked: not root\'s');
+    expect(stranger.session.closed).toBe(false);
     expect(session.requests).toEqual([]);
   });
 
-  it('asks who a token belongs to once, for a minute, until the gateway is told the machine is gone', async () => {
+  it('checks a token once on a connection, again on another connection, and again when the machine sends a fresh one', async () => {
     const machine = gateway();
+    const desk = new FakeMachineSession();
+    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk);
+    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk);
+    expect(admissions).toEqual(['token-d1']);
     await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
-    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
-    expect(deviceLookups).toEqual(['token-d1']);
-    machine.forget('other-machine');
-    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
-    expect(deviceLookups).toEqual(['token-d1']);
-    machine.forget('d1');
-    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
-    expect(deviceLookups).toEqual(['token-d1', 'token-d1']);
+    expect(admissions).toEqual(['token-d1', 'token-d1']);
+    await call(machine, asMachine(SYSTEM_INFO, { authorization: 'Bearer token-d1-fresh' }), Buffer.alloc(0), desk);
+    expect(admissions).toEqual(['token-d1', 'token-d1', 'token-d1-fresh']);
+    expect(session.requests).toHaveLength(4);
   });
 
-  it('lets a cached token go stale after a minute', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    try {
+  it('refuses the first call on a connection once its token ended and cuts that connection', async () => {
+    const machine = gateway();
+    const desk = new FakeMachineSession();
+    expect((await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk)).refusal()).toBeUndefined();
+    clock = 60_000;
+    const late = await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk);
+    expect(late.refusal()).toBe('16: Unauthorized: this machine\'s token from root ended; it takes a fresh one and connects again');
+    expect(desk.closed).toBe(true);
+    expect(session.requests).toHaveLength(1);
+  });
+
+  it('keeps a connection past its first token once the machine sends a fresh one, until that one ends too', async () => {
+    const machine = gateway();
+    const desk = new FakeMachineSession();
+    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk);
+    clock = 60_000;
+    expect((await call(machine, asMachine(SYSTEM_INFO, { authorization: 'Bearer token-d1-fresh' }), Buffer.alloc(0), desk)).refusal()).toBeUndefined();
+    expect(desk.closed).toBe(false);
+    clock = 600_000;
+    expect((await call(machine, asMachine(SYSTEM_INFO, { authorization: 'Bearer token-d1-fresh' }), Buffer.alloc(0), desk)).refusal()).toMatch(/^16: /);
+    expect(desk.closed).toBe(true);
+  });
+
+  it('cuts a connection whose next token is another machine\'s or not root\'s', async () => {
+    for (const next of ['token-d2', 'who-is-this']) {
       const machine = gateway();
-      await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
-      vi.setSystemTime(Date.now() + 61_000);
-      await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
-      expect(deviceLookups).toHaveLength(2);
-    } finally {
-      vi.useRealTimers();
+      const desk = new FakeMachineSession();
+      await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk);
+      expect((await call(machine, asMachine(SYSTEM_INFO, { authorization: `Bearer ${next}` }), Buffer.alloc(0), desk)).refusal()).toMatch(/^16: /);
+      expect(desk.closed).toBe(true);
     }
+  });
+
+  it('cuts every connection of a machine it is told is gone, and no other machine\'s', async () => {
+    const machine = gateway();
+    const desk = new FakeMachineSession();
+    const other = new FakeMachineSession();
+    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0), desk);
+    await call(machine, asMachine(SYSTEM_INFO, { authorization: 'Bearer token-d2' }), Buffer.alloc(0), other);
+    machine.forget('d1');
+    expect(desk.destroyed).toBe(true);
+    expect(other.destroyed).toBe(false);
   });
 
   it('refuses, saying why and logging it, a poll of another machine\'s queue or in another namespace', async () => {

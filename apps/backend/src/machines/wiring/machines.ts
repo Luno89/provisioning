@@ -3,10 +3,9 @@ import fsSync from 'fs';
 import path from 'path';
 import type express from 'express';
 import { installView } from '../../instances/index.js';
-import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
-import { checkWorkToken, type WorkTokenTrust } from '../lib/work-tokens.js';
+import { type Database, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
 import { gatewayServerName } from '../lib/gateway-name.js';
-import { deviceByMachineToken, metricsAdmission, type MachineTokens } from './machine-admission.js';
+import { deviceByMachineToken, machineAdmission, metricsAdmission, type MachineTokens } from './machine-admission.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import type { KoalaInstalls } from '../services/KoalaInstalls.js';
 import { accountMachinesRouter, type MachineCaller } from '../routes/account-machines.js';
@@ -29,7 +28,6 @@ export interface MachinesWiringDeps {
   accounts?: MachineAccounts | undefined;
   installs?: KoalaInstalls | undefined;
   instanceCaller?: ((instanceId: string, credential: string) => Promise<MachineCaller | undefined>) | undefined;
-  workTokens?: WorkTokenTrust | undefined;
   machineTokens?: MachineTokens | undefined;
   ownerId?: string | undefined;
   db: Database;
@@ -65,14 +63,6 @@ export function machineGatewayTls(place: { certPath: string; keyPath: string }, 
 
 export const machineBundle = (repoRoot: string, dataDir: string): MachineBundle => new MachineBundle(repoRoot, path.join(dataDir, 'machine-agent'));
 
-export const deviceByWorkToken = (db: Pick<Database, 'machines'>, trust: WorkTokenTrust | undefined, now: () => Date = () => new Date()) =>
-  async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => {
-    if (!trust) return undefined;
-    const check = checkWorkToken(token, trust.keys, trust.audience, Math.floor(now().getTime() / 1000));
-    if (!check.ok) return undefined;
-    return (await db.machines.getLocalAgentDevices()).find((device) => device.id === check.claims.sub && device.ownerId === check.claims.owner);
-  };
-
 export function koalaOfOwner(db: Pick<Database, 'instances'>): (ownerId: string) => Promise<KoalaWhere | undefined> {
   return async (ownerId) => {
     const instance = (await db.instances.getInstances(ownerId))[0];
@@ -90,6 +80,8 @@ export function wireMachines(deps: MachinesWiringDeps): void {
   });
   if (deps.gateway) {
     const { port, host, upstream, namespace, temporalKey, temporalCa, tls, payloadBlobs } = deps.gateway;
+    const { machineTokens } = deps;
+    if (!machineTokens) throw new Error('the machine gateway admits a machine only on a token root gave it for this Koala, and this Koala checks no tokens from root');
     const ring = ringOf(deps.dataKey);
     const gateway = new MachineTemporalGateway({
       upstream,
@@ -98,7 +90,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       namespace,
       tls: { cert: tls.cert, key: tls.key },
       keys: () => [ring.current, ...(ring.previous ?? [])],
-      deviceOf: deviceByWorkToken(db, deps.workTokens),
+      admit: machineAdmission(db, machineTokens, deps.ownerId),
       handed: (workflowId, deviceId) => payloadBlobs.handTo(workflowId, deviceId),
       log: (line) => console.log(line),
     });

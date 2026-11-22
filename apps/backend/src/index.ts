@@ -211,7 +211,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (!late.removal) throw new Error('this server keeps no accounts, so it removes none');
     return late.removal;
   };
-  const { accounts: machineAccounts, installs: koalaInstalls, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
+  const { accounts: machineAccounts, installs: koalaInstalls, machines: machineService, clusters: machineClusters, instanceArrived, instanceCaller } = machineSides({
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService, bundle: machineBundle, rootToken, clients: rootProvider,
@@ -382,7 +382,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { odooReleases, releaseSettings, customizations } = releases;
   wireMachines({
-    app, tenant, servesTenants: tenants, accounts: machineAccounts, installs: koalaInstalls, workTokens,
+    app, tenant, servesTenants: tenants, accounts: machineAccounts, installs: koalaInstalls,
     machineTokens: signsInThroughRoot(role.role) ? rootSignIn : undefined, ownerId: role.instance?.ownerId,
     instanceCaller,
     db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, projectRepos: projectRepoService,

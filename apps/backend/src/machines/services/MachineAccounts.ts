@@ -3,12 +3,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { JOIN_PROGRESS, type MachineJoinView } from '@koala/engine-core/machine-join';
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { allowed, asPerson, type LocalAgentDeviceMetadata } from '../../platform/index.js';
-import { runResourceOf, type IdentityKeyPair, type MachineCaller } from '../../instances/index.js';
+import { runResourceOf, type MachineCaller } from '../../instances/index.js';
 import { machineKeyEnds, type KeyReplacement } from '@koala/engine-core/root-client';
 import type { KeyReplaced } from '../lib/machines.js';
 import type { KoalaInstalls } from './KoalaInstalls.js';
 import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, joinCodeLapsed, joinDismissable, joinEndsOnConnecting, joinShown, machineCommand, machineJoinView, meshAddress, newMachineCode } from '../lib/machines.js';
-import { issueWorkToken } from '../lib/work-tokens.js';
 import type { MachinesStore } from '../store.js';
 
 type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveLocalAgentDevice' | 'updateLocalAgentDevice' | 'deleteLocalAgentDevice'
@@ -39,7 +38,6 @@ export interface KoalaPlace {
 export interface MachineKoala {
   url: string;
   resource: string;
-  workToken: string;
 }
 
 export interface MachineMessages {
@@ -71,7 +69,6 @@ export interface OwnerBrowsers {
 
 export interface MachineAccountsDeps {
   store: Store;
-  signing: IdentityKeyPair;
   settings: { url: string; meshLoginServer?: string | undefined; registry?: string | undefined };
   koala: { of(ownerId: string): Promise<KoalaPlace | undefined> };
   followers: MachineFollowers;
@@ -289,8 +286,7 @@ export class MachineAccounts {
     if (!device) return undefined;
     const place = await this.deps.koala.of(device.ownerId);
     if (!place) return undefined;
-    const workToken = issueWorkToken(this.deps.signing, { machineId: device.id, ownerId: device.ownerId, audience: place.audience }, Math.floor(this.now().getTime() / 1000));
-    return { url: place.url, resource: runResourceOf(place.audience), workToken };
+    return { url: place.url, resource: runResourceOf(place.audience) };
   }
 
   async putKoalaOn(ownerId: string, deviceId: string, name?: string): Promise<Outcome<{ placing: boolean }>> {

@@ -11,7 +11,7 @@ import { installAgent } from './agent-install.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { DeviceWorkerHost } from './device-worker-host.js';
-import { followEngineWorker, type WorkToken } from './device-worker-follow.js';
+import { followEngineWorker } from './device-worker-follow.js';
 import { clusterOnConnect, type MachineHost } from './machine-cluster.js';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding } from './idle-gate.js';
@@ -72,10 +72,9 @@ export function startWork(
   koala: Koala,
   access: KoalaAccess,
   sessionsMade: (sessions: ExternalAgentSessions) => void,
-): { url: string; setToken(token: string): Promise<void> } {
+): { url: string } {
   const { rootDir } = config;
   const koalaUrl = koala.url;
-  const work: WorkToken = { value: koala.workToken };
   const gate = new IdleGate();
   const socket = koalaSocket({ url: koalaUrl, resource: koala.resource, access, auth: { bundle: place.ownBundle ?? '' }, say });
   const bundlePlace = placeOf(place.agentDir);
@@ -115,7 +114,7 @@ export function startWork(
   });
   place.onStop(() => { void sessions.closeAll().finally(() => place.exit(0)); });
   watchAgents(place, socket, config, sessions, gate);
-  worker = followEngineWorker(socket, config, { url: koalaUrl, token: () => access.token(koala.resource) }, work, sessions, gate, place.cluster, place.startDeviceWorker);
+  worker = followEngineWorker(socket, config, { url: koalaUrl, resource: koala.resource, access }, sessions, gate, place.cluster, place.startDeviceWorker);
 
   socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}`));
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));
@@ -166,14 +165,6 @@ export function startWork(
     void deleteLocalFile(rootDir, relativePath).then(ack);
   });
 
-  return {
-    url: koalaUrl,
-    async setToken(token: string) {
-      work.value = token;
-      if (!socket.connected) socket.connect();
-      await worker?.setToken(token);
-      say('this machine took a new work token from root');
-    },
-  };
+  return { url: koalaUrl };
 }
 

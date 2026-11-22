@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import http2 from 'node:http2';
 import { ignore } from '@koala/engine-core/failures';
 import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe } from '../lib/temporal-gateway.js';
@@ -10,7 +9,8 @@ export interface MachineTemporalGatewayDeps {
   namespace: string;
   tls: { cert: Buffer | string; key: Buffer | string };
   keys: () => readonly string[];
-  deviceOf: (token: string) => Promise<{ id: string } | undefined>;
+  admit: (token: string) => Promise<{ device: { id: string }; until: number } | string>;
+  now?: (() => number) | undefined;
   handed: (workflowId: string, deviceId: string) => Promise<void>;
   log?: ((line: string) => void) | undefined;
   createServer?: (() => http2.Http2SecureServer) | undefined;
@@ -20,7 +20,14 @@ export interface MachineTemporalGatewayDeps {
 const GRPC = { ok: 0, permissionDenied: 7, unimplemented: 12, unavailable: 14, unauthenticated: 16 } as const;
 const STATUS_FIELDS = new Set(['grpc-status', 'grpc-message', 'grpc-status-details-bin']);
 const FORWARDED = ['content-type', 'te', 'grpc-timeout', 'grpc-accept-encoding', 'user-agent', 'client-name', 'client-version', 'supported-server-versions'];
-const DEVICE_SEEN_MS = 60_000;
+const NO_TOKEN = 'Unauthorized: send a token root gave this machine for this Koala';
+const TOKEN_ENDED = 'Unauthorized: this machine\'s token from root ended; it takes a fresh one and connects again';
+
+interface Admitted {
+  deviceId: string;
+  token: string;
+  until: number;
+}
 
 const collect = (readable: NodeJS.ReadableStream): Promise<Buffer> => new Promise((resolve, reject) => {
   const chunks: Buffer[] = [];
@@ -42,7 +49,7 @@ function refuse(stream: http2.ServerHttp2Stream, status: number, message: string
 export class MachineTemporalGateway {
   private server: http2.Http2SecureServer | undefined;
   private session: http2.ClientHttp2Session | undefined;
-  private readonly seen = new Map<string, { deviceId: string; until: number }>();
+  private readonly admitted = new Map<http2.Http2Session, Admitted>();
   private readonly sessions = new Set<http2.ServerHttp2Session>();
 
   constructor(private readonly deps: MachineTemporalGatewayDeps) {}
@@ -80,17 +87,26 @@ export class MachineTemporalGateway {
   }
 
   forget(deviceId: string): void {
-    for (const [key, entry] of this.seen) if (entry.deviceId === deviceId) this.seen.delete(key);
+    for (const [session, entry] of this.admitted) {
+      if (entry.deviceId !== deviceId) continue;
+      this.admitted.delete(session);
+      session.destroy();
+    }
   }
 
-  private async deviceFor(token: string): Promise<string | undefined> {
-    const key = crypto.createHash('sha256').update(token).digest('hex');
-    const known = this.seen.get(key);
-    if (known && known.until > Date.now()) return known.deviceId;
-    const device = await this.deps.deviceOf(token);
-    if (!device) return undefined;
-    this.seen.set(key, { deviceId: device.id, until: Date.now() + DEVICE_SEEN_MS });
-    return device.id;
+  private async deviceFor(session: http2.Http2Session, token: string): Promise<{ deviceId: string } | { refused: string }> {
+    const known = this.admitted.get(session);
+    const now = (this.deps.now ?? Date.now)();
+    if (known && known.token === token) return now < known.until ? { deviceId: known.deviceId } : { refused: TOKEN_ENDED };
+    if (!token) return { refused: NO_TOKEN };
+    const admission = await this.deps.admit(token);
+    if (typeof admission === 'string') return { refused: admission };
+    if (known && known.deviceId !== admission.device.id) return { refused: 'Unauthorized: this connection is another machine\'s' };
+    if (now >= admission.until) return { refused: TOKEN_ENDED };
+    if (session.destroyed) return { refused: 'this machine was cut off here' };
+    if (!known) session.once('close', () => this.admitted.delete(session));
+    this.admitted.set(session, { deviceId: admission.device.id, token, until: admission.until });
+    return { deviceId: admission.device.id };
   }
 
   async handle(stream: http2.ServerHttp2Stream, headers: http2.IncomingHttpHeaders): Promise<void> {
@@ -101,8 +117,14 @@ export class MachineTemporalGateway {
       const received = collect(stream);
       received.catch(ignore('what the machine sent is awaited below when its call goes on; a call refused before that has no use for it'));
       const token = (header(headers.authorization) ?? '').replace(/^Bearer\s+/i, '');
-      const deviceId = token ? await this.deviceFor(token) : undefined;
-      if (!deviceId) return refuse(stream, GRPC.unauthenticated, 'this machine is not known here; add it again from My Machines');
+      const { session } = stream;
+      const admitted = session ? await this.deviceFor(session, token) : { refused: 'this machine\'s connection had already closed' };
+      if ('refused' in admitted) {
+        refuse(stream, GRPC.unauthenticated, admitted.refused);
+        if (session && this.admitted.delete(session)) session.close();
+        return undefined;
+      }
+      const { deviceId } = admitted;
       const keys = this.deps.keys();
       const decision = gatewayDecision(call, unframe(await received, header(headers['grpc-encoding'])), { deviceId, namespace: this.deps.namespace, keys });
       if ('refused' in decision) {
