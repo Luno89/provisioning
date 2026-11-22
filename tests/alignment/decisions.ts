@@ -415,6 +415,17 @@ export const DECISIONS: Decision[] = [
     reading: 'Koala develops itself: this repo is a project on the dev Koala, worked through Grove with a red-green-refactor task (a strong model plans a concept into leaves and small tasks; each task runs red, a cheaper model writing a test that must fail, then green, minimal code that must pass, then refactor that stays green; then the strong model reviews and plans the next), each step given only its leaf\'s context. A `koala` command for the person lives in the machine agent\'s program: it signs in as them through root, starts a run on a project and follows it in the terminal. Built after ship, once the live stack is proven; until then the coordinator runs its own agents the same way: one small task each, only the files it needs, a cheaper model for mechanical steps, one at a time. The small-task model can be Antigravity on the person\'s machine through Koala\'s external-agent step, its sub-model picked as any other. The `koala` command signs in as the person through root with the device flow and gets a token for their Koala; every call after that goes straight to their Koala, which checks the token itself, and root is never in the path of the work. It renews through root, waits and says so while root is down, and ends with sign-out or sign-out-everywhere. It never holds the machine\'s key and never reaches Temporal.',
   },
   {
+    id: 'root-exposure',
+    subject: 'How root is hosted and how little of it faces the internet',
+    terms: ['vps', 'hosting', 'zero day', 'exposure', 'cloudflare', 'kubernetes on root'],
+    words: [
+      { at: '2026-11-22T10:06', text: 'how do people normally run vps hosted stuff? just this month there have been tons of zero day exploits with the rapid advancment of AI security tools. How to we reduce our exposure' },
+      { at: '2026-11-22T10:09', text: 'I think I like most of that but I\'m not sure I understand the tradeoffs of 2' },
+      { at: '2026-11-22T10:14', text: 'sounds ok' },
+    ],
+    reading: 'Root stays one hardened VPS run as systemd services from signed releases, with no Kubernetes cluster or load balancer in front of it (one server has nothing to balance). Exposure is cut by making less reachable: only Caddy on 443, and mail on 25, answer from the internet, and the smoke test fails on anything else; anything root runs with a known exploited vulnerability is told to the operator daily and released the same day; an outside check watches root\'s uptime and integrity; snapshots and the restore drill let a compromised root be rebuilt rather than cleaned. Putting root behind Cloudflare\'s proxy is declined for now: Cloudflare would read all traffic in plain text, uploads over 100 MB would be refused, mail and the mesh publish the server\'s address anyway, and OVHcloud\'s own anti-DDoS covers floods; it is reconsidered if root is targeted, with the web front split from mail and the mesh.',
+  },
+  {
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
