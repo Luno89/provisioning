@@ -27,7 +27,7 @@ const PROCESSES: readonly string[] = ['backend', 'worker-host', 'worker-cluster'
 export function dependencyStateFrom(doc: Record<string, unknown>): DependencyStateRow | undefined {
   const { process, dependency, state, since, reason, at } = doc;
   if (typeof process !== 'string' || !PROCESSES.includes(process) || !isDependencyId(dependency)) return undefined;
-  if ((state !== 'answering' && state !== 'down') || typeof at !== 'string') return undefined;
+  if ((state !== 'answering' && state !== 'down' && state !== 'refused') || typeof at !== 'string') return undefined;
   return {
     process: process as DependencyStateRow['process'],
     dependency,

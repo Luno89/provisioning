@@ -145,4 +145,10 @@ describe('downAcross', () => {
       own[0],
     ]);
   });
+
+  it('carries a dependency a worker recorded as refused for good, saying it is refused', () => {
+    expect(downAcross([], [
+      { process: 'worker-engine', dependency: 'gitea', state: 'refused', since: '2026-11-08T10:01:00.000Z', reason: 'it refused the request (401)', at: '2026-11-08T10:01:00.000Z' },
+    ])).toEqual([{ dependency: 'gitea', name: 'Gitea', since: '2026-11-08T10:01:00.000Z', reason: 'it refused the request (401)', process: 'worker-engine', refused: true }]);
+  });
 });

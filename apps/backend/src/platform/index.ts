@@ -18,7 +18,7 @@ export { COOLING_OFF_DAYS, compareVersions, devOnly, fixOf, judgeVulnerabilities
 export type { DevMarks, JudgedVulnerability, Vulnerability } from './lib/dependency-rule.js';
 export { podPlaceFrom } from './lib/drain.js';
 export { answerFailure, DEPENDENCIES, DEPENDENCY_IDS, DependencyDownError, downAcross, failureOf, GONE_STATUSES, isDependencyId, NAME_NOT_FOUND, reachingDependency, reachingMemoryIndex, refusedByServer, reportingFetch, reportStatus, statusFailure, stillDown, temporaryStatus, thrownFor } from './lib/dependencies.js';
-export type { DependencyDown, DependencyId, DependencyReporter, DependencyState, DependencyStateRow, Failure, MemoryIndexReach, Reaching } from './lib/dependencies.js';
+export type { DependencyDown, DependencyId, DependencyRefusals, DependencyReporter, DependencyState, DependencyStateRow, Failure, MemoryIndexReach, Reaching } from './lib/dependencies.js';
 export { emailWayFrom } from './lib/email-way.js';
 export { firstAdminSetup } from './lib/first-admin.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';

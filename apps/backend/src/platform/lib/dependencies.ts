@@ -61,12 +61,17 @@ export const thrownFor = (reporter: DependencyReporter | undefined, dependency: 
 
 export type DependencyState =
   | { state: 'answering' }
-  | { state: 'down'; since: string; reason: string };
+  | { state: 'down'; since: string; reason: string }
+  | { state: 'refused'; since: string; reason: string };
+
+export interface DependencyRefusals {
+  refused(dependency: DependencyId, reason: string): void;
+}
 
 export interface DependencyStateRow {
   process: KoalaProcess;
   dependency: DependencyId;
-  state: 'answering' | 'down';
+  state: DependencyState['state'];
   since?: string | undefined;
   reason?: string | undefined;
   at: string;
@@ -79,6 +84,7 @@ export interface DependencyDown {
   reason: string;
   process: KoalaProcess;
   where?: string | undefined;
+  refused?: true | undefined;
 }
 
 export const answerFailure = (status: number, retryAfter?: string | null): Error =>
@@ -152,8 +158,8 @@ export function dependenciesOf(settings: AnyProcessSettings): DependencyId[] {
 
 export function downAcross(own: readonly DependencyDown[], rows: readonly DependencyStateRow[]): DependencyDown[] {
   const elsewhere = rows.flatMap((row): DependencyDown[] => {
-    if (row.state !== 'down' || row.process === 'backend') return [];
-    return [{ dependency: row.dependency, name: DEPENDENCIES[row.dependency].name, since: row.since ?? row.at, reason: row.reason ?? 'no reason was recorded', process: row.process }];
+    if (row.state === 'answering' || row.process === 'backend') return [];
+    return [{ dependency: row.dependency, name: DEPENDENCIES[row.dependency].name, since: row.since ?? row.at, reason: row.reason ?? 'no reason was recorded', process: row.process, ...(row.state === 'refused' ? { refused: true as const } : {}) }];
   });
   return [...own, ...elsewhere].sort((a, b) => a.since.localeCompare(b.since) || a.process.localeCompare(b.process));
 }

@@ -180,6 +180,7 @@ export interface DependencyDown {
   reason: string
   process: KoalaProcess
   where?: string
+  refused?: true
 }
 
 export const infrastructureKeys = {

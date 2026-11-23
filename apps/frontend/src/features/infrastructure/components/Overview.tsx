@@ -6,7 +6,7 @@ import { ago } from '../../projects'
 import { EpisodeList, FiringList, RuleList, Section, StateBadge } from '../../monitoring'
 import { useAlerts } from '../../monitoring'
 import { hashFor } from '../lib/opens'
-import { dependencyLines, egressBehindLine, memoryKeepingLine } from '../lib/dependency-lines'
+import { dependencyLines, dependencyTestId, egressBehindLine, memoryKeepingLine } from '../lib/dependency-lines'
 import { AppsSection } from './AppsSection'
 import { ClustersSection } from './ClustersSection'
 import { KoalaSection } from './KoalaSection'
@@ -39,7 +39,7 @@ function NeedsAttention() {
       ) : (
         <ul className="space-y-1.5" aria-label="Needs attention">
           {notAnswering.map((line) => (
-            <li key={line.key} className={row} data-testid={line.root ? 'attention-root' : 'attention-dependency'}>
+            <li key={line.key} className={row} data-testid={dependencyTestId(line)}>
               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-rose-300"><XCircle size={11} /> {line.label}</span>
               <span className="font-semibold text-slate-100">{line.title}</span>
               <span className="text-slate-400">{line.text}</span>

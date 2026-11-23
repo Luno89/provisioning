@@ -202,6 +202,23 @@ describe('the Infrastructure page', () => {
     expect(item).toHaveTextContent('Seen by this Koala\'s backend and the engine worker')
   })
 
+  it('lists a dependency that refused work for good apart from one that is not answering, saying it will not be tried again', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
+      ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], unreadClusters: [], waiting: [], failures: [], signals: [],
+      dependencies: [
+        { dependency: 'gitea', name: 'Gitea', since: '2026-10-29T09:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'worker-engine' },
+        { dependency: 'gitea', name: 'Gitea', since: '2026-10-29T09:05:00.000Z', reason: 'it refused the request (401)', process: 'backend', refused: true },
+      ],
+    })
+    show()
+    const item = await screen.findByTestId('attention-dependency-refused')
+    expect(item).toHaveTextContent('Refused')
+    expect(item).toHaveTextContent('Gitea refused, will not retry: it refused the request (401)')
+    expect(item).toHaveTextContent('Seen by this Koala\'s backend')
+    expect(screen.getByTestId('attention-dependency')).toHaveTextContent('Not answering')
+    expect(screen.queryByText(/Everything is healthy/)).toBeNull()
+  })
+
   it('says when what the workers see of their dependencies could not be read, rather than calling everything healthy', async () => {
     vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
       ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], unreadClusters: [], waiting: [], failures: [], signals: [],

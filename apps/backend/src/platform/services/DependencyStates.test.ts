@@ -213,6 +213,20 @@ describe('DependencyStates', () => {
     made.stop();
   });
 
+  it('holds a dependency that refused work for good as refused, with when and why, through later answers and outages, and records it', async () => {
+    const { made, rows } = states();
+    made.checkWith('gitea', async () => undefined);
+    made.refused('gitea', 'it refused the request (401)');
+    made.answered('gitea');
+    made.failed('gitea', refused());
+    made.refused('gitea', 'a later refusal');
+    expect(made.stateOf('gitea')).toEqual({ state: 'refused', since: NOW.toISOString(), reason: 'it refused the request (401)' });
+    expect(made.down()).toEqual([{ dependency: 'gitea', name: 'Gitea', since: NOW.toISOString(), reason: 'it refused the request (401)', process: 'worker-engine', refused: true }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rows).toEqual([{ process: 'worker-engine', dependency: 'gitea', state: 'refused', since: NOW.toISOString(), reason: 'it refused the request (401)', at: NOW.toISOString() }]);
+    made.stop();
+  });
+
   it('names where a dependency is reached when it was told, as it is for root', () => {
     const made = new DependencyStates({ process: 'backend', described: ['root'], where: { root: 'https://app.koala.dev' }, log: quiet, now: () => NOW });
     made.wentDown('root', 'this instance\'s connection to it is closed', '2026-11-08T09:50:00.000Z');

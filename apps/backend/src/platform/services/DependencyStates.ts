@@ -1,7 +1,7 @@
 import type { ObservableResult } from '@opentelemetry/api';
 import { koalaMetrics } from '@koala/engine-core/telemetry';
 import { reopening, type Reopening } from '@koala/engine-core/reopening';
-import { DEPENDENCIES, DependencyDownError, failureOf, type DependencyDown, type DependencyId, type DependencyReporter, type DependencyState, type DependencyStateRow } from '../lib/dependencies.js';
+import { DEPENDENCIES, DependencyDownError, failureOf, type DependencyDown, type DependencyId, type DependencyRefusals, type DependencyReporter, type DependencyState, type DependencyStateRow } from '../lib/dependencies.js';
 import type { KoalaProcess } from '../lib/settings.js';
 
 export type DependencyCheck = () => Promise<void>;
@@ -18,7 +18,7 @@ export interface DependencyStatesDeps {
 
 const ANSWERING: DependencyState = { state: 'answering' };
 
-export class DependencyStates implements DependencyReporter {
+export class DependencyStates implements DependencyReporter, DependencyRefusals {
   private readonly described: ReadonlySet<DependencyId>;
   private readonly states = new Map<DependencyId, DependencyState>();
   private readonly checks = new Map<DependencyId, DependencyCheck>();
@@ -31,7 +31,7 @@ export class DependencyStates implements DependencyReporter {
   private readonly listeners = new Map<DependencyId, (() => Promise<void> | void)[]>();
   private stopped = false;
   private readonly observe = (observed: ObservableResult): void => {
-    for (const dependency of this.described) observed.observe(this.stateOf(dependency).state === 'down' ? 0 : 1, { dependency });
+    for (const dependency of this.described) observed.observe(this.stateOf(dependency).state === 'answering' ? 1 : 0, { dependency });
   };
 
   constructor(private readonly deps: DependencyStatesDeps) {
@@ -84,11 +84,22 @@ export class DependencyStates implements DependencyReporter {
 
   wentDown(dependency: DependencyId, reason: string, since: string): void {
     if (!this.known(dependency)) return;
-    if (this.stateOf(dependency).state === 'down') return;
+    if (this.stateOf(dependency).state !== 'answering') return;
     this.states.set(dependency, { state: 'down', since, reason });
     this.say(`${DEPENDENCIES[dependency].name} isn't answering: ${reason}`);
     this.write(dependency);
     this.schedule(dependency);
+  }
+
+  refused(dependency: DependencyId, reason: string): void {
+    if (!this.known(dependency)) return;
+    if (this.stateOf(dependency).state === 'refused') return;
+    const timer = this.timers.get(dependency);
+    if (timer) clearTimeout(timer);
+    this.timers.delete(dependency);
+    this.states.set(dependency, { state: 'refused', since: this.now().toISOString(), reason });
+    this.say(`${DEPENDENCIES[dependency].name} refused, will not retry: ${reason}`);
+    this.write(dependency);
   }
 
   answered(dependency: DependencyId): void {
@@ -116,9 +127,9 @@ export class DependencyStates implements DependencyReporter {
   down(): DependencyDown[] {
     return [...this.described].flatMap((dependency) => {
       const state = this.stateOf(dependency);
-      if (state.state !== 'down') return [];
+      if (state.state === 'answering') return [];
       const where = this.deps.where?.[dependency];
-      return [{ dependency, name: DEPENDENCIES[dependency].name, since: state.since, reason: state.reason, process: this.deps.process, ...(where ? { where } : {}) }];
+      return [{ dependency, name: DEPENDENCIES[dependency].name, since: state.since, reason: state.reason, process: this.deps.process, ...(where ? { where } : {}), ...(state.state === 'refused' ? { refused: true as const } : {}) }];
     });
   }
 
@@ -178,7 +189,7 @@ export class DependencyStates implements DependencyReporter {
       process: this.deps.process,
       dependency,
       state: state.state,
-      ...(state.state === 'down' ? { since: state.since, reason: state.reason } : {}),
+      ...(state.state === 'answering' ? {} : { since: state.since, reason: state.reason }),
       at: this.now().toISOString(),
     };
     this.written.add(dependency);

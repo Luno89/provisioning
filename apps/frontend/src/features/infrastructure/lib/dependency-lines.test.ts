@@ -11,6 +11,7 @@ describe('the item Needs attention shows for a dependency that is down', () => {
     expect(dependencyLines([gitea], at)).toEqual([{
       key: 'gitea',
       root: false,
+      refused: false,
       label: 'Not answering',
       title: 'Gitea',
       text: 'Gitea isn\'t answering since at 2026-11-08T10:05:00.000Z: it refused the connection (ECONNREFUSED)',
@@ -24,6 +25,7 @@ describe('the item Needs attention shows for a dependency that is down', () => {
     expect(dependencyLines([gitea, fromCluster, fromBackend], at)).toEqual([{
       key: 'gitea',
       root: false,
+      refused: false,
       label: 'Not answering',
       title: 'Gitea',
       text: 'Gitea isn\'t answering since at 2026-11-08T10:01:00.000Z: it did not answer in time (UND_ERR_CONNECT_TIMEOUT)',
@@ -49,6 +51,16 @@ describe('the item Needs attention shows for a dependency that is down', () => {
   it('puts root first, then the rest by how long they have been down', () => {
     const temporal: DependencyDown = { ...gitea, dependency: 'temporal', name: 'Temporal', since: '2026-11-08T09:00:00.000Z', process: 'backend' }
     expect(dependencyLines([gitea, root, temporal], at).map((line) => line.key)).toEqual(['root', 'temporal', 'gitea'])
+  })
+
+  it('says a dependency that refused work for good will not be tried again, apart from it not answering, root included', () => {
+    const giteaRefused: DependencyDown = { ...gitea, since: '2026-11-08T10:20:00.000Z', reason: 'it refused the request (401)', process: 'backend', refused: true }
+    const rootRefused: DependencyDown = { ...root, reason: 'it refused the request (400)', refused: true }
+    expect(dependencyLines([gitea, giteaRefused, rootRefused], at)).toEqual([
+      { key: 'gitea', root: false, refused: false, label: 'Not answering', title: 'Gitea', text: 'Gitea isn\'t answering since at 2026-11-08T10:05:00.000Z: it refused the connection (ECONNREFUSED)', seenBy: 'Seen by the engine worker' },
+      { key: 'root:refused', root: false, refused: true, label: 'Refused', title: 'https://app.koala.dev', text: 'Koala\'s root refused, will not retry: it refused the request (400)', seenBy: 'Seen by this Koala\'s backend' },
+      { key: 'gitea:refused', root: false, refused: true, label: 'Refused', title: 'Gitea', text: 'Gitea refused, will not retry: it refused the request (401)', seenBy: 'Seen by this Koala\'s backend' },
+    ])
   })
 })
 
