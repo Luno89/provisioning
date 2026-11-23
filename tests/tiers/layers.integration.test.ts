@@ -28,10 +28,11 @@ describe('a test over its budget', () => {
     expect(ran.stdout + ran.stderr).toContain('known slow, on the list to be fixed');
   });
 
-  it('fails a unit test that takes more than a second', async () => {
+  it('prints a unit test that takes more than a second and passes the run, until the unit layer has a baseline', async () => {
     const ran = await run('unit', {});
-    expect(ran.code).toBe(1);
-    expect(ran.stdout + ran.stderr).toContain('over the 1 s a unit test may take');
+    expect(ran.code).toBe(0);
+    expect(ran.stdout + ran.stderr).toMatch(/tests that took longer than they may:\n {2}tests\/tiers\/fixture-layers\/slow\.unit\.fixture\.ts > a unit workload > takes a second and a half: 1\.\d s, over the 1 s a unit test may take/);
+    expect(ran.stdout + ran.stderr).not.toContain('tests over budget:');
   });
 
   it('names a listed test that ran within its budget, so the list can be pruned', async () => {
