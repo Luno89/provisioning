@@ -604,8 +604,9 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-09T01:39', text: 'seems like 1 is fine but you should probably research and think about 2' },
       { at: '2026-11-09T04:54', text: 'yep go for it' },
       { at: '2026-11-09T15:41', text: '1 for helm, fix the rest and keep auditing' },
+      { at: '2026-11-23T16:19', text: 'yep both of those sound good' },
     ],
-    reading: 'Each dependency Koala calls is described once, with one rule for whether a failure is temporary or final; a temporary one marks it down with when and why, it is checked again with no deadline, and the person sees it (Needs attention, one line per dependency naming the processes that saw it; a page or action that needs it answers with its state) instead of a fallback. Q1 (a): work started while Temporal is down is refused at once, nothing recorded. Q2 (b): the run-once engine steps fail their run after a Temporal outage, saying why, until trees are unfrozen and they are made safe to rerun. HTTP has one client per process with no limit on the answer and one 10 s connect limit, owned by the layer: opening a connection does no work, so cutting it short loses nothing, and it is how a host that does not answer at all is noticed; hitting it is a temporary failure. The outside-dependencies layer is a concept of its own in the concept index. Helm (1): Terraform installs a chart without waiting and Koala watches the rollout itself with assessWorkload, so a deploy ends when it is ready, when something can never recover (with the reason), or when the person stops it; no Helm time limit. Alerts per dependency and the admins\' view of waiting work come later.',
+    reading: 'Each dependency Koala calls is described once, with one rule for whether a failure is temporary or final; a temporary one marks it down with when and why, it is checked again with no deadline, and the person sees it (Needs attention, one line per dependency naming the processes that saw it; a page or action that needs it answers with its state) instead of a fallback. Q1 (a): work started while Temporal is down is refused at once, nothing recorded. Q2 (b): the run-once engine steps fail their run after a Temporal outage, saying why, until trees are unfrozen and they are made safe to rerun. HTTP has one client per process with no limit on the answer and one 10 s connect limit, owned by the layer: opening a connection does no work, so cutting it short loses nothing, and it is how a host that does not answer at all is noticed; hitting it is a temporary failure. The outside-dependencies layer is a concept of its own in the concept index. Helm (1): Terraform installs a chart without waiting and Koala watches the rollout itself with assessWorkload, so a deploy ends when it is ready, when something can never recover (with the reason), or when the person stops it; no Helm time limit. Alerts per dependency and the admins\' view of waiting work come later. A failure the one rule calls final is never retried (2026-11-23): in startup work (the Temporal connection, the stream worker, the stored-files sweep, the dependency watch) the process stops naming it, as for a missing required setting, while a temporary one still starts and says so; one with no person to tell is a final state of its dependency, "refused, will not retry" with its reason, under the operator\'s Needs attention; one that is a single person\'s becomes a notice to them, the work held as not done. A token already gone counts as revoked.',
   },
   {
     id: 'provisioning',
@@ -685,5 +686,17 @@ export const DECISIONS: Decision[] = [
       { path: 'packages/context-engine/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 2 },
       { path: 'packages/engine-core/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 4 },
     ],
+  },
+  {
+    id: 'cluster-rights',
+    subject: 'What Koala may do to a machine\'s cluster, and what the coding agents on the machine may reach',
+    terms: ['cluster-admin', 'rbac', 'service account', 'kubeconfig', 'bubblewrap', 'sandbox', 'coding agent'],
+    words: [
+      { at: '2026-11-23T16:49', text: 'Yep that sounds like the right direction and the risk you flagged in the workspace pods should be traced to make sure it isn\'t run as koala' },
+      { at: '2026-11-23T16:53', text: 'yep go ahead with both' },
+      { at: '2026-11-23T16:58', text: 'yep go with bubblewrap' },
+      { at: '2026-11-23T17:01', text: 'Yeah that sounds good then go with that' },
+    ],
+    reading: 'Koala\'s own account keeps cluster-admin on its machine\'s cluster, which exists only for Koala; no pod Koala makes for an app or a sandbox runs as Koala\'s account or mounts a token, and a test holds every one to it. Moving the admin rights into the setup Jobs and giving the backend a namespace-scoped role is a later step. Coding agents on a person\'s machine run inside bubblewrap, installed from the distribution\'s package by the join at the pinned version: each sees its workspace and its own sign-in folder, cannot gain privileges, and cannot reach the k3s kubeconfig, so an approved command cannot become root through the cluster.',
   },
 ];
