@@ -16,8 +16,8 @@ import { provisioningRouter } from '../../../../../backend/src/infrastructure/ro
 import { engineProvisionRuns } from '../../../../../backend/src/engine-host/provision-runs'
 import { userRoom } from '../../../../../backend/src/engine-host/temporal/stream-worker'
 import { PROVISION_AGENT } from '../../../../../backend/src/extensions/provision/names'
-import { pieceHeard, pieceProgress, recordedOn, setUpProgress, type PieceChange, type ProvisioningRecord } from '../../../../../backend/src/infrastructure/lib/provisioning'
-import { PROVISION_PIECES, PROVISIONING_CHANGED, type ProvisionPieceKey } from '@koala/engine-core/koala-install'
+import { pieceHeard, pieceProgress, recordedOn, runEnded, setUpProgress, type PieceChange, type ProvisioningRecord } from '../../../../../backend/src/infrastructure/lib/provisioning'
+import { PROVISIONING_CHANGED, type ProvisionPieceKey } from '@koala/engine-core/koala-install'
 import { runsActingAsTheirOwner } from '../../../../../backend/src/engine/testing/run-grants'
 
 let site: Site | undefined
@@ -59,39 +59,44 @@ const say = async (recordId: string, key: ProvisionPieceKey | 'set-up', change?:
 
 const setups = async () => db.infrastructure.getProvisioning('desk')
 
+const pieceRow = (key: ProvisionPieceKey) => screen.queryByTestId(`provisioning-piece-${key}`)
+
+const NOT_UP = 'Gitea, your repositories and images: pod gitea-0 is Init:Error; Infisical, your secrets: the chart could not be read'
+
 describe('the "Setting Koala up" card follows Koala setting itself up while it is open', () => {
-  it('shows each piece as Koala reaches it, says where it stopped and why, sets up again, and collapses to one line once everything is up', async () => {
+  it('shows each piece as Koala reaches it, names every piece that did not come up and why once all have ended, sets up again only those, and collapses to one line once everything is up', async () => {
     const { card, on } = openCard()
     await on(() => screen.queryByText('Koala has not started setting itself up yet.'))
 
-    const opened = on(() => screen.queryByText('Koala\'s own services and monitoring, revision 3'))
-    await provisioning.start()
-    await opened
+    await on(() => screen.queryByText('Koala\'s own services and monitoring, revision 3'), () => provisioning.start())
     const [first] = await setups()
     expect(first).toMatchObject({ reason: 'revision', state: 'running', ownerId: person.id })
     expect(temporal.workflows.get(first!.workflowId!)).toMatchObject({ workflowType: 'AgentRunWorkflow', status: 'RUNNING' })
 
-    const egressLine = on(() => screen.queryByText('waiting for deployment/egress in egress: 0 of 1 ready'))
-    await say(first!.id, 'egress', { state: 'started', line: 'waiting for deployment/egress in egress: 0 of 1 ready' })
-    await egressLine
+    await on(() => screen.queryByText('waiting for deployment/egress in egress: 0 of 1 ready'), () => say(first!.id, 'egress', { state: 'started', line: 'waiting for deployment/egress in egress: 0 of 1 ready' }))
 
-    for (const key of ['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei'] as const) await say(first!.id, key, { state: 'done' })
-    const stopped = on(() => screen.queryByRole('alert'))
-    await say(first!.id, 'gitea', { state: 'failed', why: 'pod gitea-0 is Init:Error' })
-    expect((await stopped).textContent).toContain('Stopped at Gitea, your repositories and images: pod gitea-0 is Init:Error')
+    const giteaFailed = await on(() => (pieceRow('gitea')?.textContent?.includes('pod gitea-0 is Init:Error') ? pieceRow('gitea') : null), () => say(first!.id, 'gitea', { state: 'failed', why: 'pod gitea-0 is Init:Error' }))
+    expect(giteaFailed.textContent).toContain('Gitea, your repositories and images')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Set up again' })).toBeNull()
 
-    const again = on(() => screen.queryByText('because you asked'))
-    await userEvent.click(screen.getByRole('button', { name: 'Set up again' }))
-    await again
+    for (const key of ['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'verdaccio', 'monitoring'] as const) await say(first!.id, key, { state: 'done' })
+    await say(first!.id, 'infisical', { state: 'failed', why: 'the chart could not be read' })
+    const stopped = await on(() => screen.queryByRole('alert'), async () => {
+      const said = await recordedOn(db.infrastructure, first!.id, (record) => runEnded(record, NOT_UP, new Date().toISOString()))
+      if (!('recorded' in said)) throw new Error(`the setup ${first!.id} could not be ended`)
+    })
+    expect(stopped.textContent).toBe(`Stopped at ${NOT_UP}`)
+
+    await on(() => screen.queryByText('because you asked'), () => userEvent.click(screen.getByRole('button', { name: 'Set up again' })))
     const asked = (await setups()).filter((record) => record.reason === 'asked')
     expect(asked).toHaveLength(1)
     expect(asked[0]).toMatchObject({ target: { kind: 'koala', clusterId: 'desk' }, revision: 3, reason: 'asked', state: 'running' })
+    expect(asked[0]!.pieces.filter((piece) => piece.state !== 'up').map((piece) => piece.key)).toEqual(['gitea', 'infisical'])
     expect(screen.queryByRole('button', { name: 'Set up again' })).toBeNull()
 
-    for (const piece of PROVISION_PIECES) await say(asked[0]!.id, piece.key, { state: 'done' })
-    const collapsed = on(() => screen.queryByText('Koala\'s services and monitoring are set up (revision 3).'))
-    await say(asked[0]!.id, 'set-up')
-    await collapsed
+    for (const key of ['gitea', 'infisical'] as const) await say(asked[0]!.id, key, { state: 'done' })
+    await on(() => screen.queryByText('Koala\'s services and monitoring are set up (revision 3).'), () => say(asked[0]!.id, 'set-up'))
     expect(within(card.container).queryByText('The egress proxy')).toBeNull()
   })
 })
