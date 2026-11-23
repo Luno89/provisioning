@@ -8,7 +8,7 @@ import {
   type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings, type DependencyReporter,
-  isOff, type MemoryIndexReach, type Off,
+  isOff, type MemoryIndexReach, type Off, type StopsNaming,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT, procedureChangeRun } from '../lib/agent-usage.js';
@@ -650,6 +650,7 @@ export interface EngineStreamDeps {
   storedFiles: StoredFilesActivities | undefined;
   dependencies: DependencyReporter;
   ownerRemovalToRoot?: { ownerRemoval(progress: DeletionProgress): Promise<{ ok: true } | { ok: false; status: number; error: string }> } | undefined;
+  stopsNaming: StopsNaming;
 }
 
 export function ownerRemovalTold(deps: Pick<EngineStreamDeps, 'ownerRemovalToRoot'> & { core: Pick<EngineCore, 'runningRecords'> }): ((change: AccountDeletionChange) => Promise<void>) | undefined {
@@ -746,6 +747,6 @@ export function startEngineStream(deps: EngineStreamDeps): StreamWorkerRun {
     });
     run.started(worker);
     if (!run.stopping()) console.log('[engine] stream worker polling engine-stream-queue');
-  }, (message) => console.warn(message));
+  }, (message) => console.warn(message), (reason) => deps.stopsNaming('Starting the stream worker', reason));
   return run;
 }

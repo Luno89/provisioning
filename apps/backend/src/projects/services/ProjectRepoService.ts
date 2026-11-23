@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening, keepTrying, type Reopening } from '../../platform/index.js';
+import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson, reopening, keepTrying, stillDown, type DependencyRefusals, type Reopening } from '../../platform/index.js';
 import { leftOver, type GiteaTokenPods, type TokenToRevoke } from '../lib/gitea-tokens.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -33,7 +33,7 @@ export class ProjectRepoService {
     private gitea: GiteaService,
     private masterKey: SecretKey,
     private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
-    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined; process?: string | undefined } = {},
+    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined; process?: string | undefined; refusals?: DependencyRefusals | undefined } = {},
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -377,15 +377,17 @@ export class ProjectRepoService {
   }
 
   private async revoke(kept: TokenToRevoke, password: string): Promise<void> {
-    try {
-      await this.revokeNow(kept, password);
-    } catch (err) {
-      const what = `[ProjectRepoService] the Gitea token ${kept.name} of ${kept.username} is still valid, since revoking it failed`;
-      const log = this.options.log ?? ((message: string) => console.warn(message));
-      const again = this.options.again?.() ?? reopening();
-      log(`${what}: ${(err as Error).message}; trying again in ${again.seconds} s`);
-      again.later(() => { void keepTrying(what, () => this.revokeNow(kept, password), log, again); });
-    }
+    await keepTrying(`[ProjectRepoService] the Gitea token ${kept.name} of ${kept.username} is still valid, since revoking it failed`,
+      () => this.revokeNow(kept, password), this.log(), (reason) => this.refused(`revoking the token ${kept.name} of ${kept.username}: ${reason}`), this.options.again?.() ?? reopening());
+  }
+
+  private log(): (message: string) => void {
+    return this.options.log ?? ((message: string) => console.warn(message));
+  }
+
+  private refused(reason: string): void {
+    if (!this.options.refusals) throw new Error(`Gitea refused for good, and this ProjectRepoService was given nowhere to say so: ${reason}`);
+    this.options.refusals.refused('gitea', reason);
   }
 
   keepRevokingLeftovers(pods: GiteaTokenPods): Promise<boolean> {
@@ -394,9 +396,9 @@ export class ProjectRepoService {
         const watch = await pods.whenGone((pod) => { void this.revokeTokensOf(pod); });
         await this.revokeLeftoverTokens(await pods.live());
         const ended = await watch.ended;
-        throw new Error(`the watch on Koala's pods ended: ${ended.stderr.trim() || `exit ${ended.code}`}`);
+        throw stillDown(`the watch on Koala's pods ended: ${ended.stderr.trim() || `exit ${ended.code}`}`);
       },
-      this.options.log ?? ((message: string) => console.warn(message)), this.options.again?.());
+      this.log(), (reason) => this.refused(`revoking the Gitea tokens gone pods left: ${reason}`), this.options.again?.());
   }
 
   async revokeLeftoverTokens(live: readonly string[]): Promise<number> {

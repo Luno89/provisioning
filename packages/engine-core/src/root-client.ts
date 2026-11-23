@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import * as client from 'openid-client';
 import { importJWK, type JWK } from 'jose';
-import { refusedByServer } from './failures.js';
+import { ignore, refusedByServer } from './failures.js';
 
 export const OIDC_PATH = '/oidc';
 export const rootIssuerOf = (rootUrl: string): string => `${rootUrl.replace(/\/+$/, '')}${OIDC_PATH}`;
@@ -143,12 +143,19 @@ export class OidcClient {
   private configured: Promise<client.Configuration> | undefined;
   private readonly held = new Map<string, { value: string; until: number }>();
   private markRegistered: () => void = () => undefined;
-  readonly registered: Promise<void> = new Promise((resolve) => { this.markRegistered = resolve; });
+  private markRefused: (refusal: Error) => void = () => undefined;
+  readonly registered: Promise<void> = new Promise((resolve, reject) => { this.markRegistered = resolve; this.markRefused = reject; });
 
   constructor(
     private parts: OidcClientSettings,
     private readonly now: () => number = () => Date.now(),
-  ) {}
+  ) {
+    this.registered.catch(ignore('whoever waits on the registration hears root\'s refusal; this branch only keeps a refusal nobody waits on yet from stopping the process'));
+  }
+
+  protected registrationRefused(reason: string): void {
+    this.markRefused(new Error(reason));
+  }
 
   protected get reach(): typeof fetch {
     return this.parts.reach ?? fetchNow;

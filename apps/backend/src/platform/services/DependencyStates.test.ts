@@ -227,6 +227,13 @@ describe('DependencyStates', () => {
     made.stop();
   });
 
+  it('holds a refusal for good from a dependency it does not check, since the work that met it uses it all the same', () => {
+    const { made } = states();
+    made.refused('root', 'revoking run g1\'s token: it refused: invalid_client');
+    expect(made.down()).toEqual([{ dependency: 'root', name: 'Koala\'s root', since: NOW.toISOString(), reason: 'revoking run g1\'s token: it refused: invalid_client', process: 'worker-engine', refused: true }]);
+    made.stop();
+  });
+
   it('names where a dependency is reached when it was told, as it is for root', () => {
     const made = new DependencyStates({ process: 'backend', described: ['root'], where: { root: 'https://app.koala.dev' }, log: quiet, now: () => NOW });
     made.wentDown('root', 'this instance\'s connection to it is closed', '2026-11-08T09:50:00.000Z');

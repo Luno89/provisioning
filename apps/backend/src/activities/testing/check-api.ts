@@ -66,7 +66,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
 import type { PlanAdopter } from '../../projects/services/PlanService.js';
-import { grantsOver, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
+import { grantsOver, refusalsFail, runsActingAsTheirOwner } from '../../engine/testing/run-grants.js';
 import { RunTokens } from '../../engine/services/RunTokens.js';
 import { bearerApi } from '../../checks/services/CheckToolAccess.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
@@ -192,7 +192,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   await throughRoot.signIn.register();
   await signInThroughRoot(rootServer.url, server.url, await throughRoot.signInAtRoot({ id: CHECKING_PERSON, email: `${CHECKING_PERSON}@example.com` }));
   await grantsOver(db.engine).issue({ ownerId: CHECKING_PERSON, runId: CHECK_RUN, principal: asPerson(CHECKING_PERSON), startedBy: 'person' });
-  const runTokens = new RunTokens({ store: db.engine, root: throughRoot.signIn, dataKey: DATA_KEY, log: () => undefined, holder: 'check-api' });
+  const runTokens = new RunTokens({ store: db.engine, root: throughRoot.signIn, dataKey: DATA_KEY, log: () => undefined, holder: 'check-api', refusals: refusalsFail });
   const auth = throughRoot.instanceAuth;
   const getOwnedProject = async (id: string, principal: Principal) => {
     const project = (await db.projects.getProjects()).find((candidate) => candidate.id === id);

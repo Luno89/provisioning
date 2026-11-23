@@ -23,6 +23,7 @@ export type EgressDecision =
 export interface ProxyBehind {
   since: string;
   reason: string;
+  refused?: true | undefined;
 }
 
 export interface EgressDeps {
@@ -55,7 +56,10 @@ export class EgressService {
         throw err;
       }
       this.retrying = false;
-    }, this.deps.log ?? ((message) => console.warn(message)), this.deps.again?.());
+    }, this.deps.log ?? ((message) => console.warn(message)), (reason) => {
+      this.retrying = false;
+      this.behind = { since: this.behind?.since ?? this.now(), reason, refused: true };
+    }, this.deps.again?.());
   }
 
   private fellBehind(err: unknown): void {

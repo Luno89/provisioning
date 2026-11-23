@@ -2,13 +2,12 @@ import path from 'path';
 import fs from 'fs/promises';
 import type { Server as SocketServer } from 'socket.io';
 import {
-  type Database, type SecretKey, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
-  getTemporalClient, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, keepTrying,
+  type Database, type SecretKey, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig,
+  getTemporalClient, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, keepPlatformWorkflowRunning,
   MailReputation, isOff, type BackendSettings, type Off, type DependencyStates,
 } from '../../platform/index.js';
-import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
-import type { BrowserSessions, Mounts, Watching } from '../../platform/index.js';
+import type { BrowserSessions, Mounts, StopsNaming, Watching } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService, type SetupInstalls } from '../services/InstanceService.js';
 import { InstanceReach } from '../services/InstanceReach.js';
@@ -103,6 +102,7 @@ export class InstanceSide {
 }
 
 export interface InstancesWiringDeps {
+  stopsNaming: StopsNaming;
   role: RoleConfig;
   settings: BackendSettings;
   app: Routes;
@@ -221,20 +221,14 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     },
     rootUrl: publicUrl,
   });
-  void keepTrying('[dependencies] the daily check has not started yet', async () => {
-    try {
-      await (await getTemporalClient()).workflow.start(DependencyWatchWorkflow, {
-        workflowId: DEPENDENCY_WATCH_ID,
-        taskQueue: QUEUES.host,
-        args: [],
-        ...startedFor(PLATFORM_OWNER),
-      });
-    } catch (error) {
-      if (error instanceof WorkflowExecutionAlreadyStartedError) return;
-      const { message, cause } = error as Error & { cause?: unknown };
-      throw new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
-    }
-  }, (message) => console.warn(message));
+  keepPlatformWorkflowRunning({
+    start: async (options) => (await getTemporalClient()).workflow.start(DependencyWatchWorkflow, options),
+    workflowId: DEPENDENCY_WATCH_ID,
+    taskQueue: QUEUES.host,
+    waiting: '[dependencies] the daily check has not started yet',
+    refused: 'Starting the daily check of dependencies',
+    stopsNaming: deps.stopsNaming,
+  });
   let presenceOf: ((instanceId: string) => boolean) | undefined;
   let tellInstance: InstancesWiring['tellInstance'];
   const provider = deps.provider;

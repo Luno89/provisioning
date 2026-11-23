@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { failureOf, ignore } from './failures.js';
+import { failureOf, ignore, tokenAlreadyGone } from './failures.js';
 
 describe('a service that listens on a socket file', () => {
   it('is not answering yet, rather than gone for good, while the file it will listen on is not there', () => {
@@ -30,6 +30,30 @@ describe('a cluster command that kubectl could not carry out', () => {
     expect(failureOf(kubectlSaid(gone))).toEqual({ kind: 'final', reason: gone });
     const forbidden = 'Error from server (Forbidden): jobs.batch is forbidden: User "koala" cannot list resource "jobs"';
     expect(failureOf(kubectlSaid(forbidden))).toEqual({ kind: 'final', reason: forbidden });
+  });
+});
+
+describe('a fetch that never got an answer', () => {
+  it('is not answering yet when the network failed it, however fetch words it', () => {
+    expect(failureOf(new TypeError('Failed to fetch'))).toEqual({ kind: 'temporary', reason: 'the connection to it failed (Failed to fetch)' });
+    expect(failureOf(new TypeError('fetch failed'))).toEqual({ kind: 'temporary', reason: 'the connection to it failed (fetch failed)' });
+  });
+
+  it('is final when the name it asked for does not resolve', () => {
+    expect(failureOf(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } })).kind).toBe('final');
+  });
+});
+
+describe('a token asked to be revoked', () => {
+  it('is already revoked when what holds it says it is gone or not a token it knows', () => {
+    expect(tokenAlreadyGone(Object.assign(new Error('not found'), { status: 404 }))).toBe(true);
+    expect(tokenAlreadyGone(Object.assign(new Error('server responded with an error in the response body'), { name: 'ResponseBodyError', status: 400, error: 'invalid_token' }))).toBe(true);
+    expect(tokenAlreadyGone(Object.assign(new Error('server responded with an error in the response body'), { name: 'ResponseBodyError', status: 400, error: 'invalid_grant' }))).toBe(true);
+  });
+
+  it('is not revoked when the one asking was refused or could not ask', () => {
+    expect(tokenAlreadyGone(Object.assign(new Error('server responded with an error in the response body'), { name: 'ResponseBodyError', status: 401, error: 'invalid_client' }))).toBe(false);
+    expect(tokenAlreadyGone(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }))).toBe(false);
   });
 });
 

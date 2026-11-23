@@ -1,5 +1,5 @@
 import { temporaryStatus } from '@koala/engine-core/failures';
-export { failureOf, GONE_STATUSES, NAME_NOT_FOUND, refusedByServer, statusFailure, stillDown, temporaryStatus, type Failure } from '@koala/engine-core/failures';
+export { failureOf, GONE_STATUSES, NAME_NOT_FOUND, refusedByServer, statusFailure, stillDown, temporaryStatus, tokenAlreadyGone, type Failure } from '@koala/engine-core/failures';
 import { isOff } from './off.js';
 import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, KoalaProcess, MemoryIndex, WebToolSettings } from './settings.js';
 import { ownReach } from '../../infrastructure/lib/cluster-places.js';

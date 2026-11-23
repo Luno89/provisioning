@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Database } from '../../platform/lib/db-interface.js';
-import type { Reopening } from '../../platform/index.js';
+import { stillDown, type Reopening } from '../../platform/index.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 import { RunTokens, type RunTokenRoot } from '../services/RunTokens.js';
 import type { RunGrant } from '../lib/run-grants.js';
@@ -48,8 +48,11 @@ export function runTokensBehaviour(database: () => Promise<Pick<Database, 'engin
     const now = () => clock;
     const root = rootOf(now);
     const logged: string[] = [];
-    const tokens = (as: string) => new RunTokens({ store: db.engine, root: root.root, dataKey: DATA_KEY, holder: as, now, log: (message) => logged.push(message), again: () => never });
-    return { db, root, tokens: tokens(holder), another: tokens('worker-2'), logged, pass: (ms: number) => { clock += ms; } };
+    const refused: string[] = [];
+    const refusals = { refused: (dependency: string, reason: string) => { refused.push(`${dependency}: ${reason}`); } };
+    const tokens = (as: string) => new RunTokens({ store: db.engine, root: root.root, dataKey: DATA_KEY, holder: as, now, log: (message) => logged.push(message), again: () => never, refusals });
+    const endingWith = (endRunToken: RunTokenRoot['endRunToken']) => new RunTokens({ store: db.engine, root: { ...root.root, endRunToken }, dataKey: DATA_KEY, holder: 'worker-1', log: (message) => logged.push(message), again: () => never, refusals });
+    return { db, root, tokens: tokens(holder), another: tokens('worker-2'), endingWith, logged, refused, refusals, pass: (ms: number) => { clock += ms; } };
   }
 
   describe('the run tokens a Koala holds for its runs', () => {
@@ -104,12 +107,12 @@ export function runTokensBehaviour(database: () => Promise<Pick<Database, 'engin
     });
 
     it('hands back to root a token it got while the run\'s grant ended, keeping none', async () => {
-      const { db, root } = await keeper();
+      const { db, root, refusals } = await keeper();
       await db.engine.saveRunGrant(grant('g1'));
       const ending = new RunTokens({
         store: db.engine,
         root: { ...root.root, runToken: async (runId, space) => { const got = await root.root.runToken(runId, space); await db.engine.saveRunGrant(grant('g1', { state: 'ended' })); return got; } },
-        dataKey: DATA_KEY, holder: 'worker-1', log: () => undefined,
+        dataKey: DATA_KEY, holder: 'worker-1', log: () => undefined, refusals,
       });
       await expect(ending.bearerFor('g1')).rejects.toThrow(/ended while its token was got/);
       expect(root.live()).toEqual([]);
@@ -130,14 +133,10 @@ export function runTokensBehaviour(database: () => Promise<Pick<Database, 'engin
     });
 
     it('keeps trying to revoke a run\'s token while root cannot be reached, and says so', async () => {
-      const { db, root, logged } = await keeper();
+      const { db, root, logged, refused, endingWith } = await keeper();
       await db.engine.saveRunGrant(grant('g1'));
       let down = true;
-      const flaky = new RunTokens({
-        store: db.engine,
-        root: { ...root.root, endRunToken: async (refresh) => { if (down) throw new Error('root is not answering'); await root.root.endRunToken(refresh); } },
-        dataKey: DATA_KEY, holder: 'worker-1', log: (message) => logged.push(message), again: () => never,
-      });
+      const flaky = endingWith(async (refresh) => { if (down) throw stillDown('root is not answering'); await root.root.endRunToken(refresh); });
       await flaky.bearerFor('g1');
       await db.engine.saveRunGrant(grant('g1', { state: 'ended' }));
       expect(await flaky.ended('g1')).toBe(false);
@@ -146,6 +145,29 @@ export function runTokensBehaviour(database: () => Promise<Pick<Database, 'engin
       down = false;
       expect(await flaky.ended('g1')).toBe(true);
       expect(root.live()).toEqual([]);
+      expect(refused).toEqual([]);
+    });
+
+    it('stops revoking a run\'s token once root refuses for good, keeping it and holding root as refused', async () => {
+      const { db, refused, endingWith } = await keeper();
+      await db.engine.saveRunGrant(grant('g1'));
+      const refusing = endingWith(async () => { throw Object.assign(new Error('server responded with an error in the response body'), { name: 'ResponseBodyError', status: 401, error: 'invalid_client' }); });
+      await refusing.bearerFor('g1');
+      await db.engine.saveRunGrant(grant('g1', { state: 'ended' }));
+      expect(await refusing.ended('g1')).toBe(false);
+      expect(refused).toEqual(['root: revoking run g1\'s token: it refused: server responded with an error in the response body']);
+      expect(await db.engine.getRunGrantTokens('g1')).toHaveLength(1);
+    });
+
+    it('takes a token root no longer knows as revoked, and keeps none', async () => {
+      const { db, refused, endingWith } = await keeper();
+      await db.engine.saveRunGrant(grant('g1'));
+      const gone = endingWith(async () => { throw Object.assign(new Error('server responded with an error in the response body'), { name: 'ResponseBodyError', status: 400, error: 'invalid_token' }); });
+      await gone.bearerFor('g1');
+      await db.engine.saveRunGrant(grant('g1', { state: 'ended' }));
+      expect(await gone.ended('g1')).toBe(true);
+      expect(await db.engine.getRunGrantTokens('g1')).toEqual([]);
+      expect(refused).toEqual([]);
     });
 
     it('revokes, as it starts, the tokens of runs that ended while no keeper was there to', async () => {
@@ -161,9 +183,9 @@ export function runTokensBehaviour(database: () => Promise<Pick<Database, 'engin
     });
 
     it('says why a Koala with no root to ask gives no run a token', async () => {
-      const { db } = await keeper();
+      const { db, refusals } = await keeper();
       await db.engine.saveRunGrant(grant('g1'));
-      const none = new RunTokens({ store: db.engine, root: { none: 'root runs no runs of its own' }, dataKey: DATA_KEY, holder: 'root', log: () => undefined });
+      const none = new RunTokens({ store: db.engine, root: { none: 'root runs no runs of its own' }, dataKey: DATA_KEY, holder: 'root', log: () => undefined, refusals });
       await expect(none.bearerFor('g1')).rejects.toThrow('root runs no runs of its own');
       expect(await none.ended('g1')).toBe(true);
     });

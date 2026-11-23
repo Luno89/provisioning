@@ -11,7 +11,7 @@ import { ConversationNoticeService, type WorkspaceBuildService, type extensionSe
 import { projectSecretsFor } from '../services/ProjectSecretsService.js';
 import { TreeHomeService } from '../services/TreeHomeService.js';
 import { ProjectRemovalService, temporalPurges, type RestoredNeeds } from '../services/ProjectRemovalService.js';
-import type { ProjectDeletionMode } from '../../platform/index.js';
+import type { DependencyRefusals, ProjectDeletionMode } from '../../platform/index.js';
 import { temporalRemovalWorkflows } from '../../accounts/index.js';
 import { TreeModelsService, treeAgentsFrom, type ModelService } from '../../models/index.js';
 import { GroveRunService } from '../services/GroveRunService.js';
@@ -54,6 +54,7 @@ export interface ProjectsCoreDeps {
   webhooksTo: string | undefined;
   infisical: InfisicalService;
   podName: string | undefined;
+  refusals: DependencyRefusals;
 }
 
 export interface ProjectsCore {
@@ -72,7 +73,7 @@ const webhooksAt = (backend: string | undefined): ((projectId: string) => Promis
 
 export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const { db, io, gitea } = deps;
-  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.here), process: deps.podName });
+  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.here), process: deps.podName, refusals: deps.refusals });
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
     save: (conversation) => db.engine.saveConversation(conversation),
@@ -134,6 +135,7 @@ export interface ProjectsWiringDeps {
   dataKey: SecretKey;
   core: ProjectsCore;
   gitea: GiteaService;
+  refusals: DependencyRefusals;
   infra: InfrastructureService;
   clusters: ClusterService;
   apps: AppService;
@@ -165,7 +167,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   const engineQueue = DEFAULT_ENGINE_TASK_QUEUE;
 
   if (servesTenants(deps.role)) {
-    void keepUsersPrivate(gitea);
+    void keepUsersPrivate(gitea, deps.refusals);
   }
 
   const projectRemoval = new ProjectRemovalService({

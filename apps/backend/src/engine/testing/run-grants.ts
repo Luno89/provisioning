@@ -4,7 +4,9 @@ import { RunGrantService, type RunGrantDeps } from '../services/RunGrantService.
 import { RunTokens, type RunTokenStore } from '../services/RunTokens.js';
 
 export const tokensNotAsked = (store: RunTokenStore): RunTokens =>
-  new RunTokens({ store, root: { none: 'these tests ask root for no run token' }, dataKey: 'run-grants-test-key', log: () => undefined });
+  new RunTokens({ store, root: { none: 'these tests ask root for no run token' }, dataKey: 'run-grants-test-key', log: () => undefined, refusals: refusalsFail });
+
+export const refusalsFail = { refused: (dependency: string, reason: string): void => { throw new Error(`these tests expect nothing refused for good, yet ${dependency} refused: ${reason}`); } };
 
 export const grantsOver = (store: RunGrantDeps['store'] & RunTokenStore, over: Omit<Partial<RunGrantDeps>, 'store'> = {}): RunGrantService =>
   new RunGrantService({ store, tokens: tokensNotAsked(store), ...over });

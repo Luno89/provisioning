@@ -87,7 +87,7 @@ export const dependencyTestId = (line: DependencyLine): string => {
 }
 
 export const egressBehindLine = (behind: EgressBehind, when: (at: string) => string = shownTime): string =>
-  `Sandboxes' egress proxy still holds grants from before ${when(behind.since)}: ${behind.reason}`
+  `Sandboxes' egress proxy still holds grants from before ${when(behind.since)}${behind.refused ? ', and refused, will not retry' : ''}: ${behind.reason}`
 
 export const memoryKeepingLine = (down: MemoryKeepingDown, when: (at: string) => string = shownTime): string =>
   `Koala has not consolidated your memories since ${when(down.since)}: ${down.reason}`

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { decryptValue, encryptValue, keepTrying, reopening, type Reopening, type SecretKey } from '../../platform/index.js';
+import { decryptValue, encryptValue, keepTrying, reopening, tokenAlreadyGone, type DependencyRefusals, type Reopening, type SecretKey } from '../../platform/index.js';
 import type { EngineStore } from '../store.js';
 import type { HeldRunToken, RunGrant } from '../lib/run-grants.js';
 
@@ -25,9 +25,14 @@ export interface RunTokensDeps {
   holder?: string | undefined;
   now?: (() => number) | undefined;
   again?: (() => Reopening) | undefined;
+  refusals: DependencyRefusals;
 }
 
 const RENEW_WITHIN_MS = 30_000;
+
+function revokedUnlessRefused(err: unknown): void {
+  if (!tokenAlreadyGone(err)) throw err;
+}
 
 const spaceActedAs = (grant: RunGrant): string | undefined =>
   grant.principal.claims.some((claim) => claim.role === 'space-of') ? grant.principal.id : undefined;
@@ -94,13 +99,14 @@ export class RunTokens {
     const { root } = this.deps;
     for (const held of await this.deps.store.getRunGrantTokens(grantId)) {
       if ('none' in root) throw new Error(`${root.none}, yet run grant ${grantId} holds a token`);
-      await root.endRunToken(decryptValue(held.refresh, this.deps.dataKey));
+      await root.endRunToken(decryptValue(held.refresh, this.deps.dataKey)).catch(revokedUnlessRefused);
       await this.deps.store.dropRunGrantToken(grantId, held.key);
     }
   }
 
   ended(grantId: string): Promise<boolean> {
-    return keepTrying(`root has not revoked run ${grantId}'s token yet`, () => this.end(grantId), this.deps.log, this.deps.again?.() ?? reopening());
+    return keepTrying(`root has not revoked run ${grantId}'s token yet`, () => this.end(grantId), this.deps.log,
+      (reason) => this.deps.refusals.refused('root', `revoking run ${grantId}'s token: ${reason}`), this.deps.again?.() ?? reopening());
   }
 
   async endLeftovers(): Promise<number> {

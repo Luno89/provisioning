@@ -163,6 +163,7 @@ export interface MemoryKeepingDown {
 export interface EgressBehind {
   since: string
   reason: string
+  refused?: true
 }
 
 /**

@@ -17,7 +17,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService, devicesFor, interactionRouter, loadBreachedPasswords, OwnerRemoval, passwordRouter, PasswordService, SignInProviders, temporalRemovalWorkflows, wireOwnerRemoval } from './accounts/index.js';
 import helmet from 'helmet';
 import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
-  getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute, errorResponder,
+  getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, PayloadStorageService, createAuth, inFlightLimit, keepTrying, stopsNamingWith, asyncRoute, errorResponder,
   TEMPORAL_JWKS_PATH, temporalTls, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, browserSessionsFor, SessionSockets, signsInThroughRoot, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, inClusterSlices, runOnce, fenceRecordsDropped,
@@ -197,7 +197,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     webTools: tenantServices?.webTools,
     memoryIndex: tenantServices?.memoryIndex,
   });
-  const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService, podName: settings.instance?.podName });
+  const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService, podName: settings.instance?.podName, refusals: dependencies });
   const { projectRepoService, channels, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, settings.mesh, settings.dataDir);
   const machineTemporalAddress = settings.instance?.machineTemporalAddress;
@@ -207,6 +207,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (machineTemporalAddress && isOff(machineTemporalAddress)) console.warn(`[machines] ${machineTemporalAddress.off}`);
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'), settings.dataDir);
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>>; removal?: ReturnType<typeof wireAccounts> } = {};
+  const stops = { now: (code: number): void => process.exit(code) };
+  const stopsNaming = stopsNamingWith((code) => stops.now(code), (line) => console.error(line));
   const accountRemoval = () => {
     if (!late.removal) throw new Error('this server keeps no accounts, so it removes none');
     return late.removal;
@@ -226,10 +228,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     await keepTrying('⚠️ Temporal is not connected yet, so work that needs it is refused until it is', async () => {
       await temporalBridge.start();
       await temporalBridge.startActiveWorkflowRecovery();
-    }, (message) => console.warn(message));
+    }, (message) => console.warn(message), (reason) => stopsNaming('Connecting to Temporal', reason));
   }
 
-  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${role.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => console.warn(`[run-tokens] ${message}`) });
+  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${role.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => console.warn(`[run-tokens] ${message}`), refusals: dependencies });
   if (tenants) void runTokens.endLeftovers().catch((err: Error) => console.warn(`[run-tokens] the tokens of runs that ended while this backend was down could not be read, so they are handed back at its next start: ${err.message}`));
   const engine = engineCore({ db, role, temporalBridge, machines: machineService, checks: () => level2Service, revocations, runTokens });
   const {
@@ -238,9 +240,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  const engineStream = startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies, ownerRemovalToRoot: instanceReporter });
-  if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
-  if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
+  const engineStream = startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities, dependencies, ownerRemovalToRoot: instanceReporter, stopsNaming });
+  if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, stopsNaming });
+  if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService, refusals: dependencies });
 
   const authService = new AuthService(db, { codeKey: keys.data, mail, production, push, ...(isOff(settings.twilio) ? {} : { twilio: settings.twilio }) });
   const passwords = new PasswordService({ db, codeKey: keys.data, auth: authService, breached: loadBreachedPasswords(), revocations });
@@ -355,7 +357,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     role, settings, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: settings.dataDir, headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, interactions, signIn: rootSignIn, browserSessions, rootToken, io,
-    instanceArrived, installs: koalaInstalls,
+    instanceArrived, installs: koalaInstalls, stopsNaming,
     ownerRemoval: { removing: (ownerId) => accountRemoval().ownerRemoving(ownerId), told: (ownerId, progress) => accountRemoval().koalaTold(ownerId, progress) },
   });
   late.instances = instancesWiring;
@@ -438,7 +440,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const { treeModels, groveRuns } = wireProjects({
-    tenant, db, io, role, dataKey: keys.data, core, gitea: giteaService, infra: infraService, clusters: clusterService, apps: appService,
+    tenant, db, io, role, dataKey: keys.data, core, gitea: giteaService, refusals: dependencies, infra: infraService, clusters: clusterService, apps: appService,
     temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
     workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, getOwnedProject,
   });
@@ -522,7 +524,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const place = settings.pod;
   const account = settings.clusters.serviceAccount;
   let stopping = false;
-  const shutdown = () => {
+  const shutdown = (failed = 0) => {
     if (stopping) return;
     stopping = true;
     void stopBackend({
@@ -530,11 +532,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       sockets: signedInSockets,
       streams: engineStream,
       drain: { place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, log: (line) => console.log(line) },
-      exit: (code) => process.exit(code),
+      exit: (code) => process.exit(Math.max(code, failed)),
     });
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  stops.now = shutdown;
+  process.on('SIGINT', () => shutdown());
+  process.on('SIGTERM', () => shutdown());
 
   return { app, io, temporalBridge, db, settings };
 }

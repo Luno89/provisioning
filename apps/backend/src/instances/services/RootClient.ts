@@ -33,7 +33,7 @@ export class RootClient extends OidcClient {
   }
 
   keepRegistering(log: (message: string) => void, again: Reopening = reopening()): void {
-    void keepTrying(`root has not registered this ${this.settings.kind} yet`, async () => { await this.register(); }, log, again);
+    void keepTrying(`root has not registered this ${this.settings.kind} yet`, async () => { await this.register(); }, log, (reason) => this.registrationRefused(reason), again);
   }
 
   async serviceToken(): Promise<string> {

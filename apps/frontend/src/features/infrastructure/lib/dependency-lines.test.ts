@@ -69,6 +69,11 @@ describe('the item Needs attention shows while sandboxes\' egress proxy is behin
     expect(egressBehindLine({ since: '2026-11-17T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)' }, at))
       .toBe('Sandboxes\' egress proxy still holds grants from before at 2026-11-17T10:00:00.000Z: it refused the connection (ECONNREFUSED)')
   })
+
+  it('says the proxy refused the current grants and will not retry, once it refused them for good', () => {
+    expect(egressBehindLine({ since: '2026-11-17T10:00:00.000Z', reason: 'it refused the request (400)', refused: true }, at))
+      .toBe('Sandboxes\' egress proxy still holds grants from before at 2026-11-17T10:00:00.000Z, and refused, will not retry: it refused the request (400)')
+  })
 })
 
 describe('the item Needs attention shows while a person\'s memories are not being consolidated', () => {

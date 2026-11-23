@@ -104,6 +104,21 @@ export function egressBehaviour(make: () => Promise<Database>): void {
       expect(proxy.sync.mock.calls.at(-1)![0]).toEqual([expect.objectContaining({ id: 'g1', revokedAt: NOW })]);
     });
 
+    it('stops syncing a revoke the proxy refuses for good, says it will not retry, and tries again on the next change', async () => {
+      await egress.allow(OWNER, 'r1');
+      proxy.sync.mockReset();
+      proxy.sync.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+      proxy.sync.mockRejectedValueOnce(Object.assign(new Error('the proxy refuses this config'), { status: 400 }));
+      proxy.sync.mockResolvedValue(undefined);
+
+      expect(await egress.revoke(OWNER, 'g1')).toMatchObject({ ok: false, status: 502 });
+      await vi.waitFor(() => expect(egress.proxyBehindSince()).toEqual({ since: NOW, reason: 'it refused the request (400)', refused: true }));
+      expect(proxy.sync).toHaveBeenCalledTimes(2);
+
+      expect(await egress.keepSynced()).toBe(true);
+      expect(egress.proxyBehindSince()).toBeUndefined();
+    });
+
     it('syncs the proxy with every grant, whoever\'s, and stamps decisions with the current time when no clock is given', async () => {
       const plain = new EgressService({ store: db.infrastructure, proxy });
       const decided = await plain.dismiss(OWNER, 'r1');

@@ -123,10 +123,20 @@ export function failureOf(error: unknown): Failure {
   if (name === 'TransportError') return temporary(`it cannot be reached: ${messageOf(error)}`);
   if (name === 'TimeoutError') return temporary('it did not answer in time');
   if (streamCutOff(error)) return temporary('the connection to it was cut off while it answered');
+  if (error instanceof TypeError && FETCH_NETWORK_FAILED.has(error.message)) return temporary(`the connection to it failed (${error.message})`);
   const cluster = clusterUnreachable(error);
   if (cluster) return temporary(`the cluster cannot be reached: ${cluster}`);
   return final(messageOf(error));
 }
+
+const TOKEN_NOT_KNOWN: ReadonlySet<unknown> = new Set(['invalid_token', 'invalid_grant']);
+
+export function tokenAlreadyGone(error: unknown): boolean {
+  const status = httpStatusOf(error);
+  return (status !== undefined && GONE_STATUSES.has(status)) || TOKEN_NOT_KNOWN.has(field(error, 'error'));
+}
+
+const FETCH_NETWORK_FAILED: ReadonlySet<string> = new Set(['fetch failed', 'Failed to fetch']);
 
 const CLUSTER_UNREACHABLE = /was refused - did you specify the right host or port|Unable to connect to the server|connection refused/i;
 

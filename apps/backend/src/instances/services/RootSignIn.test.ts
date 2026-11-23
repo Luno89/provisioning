@@ -156,6 +156,15 @@ describe('what an instance does when the sign-in does not go through', () => {
     await world.rootDb.instances.oidcTakeRegistration(world.registrationCode);
     await expect(world.signIn.register()).rejects.toThrow('root refused this instance\'s registration code (it was used, or a newer one replaced it), and does not know its key: put Koala on your machine again');
   });
+
+  it('stops registering once root refuses it for good, and everything waiting on it hears root\'s refusal', async () => {
+    await world.rootDb.instances.oidcTakeRegistration(world.registrationCode);
+    const said: string[] = [];
+    world.signIn.keepRegistering((message) => { said.push(message); }, reopening(5));
+    await expect(world.signIn.registered).rejects.toThrow('root refused this instance\'s registration code (it was used, or a newer one replaced it), and does not know its key: put Koala on your machine again');
+    await expect(world.signIn.serviceToken()).rejects.toThrow('root refused this instance\'s registration code');
+    expect(said).toEqual([]);
+  });
 });
 
 describe('an instance keeping its session with root', () => {

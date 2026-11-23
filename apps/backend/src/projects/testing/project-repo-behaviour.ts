@@ -166,7 +166,7 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
       const pods = {
         live: async () => {
           asked += 1;
-          if (asked === 1) throw new Error('the Kubernetes API is not answering');
+          if (asked === 1) throw Object.assign(new Error('Unable to connect to the server: dial tcp 10.43.0.1:443: connect: connection refused'), { stderr: 'Unable to connect to the server: dial tcp 10.43.0.1:443: connect: connection refused' });
           return [];
         },
         whenGone: async () => ({ ended: new Promise<never>(() => undefined), stop: () => undefined }),
@@ -178,12 +178,27 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
       expect(asked).toBe(2);
     });
 
+    it('holds Gitea as refused, and stops revoking, once Gitea refuses a gone pod\'s token for good', async () => {
+      const { db, gitea } = await setUp(make);
+      const refused: string[] = [];
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined, refusals: { refused: (dependency, reason) => { refused.push(`${dependency}: ${reason}`); } } });
+      await repos.ensureAccountFor('u1');
+      await db.projects.saveTokenToRevoke({ name: 'push-gone', ownerId: 'u1', username: 'koala-u1', process: 'luno-backend-old', at: '2026-11-17T10:00:00.000Z' });
+      gitea.revokeUserToken.mockRejectedValue(Object.assign(new Error('Gitea would not revoke the token push-gone of koala-u1 (HTTP 403)'), { status: 403 }));
+      const pods = { live: async () => [], whenGone: async () => ({ ended: new Promise<never>(() => undefined), stop: () => undefined }) };
+
+      void repos.keepRevokingLeftovers(pods);
+      await vi.waitFor(() => expect(refused).toEqual(['gitea: revoking the Gitea tokens gone pods left: it refused the request (403)']));
+      expect(gitea.revokeUserToken).toHaveBeenCalledTimes(1);
+      expect((await db.projects.getTokensToRevoke()).map((kept) => kept.name)).toEqual(['push-gone']);
+    });
+
     it('revokes the token and rethrows when the push fails, and only warns when revoking fails too', async () => {
       const { gitea, repos } = await setUp(make);
       gitea.findRepo.mockResolvedValue({ owner: 'koala-u1', name: 'docs' });
       gitea.createPushToken.mockResolvedValue({ name: 'push-1', token: 'tok' });
       gitea.pushBundle.mockRejectedValue(new Error('rejected'));
-      gitea.revokeUserToken.mockRejectedValue(new Error('gitea down'));
+      gitea.revokeUserToken.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       await expect(repos.pushDocuments({ ownerId: 'u1', repo: 'docs', describe: 'Docs', bundle: 'b' })).rejects.toThrow('rejected');
       expect(gitea.revokeUserToken).toHaveBeenCalledTimes(1);

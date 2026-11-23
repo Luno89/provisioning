@@ -65,7 +65,6 @@
  "src apps/backend/src/files/routes/project-files.ts <-> apps/backend/src/files/routes/project-files.ts #17805cc3fb5b": 1,
  "src apps/backend/src/files/routes/project-files.ts <-> apps/backend/src/files/routes/project-files.ts #96e800b567aa": 1,
  "src apps/backend/src/files/routes/project-files.ts <-> apps/backend/src/projects/routes/projects.ts #567d58dcee46": 1,
- "src apps/backend/src/files/wiring/files.ts <-> apps/backend/src/instances/wiring/instances.ts #fd76afab45c8": 1,
  "src apps/backend/src/infrastructure/lib/egress-rules.ts <-> apps/backend/src/infrastructure/lib/egress-rules.ts #55439a8215e2": 1,
  "src apps/backend/src/infrastructure/lib/egress-rules.ts <-> apps/backend/src/infrastructure/lib/egress-rules.ts #99340e69c542": 1,
  "src apps/backend/src/infrastructure/routes/deployments.ts <-> apps/backend/src/projects/routes/trees.ts #6bf71eb4c32c": 1,

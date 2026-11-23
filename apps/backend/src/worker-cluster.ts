@@ -78,7 +78,7 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
 
   checkServices(dependencies, { gitea: settings.gitea.url, infisical: settings.infisical.url });
   void dependencies.start();
-  void new ProjectRepoService(db, steps.gitea, dataKey).keepRevokingLeftovers(new KoalaPods({ access, target: () => access.own(), namespace: settings.podNamespace }));
+  void new ProjectRepoService(db, steps.gitea, dataKey, undefined, { refusals: dependencies }).keepRevokingLeftovers(new KoalaPods({ access, target: () => access.own(), namespace: settings.podNamespace }));
   const queue = QUEUES.cluster;
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);

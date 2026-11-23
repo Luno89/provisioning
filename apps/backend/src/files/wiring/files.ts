@@ -1,7 +1,6 @@
 import type { HoldOpen } from '../store.js';
-import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
-import type { Database, DependencyReporter, ProjectMetadata, Workflows } from '../../platform/index.js';
-import { keepTrying, PLATFORM_OWNER, runOnce, startedFor, type ClusterMetadata, type Principal } from '../../platform/index.js';
+import type { Database, DependencyRefusals, DependencyReporter, ProjectMetadata, StopsNaming, Workflows } from '../../platform/index.js';
+import { keepPlatformWorkflowRunning, keepTrying, runOnce, type ClusterMetadata, type Principal } from '../../platform/index.js';
 import type { ClusterAccess } from '../../infrastructure/index.js';
 import { ARCHIVE_MIGRATION } from '../lib/files-archive.js';
 import { archiveOldFiles } from '../services/FilesArchive.js';
@@ -57,6 +56,7 @@ export interface ArchiveDeps {
   db: Pick<Database, 'files' | 'infrastructure' | 'platform'>;
   storedFiles: StoredFiles;
   clusters: { access: Pick<ClusterAccess, 'reach' | 'kubectl'>; getByIdUnscoped: (id: string) => Promise<ClusterMetadata | undefined> };
+  refusals: DependencyRefusals;
 }
 
 export function archiveOldFilesOnce(deps: ArchiveDeps): void {
@@ -78,24 +78,18 @@ export function archiveOldFilesOnce(deps: ArchiveDeps): void {
       return { ...archived };
     });
     console.log(`[files] the Archive holds what was kept before: ${JSON.stringify(done)}`);
-  }, (message) => console.warn(message));
+  }, (message) => console.warn(message), (reason) => deps.refusals.refused('minio', `putting what people kept on their own MinIO apps in their Archive, which is tried again at the next start: ${reason}`));
 }
 
-export function keepStoredFilesSwept(deps: Pick<InstanceFilesDeps, 'workflows' | 'engineTaskQueue'>): void {
-  void keepTrying('[files] the daily sweep of stored files has not started yet', async () => {
-    try {
-      await (await deps.workflows()).start(STORED_FILES_SWEEP_WORKFLOW, {
-        workflowId: STORED_FILES_SWEEP_ID,
-        taskQueue: deps.engineTaskQueue,
-        args: [],
-        ...startedFor(PLATFORM_OWNER),
-      });
-    } catch (error) {
-      if (error instanceof WorkflowExecutionAlreadyStartedError) return;
-      const { message, cause } = error as Error & { cause?: unknown };
-      throw new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
-    }
-  }, (message) => console.warn(message));
+export function keepStoredFilesSwept(deps: Pick<InstanceFilesDeps, 'workflows' | 'engineTaskQueue'> & { stopsNaming: StopsNaming }): void {
+  keepPlatformWorkflowRunning({
+    start: async (options) => (await deps.workflows()).start(STORED_FILES_SWEEP_WORKFLOW, options),
+    workflowId: STORED_FILES_SWEEP_ID,
+    taskQueue: deps.engineTaskQueue,
+    waiting: '[files] the daily sweep of stored files has not started yet',
+    refused: 'Starting the daily sweep of stored files',
+    stopsNaming: deps.stopsNaming,
+  });
 }
 
 export interface FilesWiringDeps {

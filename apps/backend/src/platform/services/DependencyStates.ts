@@ -92,7 +92,6 @@ export class DependencyStates implements DependencyReporter, DependencyRefusals 
   }
 
   refused(dependency: DependencyId, reason: string): void {
-    if (!this.known(dependency)) return;
     if (this.stateOf(dependency).state === 'refused') return;
     const timer = this.timers.get(dependency);
     if (timer) clearTimeout(timer);
@@ -125,7 +124,7 @@ export class DependencyStates implements DependencyReporter, DependencyRefusals 
   }
 
   down(): DependencyDown[] {
-    return [...this.described].flatMap((dependency) => {
+    return [...new Set([...this.described, ...this.states.keys()])].flatMap((dependency) => {
       const state = this.stateOf(dependency);
       if (state.state === 'answering') return [];
       const where = this.deps.where?.[dependency];

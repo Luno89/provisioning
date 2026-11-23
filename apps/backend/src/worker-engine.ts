@@ -87,7 +87,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const gitea = new GiteaService(keys.data, giteaAt, { dataDir: settings.dataDir, registryPullHost: tenant.registryPullHost, reportsTo: dependencies });
   const infisical = new InfisicalService(keys.data, tenant.infisical, settings.dataDir, dependencies);
   if (isOff(settings.pod)) throw new Error(`the engine worker makes Gitea tokens, which carry the pod that made them: ${settings.pod.off}`);
-  const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(settings.clusters.here), process: settings.pod });
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(settings.clusters.here), process: settings.pod, refusals: dependencies });
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     projects: () => db.projects.getProjects(),
@@ -153,7 +153,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   });
   rootSignIn?.keepRegistering((message) => console.warn(`[sign-in] ${message}`));
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
-  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`) });
+  const runTokens = new RunTokens({ store: db.engine, root: rootSignIn ?? { none: `${engineRole.role} runs no runs of a person, so it holds no run tokens` }, dataKey: keys.data, log: (message) => logger.warn(`[run-tokens] ${message}`), refusals: dependencies });
   const runGrants = new RunGrantService({ store: db.engine, tokens: runTokens, signalRevoked: revokeRunSignal(() => temporal.workflow) });
   const poisoning = new PoisoningWatch({
     store: db.engine,
