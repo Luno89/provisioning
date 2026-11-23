@@ -28,7 +28,8 @@ export async function awaitWorkload(args: CheckWorkloadArgs): Promise<WorkloadVe
       log.warn(`Workload for ${name} is not running: ${reason}`);
       return { workload: 'unhealthy', workloadReason: reason };
     }
-    if (health === 'starting') told = reason;
+    if (health === 'unknown' && reason !== told) log.warn(`Workload for ${name} cannot be read yet, so it is asked again: ${reason}`);
+    told = reason;
     await sleep(ROLLOUT_INTERVAL);
   }
 }

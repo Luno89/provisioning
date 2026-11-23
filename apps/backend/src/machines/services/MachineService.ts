@@ -130,6 +130,7 @@ export class MachineService {
     const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     if (!device) return;
     const report = machineAgentsReportFrom(raw);
+    if ('refused' in report) throw new Error(`${device.name}'s report of its agents was refused, so the agents recorded before are kept: ${report.refused}`);
     await this.deps.store.updateLocalAgentDevice(device.id, {
       set: { agents: report.agents, agentsAt: this.now().toISOString(), ...(report.notSetUp ? { agentsNotSetUp: report.notSetUp } : {}) },
       ...(report.notSetUp ? {} : { unset: ['agentsNotSetUp'] }),

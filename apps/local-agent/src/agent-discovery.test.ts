@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { reportAgents, type AgentsReport, type DiscoveryDeps } from './agent-discovery.js';
+import { manualAnswerOf, reportAgents, type AgentsReport, type DiscoveryDeps } from './agent-discovery.js';
+
+describe('what Koala answers when asked for the agents added by hand', () => {
+  it('takes the agents it names, and fails with Koala\'s reason when it could not read them', () => {
+    expect(manualAnswerOf([{ id: 'agy', command: '/opt/agy/agy' }])).toEqual([{ id: 'agy', command: '/opt/agy/agy', args: [] }]);
+    expect(() => manualAnswerOf({ error: 'the machines collection could not be read' })).toThrow('Koala could not say which agents were added to this machine by hand: the machines collection could not be read');
+  });
+});
 
 const gemini: DiscoveryDeps = {
   which: async (command) => (command === 'gemini' ? '/usr/bin/gemini' : undefined),

@@ -57,13 +57,25 @@ describe('keptSudo', () => {
     sudo.end();
   });
 
-  it('fails the command, saying why, when the password is refused, and does not ask again', async () => {
-    const runner = fakeCommands((command) => (command.command === 'sudo' ? { code: 1, stderr: 'sudo: 3 incorrect password attempts' } : {}));
-    const sudo = keptSudo(runner, { every: clock().every, lost: () => undefined });
+  it('fails the command, saying why, when the password is refused, and asks again for the next command that needs it', async () => {
+    let refusals = 1;
+    const runner = fakeCommands((command) => {
+      if (command.command !== 'sudo') return {};
+      if (refusals === 0) return {};
+      refusals -= 1;
+      return { code: 1, stderr: 'sudo: 3 incorrect password attempts' };
+    });
+    const time = clock();
+    const sudo = keptSudo(runner, { every: time.every, lost: () => undefined });
     await expect(sudo.run({ command: 'tailscale', args: ['up'], sudo: true }, silent)).rejects.toThrow(/sudo did not let this run as root: .*sudo -v .* exited with 1/);
-    await expect(sudo.run({ command: 'k3s', sudo: true }, silent)).rejects.toThrow(/sudo did not let this run as root/);
-    expect(runner.ran.map(argv).filter((line) => line.startsWith('sudo'))).toHaveLength(1);
     expect(runner.ran.map(argv)).not.toContain('tailscale up');
+    expect(time.ticks).toHaveLength(0);
+    await sudo.run({ command: 'k3s', sudo: true }, silent);
+    expect(runner.ran.map(argv).filter((line) => line.startsWith('sudo -v'))).toHaveLength(2);
+    expect(runner.ran.map(argv)).toContain('k3s');
+    await sudo.run({ command: 'k3s', args: ['check-config'], sudo: true }, silent);
+    expect(runner.ran.map(argv).filter((line) => line.startsWith('sudo -v'))).toHaveLength(2);
+    expect(time.ticks).toHaveLength(1);
     sudo.end();
   });
 });

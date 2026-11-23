@@ -6,7 +6,7 @@ import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
 } from './sandbox-handlers.js';
 import type { MachineConfig } from './machine-config.js';
-import { KNOWN_AGENTS, manualAgentsFrom, reportAgents, type DiscoveryDeps, type ManualAgent } from './agent-discovery.js';
+import { KNOWN_AGENTS, manualAnswerOf, reportAgents, type DiscoveryDeps, type ManualAgent } from './agent-discovery.js';
 import { installAgent } from './agent-install.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
@@ -36,13 +36,20 @@ export interface AgentPlace {
 const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
 
-const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve) => {
-  socket.emit('agents:manual', {}, (answer: unknown) => resolve(manualAgentsFrom(answer)));
+const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve, reject) => {
+  socket.emit('agents:manual', {}, (answer: unknown) => {
+    try {
+      resolve(manualAnswerOf(answer));
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
 });
 
 function watchAgents(place: AgentPlace, socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions, gate: IdleGate): void {
   const deps = place.discovery(config.rootDir);
-  const rediscover = async (): Promise<void> => {
+  const rediscover = (): Promise<void> => discovered().catch((err: Error) => say(`its agents were not reported this time, so Koala keeps the ones it last heard of: ${err.message}`));
+  const discovered = async (): Promise<void> => {
     const manual = await manualOver(socket);
     const found = await reportAgents(deps, manual, () => place.agentsNotSetUp(), (report, launches) => {
       sessions.setLaunches(launches);

@@ -126,5 +126,9 @@ async function fromRegistry(install: AgentInstall, deps: InstallDeps): Promise<I
 }
 
 export async function installAgent(install: AgentInstall, deps: InstallDeps = systemInstallDeps()): Promise<InstallOutcome> {
-  return fromRegistry(install, deps);
+  try {
+    return await fromRegistry(install, deps);
+  } catch (err) {
+    return { ok: false, output: `installing ${install.registry} failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { MockActivityEnvironment } from '@temporalio/testing';
-import { ClusterUnreachable, type ClusterAccess, type InfisicalService, type InfrastructureService, type Reach } from '../infrastructure/index.js';
+import { ClusterCommandFailed, ClusterUnreachable, type ClusterAccess, type InfisicalService, type InfrastructureService, type Reach } from '../infrastructure/index.js';
 import type { GiteaService } from '../projects/index.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import type { Followed } from '../platform/index.js';
@@ -100,9 +100,24 @@ describe('checking a workload', () => {
     expect(read.reason).toContain('exceeded quota');
   });
 
-  it('says the workload could not be read, with why, when the cluster cannot be reached', async () => {
-    access.kubectl.mockRejectedValue(new ClusterUnreachable('machine-desk', 'stopped', 'desk is stopped until something runs on it'));
-    expect(await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK }, { access })).toEqual({ health: 'unknown', reason: 'could not read the workload: desk is stopped until something runs on it' });
+  it('keeps waiting while the cluster does not answer yet, writing why to the deploy log once', async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'unanswered-')), 'deploy.log');
+    const refused = { code: 1, stdout: '', stderr: 'The connection to the server 100.64.0.7:6443 was refused - did you specify the right host or port?' };
+    access.kubectl.mockRejectedValue(new ClusterCommandFailed('machine-desk', { command: 'kubectl', args: ['get'] }, refused));
+    const first = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK, logFile: log }, { access });
+    expect(first.health).toBe('unknown');
+    expect(first.reason).toMatch(/^the workload cannot be read yet: .*was refused/);
+    await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK, logFile: log, told: first.reason }, { access });
+    expect(readFileSync(log, 'utf8')).toBe(`[deploy] waiting: ${first.reason}\n`);
+  });
+
+  it('ends unhealthy, with why, when the workload can never be read', async () => {
+    access.kubectl.mockRejectedValueOnce(new ClusterUnreachable('machine-desk', 'stopped', 'desk is stopped until something runs on it'));
+    expect(await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK }, { access })).toEqual({ health: 'unhealthy', reason: 'the workload could not be read: desk is stopped until something runs on it' });
+    access.kubectl.mockResolvedValueOnce('<html>not a list</html>');
+    const garbled = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-desk', reach: DESK }, { access });
+    expect(garbled.health).toBe('unhealthy');
+    expect(garbled.reason).toMatch(/^the workload could not be read: .*JSON/);
   });
 
   it('fails at once when it was handed no way to reach the cluster', async () => {

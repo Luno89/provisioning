@@ -5,7 +5,7 @@ import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { allReporters, k3sStep, runSteps, type ChartCluster, type Provider, type ServiceContext, type Watch } from '@koala/provision';
-import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
+import { MACHINE_CLUSTER_ABSENT, MACHINE_CLUSTER_KEPT, MACHINE_OFF_MESH, type MachineClusterOp, type MachineClusterResult } from '@koala/engine-core';
 import type { GpuProbe } from './machine-gpus.js';
 import { configFile, metricsClientFile } from './machine-config.js';
 
@@ -179,7 +179,8 @@ export async function runMachineCluster(host: ClusterHost, op: MachineClusterOp)
     if (op.kind === 'stop') return { state: 'absent' };
     throw new Error(MACHINE_CLUSTER_ABSENT);
   }
-  if (op.kind === 'stop' && !await host.holdsKoala()) {
+  if (op.kind === 'stop') {
+    if (await host.holdsKoala()) return { state: 'kept', why: MACHINE_CLUSTER_KEPT };
     await host.run('sudo', ['-n', 'systemctl', 'stop', 'k3s']);
     await host.run('sudo', ['-n', K3S_KILLALL]);
     await host.wanted(false);

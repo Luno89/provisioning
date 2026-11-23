@@ -5,6 +5,7 @@ import type { StreamActivities } from '../engine-host/temporal/activities.js';
 import type { MachineOfCluster } from '../infrastructure/index.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
+import { stoppedWhenIdle } from './cluster-stopped.js';
 
 type Records = Pick<StreamActivities, 'EngineMachineClusterStartedActivity' | 'EngineMachineClusterStoppedActivity' | 'EngineMachineClusterIdleActivity'>;
 
@@ -23,9 +24,10 @@ export async function startMachineCluster(machine: MachineOfCluster, clusterId: 
   return result.kubeconfig;
 }
 
-export async function stopMachineClusterWhenIdle(machine: MachineOfCluster, clusterId: string): Promise<boolean> {
-  if (!await records.EngineMachineClusterIdleActivity({ clusterId, leaving: machine.leaving })) return false;
-  await onMachine(machine.deviceId).MachineClusterActivity({ kind: 'stop' });
-  await records.EngineMachineClusterStoppedActivity({ clusterId });
-  return true;
+export function stopMachineClusterWhenIdle(machine: MachineOfCluster, clusterId: string): Promise<boolean> {
+  return stoppedWhenIdle({
+    idle: () => records.EngineMachineClusterIdleActivity({ clusterId, leaving: machine.leaving }),
+    stop: () => onMachine(machine.deviceId).MachineClusterActivity({ kind: 'stop' }),
+    stopped: () => records.EngineMachineClusterStoppedActivity({ clusterId }),
+  });
 }

@@ -11,6 +11,7 @@ import { inviteCodeHash } from '../lib/invite-codes.js';
 import { openRoutesOf } from '../../open-routes.js';
 import { injectedFetch } from '../testing/injected-fetch.js';
 import { signedInWithPassword } from '../../accounts/testing/password-sign-in.js';
+import { guardedBy } from '../testing/guarded.js';
 
 describe('parseCookie', () => {
   it('finds a cookie among others regardless of spacing', () => {
@@ -204,8 +205,7 @@ describe('what is open without a session, by role', () => {
     const auth = role === 'instance'
       ? createAuth({ db, publicUrl: 'http://localhost:3001', role, open: openRoutesOf(role), throughRoot: { sessions: new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false }), signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } } })
       : rootAuthOver(db, { open: openRoutesOf(role) }).auth;
-    await auth.requireAuth(call.req, call.res, call.next);
-    return call.result().nexted;
+    return (await guardedBy(auth.requireAuth, call.req)).nexted;
   };
 
   it('lets an instance sign people in only through root, and opens nothing of the archived hub on root', async () => {
