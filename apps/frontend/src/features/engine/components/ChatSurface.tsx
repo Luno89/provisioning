@@ -257,7 +257,7 @@ export default function ChatSurface({
 
         <div className={`flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bark-950,#090d0b)] relative ${showing === 'cards' ? 'hidden' : ''}`}>
           {isConversationEmpty ? (
-            <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 flex flex-col justify-center items-center">
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pb-6 flex flex-col justify-end items-center">
               <div className="w-full max-w-3xl space-y-6">
                 {intro ? (
                   <div className="text-center space-y-2 text-slate-400" data-testid="chat-intro">{intro}</div>
@@ -274,100 +274,99 @@ export default function ChatSurface({
                   />
                 )}
                 {conv.selectedConvId && <ConversationContext conversationId={conv.selectedConvId} channel={channel} />}
-                {composer}
               </div>
             </div>
           ) : (
-            <>
-              <div
-                ref={scrollRef}
-                onScroll={handleFeedScroll}
-                className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-2 relative"
-              >
-                <div className="max-w-4xl mx-auto w-full space-y-0 pb-36">
-                  {isLoadingThread && <KoalaLoading label="Fetching this conversation…" />}
+            <div
+              ref={scrollRef}
+              onScroll={handleFeedScroll}
+              className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-2 relative"
+            >
+              <div className="max-w-4xl mx-auto w-full space-y-0 pb-36">
+                {isLoadingThread && <KoalaLoading label="Fetching this conversation…" />}
 
-                  {conv.selectedConvId && <ConversationContext conversationId={conv.selectedConvId} channel={channel} />}
+                {conv.selectedConvId && <ConversationContext conversationId={conv.selectedConvId} channel={channel} />}
 
-                  {renderedMessages.length > 0 && (cardsAt.get(-1) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
+                {renderedMessages.length > 0 && (cardsAt.get(-1) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
 
-                  {renderedMessages.map((msg, idx) => (
-                    <Fragment key={idx}>
-                      {msg.role === 'notice' && msg.notice
-                        ? (repeats.get(idx) ?? 1) > 0 && <ChatNotice notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} times={repeats.get(idx) ?? 1} onItsPage={Boolean(channel)} />
-                        : (
-                          <ChatMessageRow
-                            message={msg}
-                            conversationId={conv.selectedConvId ?? undefined}
-                            packLabel={activePack?.label ?? ''}
-                            onOpenDocument={showDocument}
-                            {...(channel ? {
-                              address: addressOf(msg, idx >= localFrom),
-                              ...(!streaming && msg.at && !msg.runId && idx < localFrom ? { onAskKoala: () => askKoalaAbout(msg) } : {}),
-                            } : {})}
-                          />
-                        )}
-                      {idx < renderedMessages.length - 1 && (cardsAt.get(idx) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
-                    </Fragment>
-                  ))}
+                {renderedMessages.map((msg, idx) => (
+                  <Fragment key={idx}>
+                    {msg.role === 'notice' && msg.notice
+                      ? (repeats.get(idx) ?? 1) > 0 && <ChatNotice notice={msg.notice} at={msg.at} onOpenTree={onOpenTree} onOpenStory={onOpenStory} times={repeats.get(idx) ?? 1} onItsPage={Boolean(channel)} />
+                      : (
+                        <ChatMessageRow
+                          message={msg}
+                          conversationId={conv.selectedConvId ?? undefined}
+                          packLabel={activePack?.label ?? ''}
+                          onOpenDocument={showDocument}
+                          {...(channel ? {
+                            address: addressOf(msg, idx >= localFrom),
+                            ...(!streaming && msg.at && !msg.runId && idx < localFrom ? { onAskKoala: () => askKoalaAbout(msg) } : {}),
+                          } : {})}
+                        />
+                      )}
+                    {idx < renderedMessages.length - 1 && (cardsAt.get(idx) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
+                  </Fragment>
+                ))}
 
-                  {streaming && (
-                    <ChatMessageRow
-                      message={{
-                        role: 'assistant',
-                        content: conv.liveState.live,
-                        reasoning: conv.liveState.liveThinking,
-                        toolCalls: conv.liveState.tools,
-                      }}
-                      packLabel={activePack?.label ?? ''}
-                      isStreaming={true}
-                      onOpenDocument={showDocument}
-                    />
-                  )}
+                {streaming && (
+                  <ChatMessageRow
+                    message={{
+                      role: 'assistant',
+                      content: conv.liveState.live,
+                      reasoning: conv.liveState.liveThinking,
+                      toolCalls: conv.liveState.tools,
+                    }}
+                    packLabel={activePack?.label ?? ''}
+                    isStreaming={true}
+                    onOpenDocument={showDocument}
+                  />
+                )}
 
-                  {(cardsAt.get(renderedMessages.length - 1) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
+                {(cardsAt.get(renderedMessages.length - 1) ?? []).map((card) => <ChatCardMarker key={`${card.kind} ${card.id}`} card={card} onShow={showCard} />)}
 
-                  {error && (
-                    <div className="w-full p-3 my-2 rounded-md bg-red-950/60 border border-red-500/50 text-red-300 font-sans text-xs flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle size={14} className="text-red-400 shrink-0" />
-                        <span>{error}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setError(null)}
-                        className="text-red-400 hover:text-red-200 cursor-pointer"
-                      >
-                        <X size={14} />
-                      </button>
+                {error && (
+                  <div className="w-full p-3 my-2 rounded-md bg-red-950/60 border border-red-500/50 text-red-300 font-sans text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={14} className="text-red-400 shrink-0" />
+                      <span>{error}</span>
                     </div>
-                  )}
-
-                  <div ref={bottomAnchorRef} className="h-4 w-full flex-none pointer-events-none" />
-                </div>
-              </div>
-
-              <div className="absolute bottom-0 left-0 right-0 pointer-events-none bg-gradient-to-t from-[var(--bark-950,#090d0b)] via-[var(--bark-950,#090d0b)]/95 to-transparent pt-8 pb-4 px-4 sm:px-8 z-20">
-                {!isAtBottom && renderedMessages.length > 0 && (
-                  <div className="flex justify-center mb-2">
                     <button
                       type="button"
-                      onClick={scrollToBottom}
-                      aria-label="Jump to latest"
-                      className="pointer-events-auto flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--bark-900,#111814)] hover:bg-[var(--bark-800,#1b2620)] border border-slate-700 text-slate-300 text-xs shadow-md transition-colors cursor-pointer"
+                      onClick={() => setError(null)}
+                      className="text-red-400 hover:text-red-200 cursor-pointer"
                     >
-                      <ArrowDown size={12} className="text-emerald-400" />
-                      <span>Jump to latest</span>
+                      <X size={14} />
                     </button>
                   </div>
                 )}
 
-                <div className="max-w-4xl mx-auto pointer-events-auto">
-                  {composer}
-                </div>
+                <div ref={bottomAnchorRef} className="h-4 w-full flex-none pointer-events-none" />
               </div>
-            </>
+            </div>
           )}
+
+          <div className={isConversationEmpty
+            ? 'flex-1 min-h-0 px-4 sm:px-6'
+            : 'absolute bottom-0 left-0 right-0 pointer-events-none bg-gradient-to-t from-[var(--bark-950,#090d0b)] via-[var(--bark-950,#090d0b)]/95 to-transparent pt-8 pb-4 px-4 sm:px-8 z-20'}>
+            {!isConversationEmpty && !isAtBottom && renderedMessages.length > 0 && (
+              <div className="flex justify-center mb-2">
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  aria-label="Jump to latest"
+                  className="pointer-events-auto flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--bark-900,#111814)] hover:bg-[var(--bark-800,#1b2620)] border border-slate-700 text-slate-300 text-xs shadow-md transition-colors cursor-pointer"
+                >
+                  <ArrowDown size={12} className="text-emerald-400" />
+                  <span>Jump to latest</span>
+                </button>
+              </div>
+            )}
+
+            <div className={isConversationEmpty ? 'w-full max-w-3xl mx-auto' : 'max-w-4xl mx-auto pointer-events-auto'}>
+              {composer}
+            </div>
+          </div>
         </div>
 
         {filesOpen && conv.selectedConvId && (
