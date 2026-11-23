@@ -36,7 +36,7 @@ describe('a browser\'s session on a Koala', () => {
     const signedIn = await ask('POST', '/sign-in/ann');
     expect(signedIn.set).toMatch(/^koala_sid=s%3A[^;]+; Path=\/; Expires=[^;]+; HttpOnly; SameSite=Lax$/);
     expect(signedIn.set).toContain(`koala_sid=s%3A${String(signedIn.body.sid)}.`);
-    expect(signedIn.set).not.toMatch(/ann|sealed/);
+    expect(signedIn.cookie).toMatch(new RegExp(`^koala_sid=s%3A${String(signedIn.body.sid)}\\.[A-Za-z0-9%_-]+$`));
     expect(BROWSER_SESSION_SECONDS).toBe(14 * 24 * 60 * 60);
     const expires = Date.parse(/Expires=([^;]+)/.exec(signedIn.set!)![1]!);
     expect(expires - Date.now()).toBeGreaterThan(BROWSER_SESSION_SECONDS * 1000 - 60_000);
