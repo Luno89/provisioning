@@ -13,10 +13,5 @@
     "no-restricted-syntax": {
       "count": 1
     }
-  },
-  "src/until.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
   }
 }

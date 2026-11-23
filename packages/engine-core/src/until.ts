@@ -71,11 +71,10 @@ export function until<T, R>(what: string, source: Source<T>, judge: Judge<T, R>,
         },
         broke: (why) => end(() => reject(new Hopeless(`${what}: ${why}`))),
       });
+      if (over) subscription.close();
     } catch (err) {
       end(() => reject(err));
-      return;
     }
-    if (over) subscription.close();
   });
 }
 
