@@ -62,6 +62,14 @@ describe('a worker Koala builds', () => {
     expect(heard).toEqual([expect.stringMatching(/arrived unencrypted/)]);
   });
 
+  it('reads the note Temporal itself writes on an activity cancelled before it started, and refuses any other payload in the clear', async () => {
+    const codec = new EncryptionCodec(payloads.ring);
+    const plain = (data: string) => [{ metadata: { encoding: Buffer.from('json/plain') }, data: Buffer.from(data) }];
+    expect(await codec.decode(plain('"ACTIVITY_ID_NOT_STARTED"'))).toEqual(plain('"ACTIVITY_ID_NOT_STARTED"'));
+    await expect(codec.decode(plain('"ACTIVITY_ID_NOT_STARTED, and more"'))).rejects.toThrow(/arrived unencrypted/);
+    await expect(codec.decode([{ metadata: { encoding: Buffer.from('binary/plain') }, data: Buffer.from('"ACTIVITY_ID_NOT_STARTED"') }])).rejects.toThrow(/arrived unencrypted/);
+  });
+
   it('cannot be built without the key that seals its payloads', async () => {
     await expect(createWorker({ connection: ({} as NativeConnection), namespace: 'default', taskQueue: 'q', payloads: { ring: { current: '' }, blobs: payloads.blobs }, deletingMarks: UNREAD })).rejects.toThrow(/requires a master key/);
     expect(Worker.create).not.toHaveBeenCalled();

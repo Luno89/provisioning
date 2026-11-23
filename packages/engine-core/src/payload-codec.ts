@@ -93,6 +93,11 @@ const deserialize = (bytes: Uint8Array): Payload => {
   };
 };
 
+const TEMPORAL_NOT_STARTED = { encoding: 'json/plain', data: JSON.stringify('ACTIVITY_ID_NOT_STARTED') };
+
+const writtenByTemporal = ({ metadata, data }: Payload): boolean =>
+  !!metadata?.encoding && !!data && td.decode(metadata.encoding) === TEMPORAL_NOT_STARTED.encoding && td.decode(data) === TEMPORAL_NOT_STARTED.data;
+
 export class EncryptionCodec implements PayloadCodec {
   constructor(private readonly masterKey: SecretKey) {
     if (!masterKey || !ringOf(masterKey).current) throw new Error('EncryptionCodec requires a master key (PAYLOAD_KEY)');
@@ -108,6 +113,7 @@ export class EncryptionCodec implements PayloadCodec {
   async decode(payloads: Payload[]): Promise<Payload[]> {
     return payloads.map((payload) => {
       const encoding = payload.metadata?.encoding;
+      if (writtenByTemporal(payload)) return payload;
       if (!encoding || td.decode(encoding) !== ENCRYPTED || !payload.data) {
         throw new Error(`a Temporal payload arrived unencrypted (${encoding ? td.decode(encoding) : 'no encoding'}); Koala reads only payloads its own processes sealed with PAYLOAD_KEY`);
       }

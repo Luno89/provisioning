@@ -4,8 +4,8 @@ import { temporal as proto } from '@temporalio/proto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CompressionCodec, OFFLOAD_ABOVE_BYTES, payloadStorage, type BlobReach } from './payload-codec.js';
 import { createClient, createWorker } from './temporal.js';
-import { memoryBlobs, queueFor, temporal, workflowBundle, type TestTemporal } from '../testing/temporal.js';
-import { echoed } from '../testing/workflows.js';
+import { memoryBlobs, queueFor, temporal, testWorker, workflowBundle, type TestTemporal } from '../testing/temporal.js';
+import { cancelledBeforeItStarted, echoed, stop } from '../testing/workflows.js';
 
 const KEY = 'payload-key-for-the-integration-tier';
 
@@ -96,4 +96,27 @@ describe('payloads sealed on their way through Temporal', () => {
 
     expect((failure as Error).message).toMatch(/a Temporal payload stored outside Temporal is missing \(blob [0-9a-f-]{36}\)/);
   });
+
+  it('reads the one payload Temporal itself writes, its note on an activity cancelled before any worker took it', async () => {
+    const taskQueue = queueFor('cancelled-early');
+    const worker = await testWorker(env, { taskQueue, workflowBundle: await workflowBundle() });
+    const handle = await env.client.workflow.start(cancelledBeforeItStarted, { taskQueue, workflowId: queueFor('cancelled-early'), args: [queueFor('nobody-polls')] });
+    const outcome = await worker.runUntil(async () => {
+      await scheduled(handle.workflowId);
+      await handle.signal(stop);
+      return handle.result();
+    });
+    expect(outcome).toBe('cancelled before it started');
+  });
 });
+
+async function scheduled(workflowId: string): Promise<void> {
+  let nextPageToken: Uint8Array | undefined;
+  for (;;) {
+    const page = await env.client.workflowService.getWorkflowExecutionHistory({ namespace: env.namespace ?? 'default', execution: { workflowId }, waitNewEvent: true, ...(nextPageToken ? { nextPageToken } : {}) });
+    const events = page.history?.events ?? [];
+    if (events.some((event) => event.activityTaskScheduledEventAttributes)) return;
+    if (events.some((event) => event.workflowExecutionCompletedEventAttributes || event.workflowExecutionFailedEventAttributes)) throw new Error(`${workflowId} ended before it scheduled its activity`);
+    nextPageToken = page.nextPageToken?.length ? page.nextPageToken : undefined;
+  }
+}
