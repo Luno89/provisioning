@@ -698,6 +698,29 @@ export interface MergeNode extends Step<'done'> {
   wire(wires: MergeWires): void
 }
 
+export type TogetherWires = Record<string, never>
+
+export type TogetherSettings = {
+  /** Branches */
+  branches: readonly ({
+    /** Step */
+    node: string
+    /**
+     * After
+     * The branches it waits on.
+     */
+    after?: readonly (string)[]
+  })[]
+}
+
+export interface TogetherNode extends Step<'done' | 'failed'> {
+  /** Every branch that did not come up: its step, title and why. */
+  readonly failed: Out<'json'>
+  /** Every branch that did not come up, named with why. */
+  readonly reason: Out<'text'>
+  wire(wires: TogetherWires): void
+}
+
 export interface WaitForPersonWires {
   /** Shown under the message — for example the plan the person is asked to review. */
   details?: In<'text'>
@@ -1340,6 +1363,12 @@ export interface Nodes {
    * Leaves through done: Always.
    */
   merge(id: string, wires?: MergeWires, settings?: MergeSettings, meta?: NodeMeta): MergeNode
+  /**
+   * Together: Runs several steps at once and waits until every one has ended. A step starts as soon as the steps it waits on have left through done; one that fails never stops the others, and a step waiting on it does not start. A branch step is named here and leads nowhere itself.
+   * Leaves through done: Every branch left through done.
+   * Leaves through failed: One or more did not, once every branch had ended; failed and reason name each.
+   */
+  together(id: string, wires: TogetherWires, settings: TogetherSettings, meta?: NodeMeta): TogetherNode
   /**
    * Wait for Person: Shows a person a message and pauses the run until they answer, however long that takes, unless the step sets how long to wait.
    * Leaves through answered: The person answered.

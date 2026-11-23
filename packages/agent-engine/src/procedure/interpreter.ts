@@ -2,7 +2,7 @@ import type { SamplingConfig } from '@koala/harness-types';
 import type { EngineEvent, EventBus, RunOutcome } from '../runtime/events.js';
 import { budgetExceeded, createRunState, type RunBudget, type RunCounters, type RunIdentity } from '../runtime/run.js';
 import { GROUP_KIND, definitionFor, type NodeCatalogue, type NodeDefinition } from './definition.js';
-import { expandGroups, groupLibrary } from './groups.js';
+import { expandGroups, GROUP_SEPARATOR, groupLibrary } from './groups.js';
 import type { GroupDefinition, NodeId, PlacedNode, Procedure } from './schema.js';
 import { capForTrace } from './trace.js';
 import { handledTools, type HandledTools } from './handled.js';
@@ -50,6 +50,12 @@ export interface NodeRequest {
   previous?: Readonly<Record<string, unknown>> | undefined;
   execution: number;
   run: RunContext;
+  branches?: BranchRuns | undefined;
+}
+
+export interface BranchRuns {
+  title(name: string): string;
+  run(name: string): Promise<StepResult>;
 }
 
 export type StepResult =
@@ -337,6 +343,43 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     }
   };
 
+  const branchOf = (parent: NodeId, name: string): PlacedNode => {
+    const cut = parent.lastIndexOf(GROUP_SEPARATOR);
+    const found = nodes.get(cut < 0 ? name : `${parent.slice(0, cut + 1)}${name}`);
+    if (!found) throw new Error(`"${origin.get(parent) ?? parent}" runs "${name}" alongside, which does not exist`);
+    return found;
+  };
+
+  const branchesFor = (parent: NodeId, run: RunContext): BranchRuns => ({
+    title: (name) => {
+      const found = branchOf(parent, name);
+      return found.label ?? origin.get(found.id) ?? found.id;
+    },
+    run: async (name) => {
+      const node = branchOf(parent, name);
+      const definition = definitionOf(node);
+      if (definition.role !== 'step') throw new Error(`"${origin.get(node.id) ?? node.id}" is a value node and cannot run alongside`);
+      emit({ type: 'node.entered', nodeId: node.id } as never);
+      const inputs = await resolveInputs(node, definition, new Map(), new Set(), run);
+      const startedAt = now();
+      const base = { node: node.id, kind: node.kind, role: 'step' as const, cleanup: run.cleaningUp, startedAt, inputs };
+      executions += 1;
+      const previous = latest.get(node.id);
+      const result = await executor.step({ node, origin: origin.get(node.id) ?? node.id, definition, inputs, ...(previous ? { previous } : {}), execution: executions, run })
+        .catch((err: unknown) => {
+          record({ ...base, durationMs: now() - startedAt, ...endedBy(run, err) });
+          emit({ type: 'node.exited', nodeId: node.id } as never);
+          throw err;
+        });
+      addUsage(result.usage);
+      if (result.outputs) latest.set(node.id, result.outputs);
+      const ended = 'interrupted' in result ? { interrupted: result.interrupted } : 'finish' in result ? { finish: result.finish } : { exit: result.exit };
+      record({ ...base, durationMs: now() - startedAt, outputs: result.outputs, ...ended });
+      emit({ type: 'node.exited', nodeId: node.id, ...('exit' in result ? { via: result.exit } : {}) } as never);
+      return result;
+    },
+  });
+
   const runStep = async (id: NodeId, run: RunContext): Promise<{ next?: NodeId; finish?: { outcome: RunOutcome; reason?: string | undefined } }> => {
     const node = nodes.get(id);
     if (!node) throw new RunStop('failed', `the procedure leads to "${id}", which does not exist`);
@@ -370,6 +413,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
         ...(previous ? { previous } : {}),
         execution: executions,
         run,
+        branches: branchesFor(id, run),
       });
     } catch (err) {
       record({ node: id, kind: node.kind, role: 'step', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, ...endedBy(run, err) });

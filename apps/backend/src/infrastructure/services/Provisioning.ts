@@ -271,7 +271,7 @@ export class Provisioning implements Provisioner {
 
   private async settle(record: ProvisioningRecord, why: string): Promise<ProvisioningRecord> {
     const ended = runEnded(record, why, this.at().toISOString());
-    return (await this.deps.store.patchProvisioning(record.id, heardPatch(ended), true)) ?? (await this.deps.store.getProvisioningRun(record.id)) ?? ended;
+    return (await this.deps.store.patchProvisioning(record.id, heardPatch(record, ended), true)) ?? (await this.deps.store.getProvisioningRun(record.id)) ?? ended;
   }
 
   private follow(recordId: string, workflowId: string): void {

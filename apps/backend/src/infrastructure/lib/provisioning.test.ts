@@ -3,7 +3,7 @@ import { PROVISION_DONE_STAGE, PROVISION_PIECES, PROVISION_PROGRESS, provisionRe
 import { progressOf } from '@koala/engine-core/machine-progress';
 import { PLATFORM_PLAN } from './platform-provision.js';
 import {
-  againPieces, openedRecord, pieceHeard, pieceProgress, piecesFor, progressSince, provisionedFor, retryStartsAt, provisioningView, provisionPieceWorkflowId, provisionRunId,
+  againPieces, openedRecord, pieceHeard, pieceProgress, piecesFor, progressSince, provisionedFor, provisioningView, withPatch, provisionPieceWorkflowId, provisionRunId,
   provisionWorkflowId, recordedOn, rootReportOf, runEnded, setUpProgress, startDecision, type HeardPatch, type ProvisioningRecord,
 } from './provisioning.js';
 
@@ -11,6 +11,8 @@ const AT = '2026-11-18T12:00:00.000Z';
 const LATER = '2026-11-18T12:05:00.000Z';
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
 const OTHER: ProvisionTarget = { kind: 'machine', clusterId: 'machine-desk-2', machine: 'desk-2', deviceId: 'device-desk-2' };
+
+const notUpOrWaiting = (record: ProvisioningRecord) => record.pieces.filter((piece) => piece.state !== 'waiting').map((piece) => `${piece.key} ${piece.state}`);
 
 const opened = (over: Partial<Parameters<typeof openedRecord>[0]> = {}): ProvisioningRecord =>
   openedRecord({ ownerId: 'owner-1', target: KOALA, revision: 7, reason: 'revision', runId: provisionRunId('machine-desk', 's1'), at: AT, ...over });
@@ -59,32 +61,25 @@ describe('when a setup starts', () => {
 describe('setting up again after a setup stopped', () => {
   const stoppedAtGitea = (): ProvisioningRecord => {
     let record = opened();
-    for (const piece of ['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei'] as const) record = pieceHeard(record, pieceProgress(record, piece, { state: 'done' }), AT);
-    record = pieceHeard(record, pieceProgress(record, 'gitea', { state: 'started', line: 'waiting for gitea-0' }), AT);
-    return pieceHeard(record, pieceProgress(record, 'gitea', { state: 'failed', why: 'the volume is full' }), LATER);
+    for (const piece of PROVISION_PIECES.filter((entry) => entry.key !== 'gitea' && entry.key !== 'verdaccio')) record = pieceHeard(record, pieceProgress(record, piece.key, { state: 'done' }), AT);
+    record = pieceHeard(record, pieceProgress(record, 'verdaccio', { state: 'started', line: 'waiting for verdaccio' }), AT);
+    record = pieceHeard(record, pieceProgress(record, 'gitea', { state: 'failed', why: 'the volume is full' }), LATER);
+    return runEnded(record, 'Gitea, your repositories and images: the volume is full', LATER);
   };
 
-  it('starts at the step that failed, the finished steps kept as they were', () => {
+  const notUp = (pieces: readonly { key: string; state: string }[]) => pieces.filter((piece) => piece.state !== 'up').map((piece) => `${piece.key} ${piece.state}`);
+
+  it('sets up again every piece that is not up, whatever its place, and keeps the ones that are as they were', () => {
     const stopped = stoppedAtGitea();
     const pieces = againPieces(stopped, KOALA, 7);
-    expect(retryStartsAt(pieces)).toBe('gitea');
-    expect(pieces.slice(0, 6)).toEqual(stopped.pieces.slice(0, 6));
-    expect(pieces.slice(6)).toEqual(PROVISION_PIECES.slice(6).map((piece) => ({ key: piece.key, title: piece.title, state: 'waiting' })));
+    expect(notUp(pieces)).toEqual(['gitea waiting', 'verdaccio waiting']);
+    expect(pieces.filter((piece) => piece.state === 'up')).toEqual(stopped.pieces.filter((piece) => piece.state === 'up'));
   });
 
-  it('starts at the step that broke when a run ended without a piece failing', () => {
-    let record = opened();
-    record = pieceHeard(record, pieceProgress(record, 'egress', { state: 'done' }), AT);
-    record = pieceHeard(record, pieceProgress(record, 'searxng', { state: 'started' }), AT);
-    expect(retryStartsAt(againPieces(runEnded(record, 'the setup\'s run was stopped', LATER), KOALA, 7))).toBe('searxng');
-  });
-
-  it('starts from the first step when nothing of this revision stopped', () => {
+  it('sets up every piece again when nothing of this revision stopped', () => {
     const stopped = stoppedAtGitea();
     for (const last of [undefined, { ...stopped, revision: 6 }, { ...stopped, state: 'up' as const }, opened()]) {
-      const pieces = againPieces(last, KOALA, 7);
-      expect(pieces).toEqual(piecesFor(KOALA));
-      expect(retryStartsAt(pieces)).toBe('egress');
+      expect(againPieces(last, KOALA, 7)).toEqual(piecesFor(KOALA));
     }
     expect(againPieces(undefined, OTHER, 7)).toEqual(piecesFor(OTHER));
   });
@@ -111,10 +106,11 @@ describe('a setup\'s record, as each piece reports', () => {
     expect(done.state).toBe('running');
   });
 
-  it('fails the run at the piece that failed, with the piece and why', () => {
+  it('marks a piece that failed with why, and leaves the run under way while the other pieces go on', () => {
     const failed = pieceHeard(opened(), pieceProgress(opened(), 'infisical', { state: 'failed', why: 'pod infisical-0 is CrashLoopBackOff' }), LATER);
-    expect(failed).toMatchObject({ state: 'failed', why: 'Infisical, your secrets: pod infisical-0 is CrashLoopBackOff', endedAt: LATER });
-    expect(failed.pieces.find((piece) => piece.key === 'infisical')).toMatchObject({ state: 'failed', why: 'pod infisical-0 is CrashLoopBackOff' });
+    expect(failed.state).toBe('running');
+    expect(failed).not.toHaveProperty('endedAt');
+    expect(failed.pieces.find((piece) => piece.key === 'infisical')).toEqual({ key: 'infisical', title: 'Infisical, your secrets', state: 'failed', why: 'pod infisical-0 is CrashLoopBackOff', at: LATER });
   });
 
   it('is up only once every piece is, on the setup\'s own last stage', () => {
@@ -198,8 +194,17 @@ describe('what root hears of a setup, as its record changes', () => {
     const egressUp = pieceHeard(opened(), pieceProgress(opened(), 'egress', { state: 'done' }), AT);
     const ended = runEnded(egressUp, 'the setup\'s run was stopped', LATER);
     expect(progressSince(egressUp, ended)).toEqual([{ stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'the setup\'s run was stopped' }]);
-    const failedPiece = pieceHeard(egressUp, pieceProgress(egressUp, 'searxng', { state: 'failed', why: 'no room' }), LATER);
-    expect(progressSince(egressUp, failedPiece)).toEqual([{ stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'no room' }]);
+  });
+
+  it('tells root a piece failed only once the run has ended, naming every piece that did not come up', () => {
+    const egressUp = pieceHeard(opened(), pieceProgress(opened(), 'egress', { state: 'done' }), AT);
+    const searxngFailed = pieceHeard(egressUp, pieceProgress(egressUp, 'searxng', { state: 'failed', why: 'no room' }), LATER);
+    const giteaFailed = pieceHeard(searxngFailed, pieceProgress(searxngFailed, 'gitea', { state: 'failed', why: 'the volume is full' }), LATER);
+    expect(progressSince(egressUp, searxngFailed)).toEqual([]);
+    const why = 'SearXNG, web search: no room; Gitea, your repositories and images: the volume is full';
+    const ended = runEnded(giteaFailed, why, LATER);
+    expect(progressSince(searxngFailed, ended)).toEqual([{ stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why }]);
+    expect(progressSince(undefined, ended).filter((line) => line.state === 'failed')).toEqual([{ stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why }]);
   });
 });
 
@@ -214,18 +219,26 @@ describe('writing what a piece says onto its run\'s record', () => {
         patchProvisioning: async (_id: string, patch: HeardPatch) => {
           patched.push(patch);
           if (now?.state !== 'running') return undefined;
-          now = { ...now, ...patch };
+          now = withPatch(now, patch);
           return now;
         },
       },
     };
   };
 
-  it('writes the record\'s state and pieces as one patch, only while the run is under way', async () => {
+  it('writes the record\'s state and only the pieces that changed as one patch, only while the run is under way', async () => {
     const { records, patched } = kept(opened());
     const said = await recordedOn(records, opened().id, (record) => pieceHeard(record, pieceProgress(record, 'egress', { state: 'started', line: 'l' }), AT));
     expect(said).toMatchObject({ recorded: { state: 'running' } });
-    expect(patched).toEqual([{ state: 'running', pieces: expect.arrayContaining([expect.objectContaining({ key: 'egress', state: 'working', line: 'l' })]) as unknown }]);
+    expect(patched).toEqual([{ state: 'running', pieces: [{ key: 'egress', title: 'The egress proxy', state: 'working', line: 'l', at: AT }] }]);
+  });
+
+  it('keeps what two pieces said from the same reading of the record, since each writes only its own piece', async () => {
+    const record = opened();
+    const egress = pieceHeard(record, pieceProgress(record, 'egress', { state: 'done' }), AT);
+    const gitea = pieceHeard(record, pieceProgress(record, 'gitea', { state: 'failed', why: 'the volume is full' }), AT);
+    const both = withPatch(withPatch(record, { state: 'running', pieces: [egress.pieces[0]!] }), { state: 'running', pieces: [gitea.pieces[6]!] });
+    expect(notUpOrWaiting(both)).toEqual(['egress up', 'gitea failed']);
   });
 
   it('answers that the run ended, or is gone, rather than writing over it', async () => {

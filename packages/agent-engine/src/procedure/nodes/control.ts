@@ -9,6 +9,7 @@ import { stepImplementation, type BuiltInNode } from '../implementation.js';
 import type { ChildOutcomeValue } from '../values.js';
 import { numberOf, textOf } from './read.js';
 import { templateProblems } from './tools.js';
+import { together } from './together.js';
 
 export const CONDITION_ROOTS = ['value', 'counters', 'inputs'] as const;
 
@@ -425,4 +426,4 @@ export const askMachineAgent: BuiltInNode = {
   }),
 };
 
-export const CONTROL_NODES = [condition, merge, collect, finish, delegate, fanOut, waitForPerson, externalAgent, whereItRuns, askMachineAgent];
+export const CONTROL_NODES = [condition, merge, collect, finish, delegate, fanOut, waitForPerson, externalAgent, whereItRuns, askMachineAgent, together];

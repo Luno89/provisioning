@@ -11,6 +11,7 @@ import {
 } from './schema.js';
 import { settingsProblems } from './settings-schema.js';
 import { socketAccepts } from './sockets.js';
+import { branchesOf, TOGETHER_KIND } from './nodes/together.js';
 
 export interface ProcedureProblem {
   severity: 'error' | 'warning';
@@ -246,10 +247,40 @@ function checkBody(body: Body & { cleanup?: NodeId | undefined }, scope: Scope):
   };
   for (const id of valueFeeds.keys()) walkValues(id, []);
 
+  const alongside = new Map<NodeId, NodeId>();
+  const branchesOfNode = new Map<NodeId, NodeId[]>();
+  for (const [id, definition] of definitions) {
+    if (definition.kind !== TOGETHER_KIND) continue;
+    for (const { node: member } of branchesOf(nodes.get(id)?.settings ?? {})) {
+      if (!member) continue;
+      if (!isStep(member)) {
+        error(`runs "${member}" alongside, which is not a step here`, { node: id });
+        continue;
+      }
+      const already = alongside.get(member);
+      if (already !== undefined) {
+        error(`runs alongside both "${already}" and "${id}"`, { node: member });
+        continue;
+      }
+      alongside.set(member, id);
+      branchesOfNode.set(id, [...(branchesOfNode.get(id) ?? []), member]);
+    }
+  }
+
   const leaving = new Map<NodeId, NodeId[]>();
   const flowed = new Set<string>();
 
   for (const flow of body.flow) {
+    const fromBranch = alongside.get(flow.from);
+    if (fromBranch !== undefined) {
+      error(`runs alongside "${fromBranch}", so nothing follows it: it ends where its branch does`, { node: flow.from, exit: flow.exit });
+      continue;
+    }
+    const toBranch = alongside.get(flow.to);
+    if (toBranch !== undefined) {
+      error(`runs alongside "${toBranch}", so nothing leads to it`, { node: flow.to });
+      continue;
+    }
     if (!nodes.has(flow.from)) {
       error(`a flow leaves "${flow.from}", which does not exist`);
       continue;
@@ -288,7 +319,7 @@ function checkBody(body: Body & { cleanup?: NodeId | undefined }, scope: Scope):
   }
 
   for (const [id, definition] of definitions) {
-    if (definition.role !== 'step') continue;
+    if (definition.role !== 'step' || alongside.has(id)) continue;
     for (const exit of definition.exits) {
       if (!flowed.has(key(id, exit.name)) && !exposedExits.has(key(id, exit.name))) {
         error(`can leave through "${exit.name}", but nothing says where that goes`, { node: id, exit: exit.name });
@@ -312,14 +343,14 @@ function checkBody(body: Body & { cleanup?: NodeId | undefined }, scope: Scope):
     const id = queue.shift()!;
     if (reachable.has(id)) continue;
     reachable.add(id);
-    queue.push(...(leaving.get(id) ?? []));
+    queue.push(...(leaving.get(id) ?? []), ...(branchesOfNode.get(id) ?? []));
   }
 
   const ends = new Set<NodeId>();
   for (const [id, definition] of definitions) {
     if (definition.role !== 'step') continue;
     const exposed = definition.exits.some((exit) => exposedExits.has(key(id, exit.name)));
-    if (definition.exits.length === 0 || exposed) ends.add(id);
+    if (definition.exits.length === 0 || exposed || alongside.has(id)) ends.add(id);
   }
   let grew = true;
   while (grew) {
