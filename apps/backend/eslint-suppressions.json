@@ -45,11 +45,6 @@
       "count": 1
     }
   },
-  "src/activities/cluster-jobs.ts": {
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
   "src/activities/vcluster.ts": {
     "no-restricted-syntax": {
       "count": 1

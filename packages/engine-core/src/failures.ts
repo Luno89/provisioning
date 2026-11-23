@@ -123,7 +123,16 @@ export function failureOf(error: unknown): Failure {
   if (name === 'TransportError') return temporary(`it cannot be reached: ${messageOf(error)}`);
   if (name === 'TimeoutError') return temporary('it did not answer in time');
   if (streamCutOff(error)) return temporary('the connection to it was cut off while it answered');
+  const cluster = clusterUnreachable(error);
+  if (cluster) return temporary(`the cluster cannot be reached: ${cluster}`);
   return final(messageOf(error));
+}
+
+const CLUSTER_UNREACHABLE = /was refused - did you specify the right host or port|Unable to connect to the server|connection refused/i;
+
+function clusterUnreachable(error: unknown): string | undefined {
+  const said = [field(error, 'stderr'), field(field(error, 'result'), 'stderr')].find((one): one is string => typeof one === 'string' && one.trim() !== '');
+  return said?.split('\n').map((line) => line.trim()).find((line) => CLUSTER_UNREACHABLE.test(line));
 }
 
 export const WAITING_RETRY = { initialInterval: '5s', backoffCoefficient: 2, maximumInterval: '1m' } as const;

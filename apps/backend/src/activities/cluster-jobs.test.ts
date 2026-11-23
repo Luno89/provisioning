@@ -1,6 +1,53 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { waitUntilRolledOut, type NamespacedCluster } from './cluster-jobs.js';
+import { runClusterJob, waitUntilRolledOut, type NamespacedCluster } from './cluster-jobs.js';
+
+const kubectlSaid = (stderr: string) => Object.assign(new Error(stderr), { name: 'ClusterCommandFailed', result: { code: 1, stdout: '', stderr } });
+const refused = 'The connection to the server 127.0.0.1:6443 was refused - did you specify the right host or port?';
+const gone = 'Error from server (NotFound): namespaces "app-1" not found';
+const job = { name: 'fetch', namespace: 'app-1', manifest: { kind: 'Job', metadata: {} } };
+
+describe('a cluster that cannot be asked while Koala waits on it', () => {
+  it('keeps waiting on a rollout while the cluster cannot be reached, and ends once it has rolled out', async () => {
+    const cluster = mock<NamespacedCluster>();
+    cluster.kubectl
+      .mockRejectedValueOnce(kubectlSaid(refused))
+      .mockResolvedValueOnce(listed([webui(2, { replicas: 1, updatedReplicas: 1, availableReplicas: 1 }), set, pod({ ready: true, state: { running: {} } })]));
+    await waitUntilRolledOut(cluster, 'deployment/open-webui', { beat: () => undefined, pollMs: 0 });
+    expect(cluster.kubectl).toHaveBeenCalledTimes(2);
+  });
+
+  it('ends the rollout wait for good, saying why, once the cluster says what it waits on is gone', async () => {
+    const cluster = mock<NamespacedCluster>();
+    cluster.kubectl
+      .mockRejectedValueOnce(kubectlSaid(gone))
+      .mockResolvedValueOnce(listed([webui(2, { replicas: 1, updatedReplicas: 1, availableReplicas: 1 }), set, pod({ ready: true, state: { running: {} } })]));
+    const ended = waitUntilRolledOut(cluster, 'deployment/open-webui', { beat: () => undefined, pollMs: 0 });
+    await expect(ended).rejects.toMatchObject({ nonRetryable: true, message: `the rollout of deployment/open-webui cannot be asked: ${gone}` });
+  });
+
+  it('keeps waiting on a Job while its pods cannot be read, and ends once it succeeded', async () => {
+    const cluster = mock<NamespacedCluster>();
+    cluster.kubectl
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('|')
+      .mockRejectedValueOnce(kubectlSaid(refused))
+      .mockResolvedValueOnce('1|');
+    await runClusterJob(cluster, job, { beat: () => undefined, pollMs: 0 });
+    expect(cluster.kubectl).toHaveBeenCalledTimes(4);
+  });
+
+  it('ends the Job wait for good, saying why, once the cluster says its namespace is gone', async () => {
+    const cluster = mock<NamespacedCluster>();
+    cluster.kubectl
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('|')
+      .mockRejectedValueOnce(kubectlSaid(gone))
+      .mockResolvedValueOnce('1|');
+    const ended = runClusterJob(cluster, job, { beat: () => undefined, pollMs: 0 });
+    await expect(ended).rejects.toMatchObject({ nonRetryable: true, message: `the job fetch in app-1 cannot be asked: ${gone}` });
+  });
+});
 
 const webui = (generation: number, status: Record<string, number>) => ({ kind: 'Deployment', metadata: { name: 'open-webui', generation, annotations: { 'deployment.kubernetes.io/revision': '2' } }, spec: { replicas: 1 }, status: { observedGeneration: 2, ...status } });
 const other = { kind: 'Deployment', metadata: { name: 'pipelines', generation: 1 }, spec: { replicas: 1 }, status: { observedGeneration: 1, updatedReplicas: 0, availableReplicas: 0 } };

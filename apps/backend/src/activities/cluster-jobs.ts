@@ -1,6 +1,7 @@
 import { ApplicationFailure } from '@temporalio/common';
 import { assessWorkload, ROLLOUT_KINDS, rolloutOfOne } from '@koala/provision';
 import type { ClusterAccess } from '../infrastructure/index.js';
+import { failureOf } from '@koala/engine-core/failures';
 import { messageOf, waitingOn } from './failure-reasons.js';
 
 export interface NamespacedCluster {
@@ -33,12 +34,22 @@ export function namespacedOn(access: Pick<ClusterAccess, 'kubectl' | 'apply'>, t
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function askedAgainUnlessFinal(what: string): (failure: unknown) => undefined {
+  const waiting = waitingOn(what);
+  return (err) => {
+    const failure = failureOf(err);
+    if (failure.kind === 'final') throw ApplicationFailure.nonRetryable(`${what} cannot be asked: ${failure.reason}`);
+    waiting(failure.reason);
+    return undefined;
+  };
+}
+
 export async function waitUntilRolledOut(cluster: NamespacedCluster, workload: string, watch: JobWatch): Promise<void> {
-  const waiting = waitingOn(`the rollout of ${workload}`);
+  const unanswered = askedAgainUnlessFinal(`the rollout of ${workload}`);
   for (;;) {
     watch.beat(workload);
     watch.stopped?.();
-    const listed = await cluster.kubectl(['get', ROLLOUT_KINDS, '-o', 'json']).then((said) => JSON.parse(said) as unknown).catch((err: unknown) => { waiting(err); return undefined; });
+    const listed = await cluster.kubectl(['get', ROLLOUT_KINDS, '-o', 'json']).then((said) => JSON.parse(said) as unknown, unanswered);
     if (listed !== undefined) {
       const rollout = rolloutOfOne(listed, workload);
       if (rollout.state === 'done') return;
@@ -49,7 +60,7 @@ export async function waitUntilRolledOut(cluster: NamespacedCluster, workload: s
 }
 
 export async function runClusterJob(cluster: NamespacedCluster, input: { name: string; namespace: string; manifest: Record<string, unknown> }, watch: JobWatch): Promise<void> {
-  const waiting = waitingOn(`the job ${input.name} in ${input.namespace}`);
+  const unanswered = askedAgainUnlessFinal(`the job ${input.name} in ${input.namespace}`);
   await cluster.kubectl(['delete', 'job', input.name, '--ignore-not-found', '--wait=true']);
   await cluster.apply({ ...input.manifest, metadata: { ...(input.manifest.metadata as object), name: input.name, namespace: input.namespace } });
   for (;;) {
@@ -63,7 +74,7 @@ export async function runClusterJob(cluster: NamespacedCluster, input: { name: s
       const said = logs.split('\n').filter((line) => /ERROR|CRITICAL|Traceback|Error/.test(line)).slice(-6).join('\n') || logs.split('\n').slice(-8).join('\n');
       throw ApplicationFailure.nonRetryable(`${input.name} failed:\n${said.slice(-1500)}`);
     }
-    const pods = await cluster.kubectl(['get', 'pods', '-l', `job-name=${input.name}`, '-o', 'json']).catch((err: unknown) => { waiting(err); return ''; });
+    const pods = await cluster.kubectl(['get', 'pods', '-l', `job-name=${input.name}`, '-o', 'json']).catch(unanswered);
     const health = pods ? assessWorkload(JSON.parse(pods)) : undefined;
     if (health?.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${input.name} cannot run: ${health.reason}`);
     await sleep(watch.pollMs ?? 5_000);
