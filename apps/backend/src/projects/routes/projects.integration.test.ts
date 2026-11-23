@@ -7,6 +7,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { unexpectedRefusals } from '../testing/project-repo-behaviour.js';
 import { koalasClusterFor } from '../lib/project-shipping.js';
 import { hereFrom } from '../../infrastructure/lib/cluster-places.js';
 
@@ -60,7 +61,7 @@ async function mountForCreate(defaultCluster?: string): Promise<Harness> {
         createRepoForUser: async () => ({}),
         replaceWebhook: async () => undefined,
         seedTemplate: async () => [],
-      } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`, { defaultCluster }),
+      } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`, { defaultCluster, refusals: unexpectedRefusals }),
       clusterService: {
         getById: async (id, principal, action = 'see') => {
           const found = id === koalasCluster.id ? koalasCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);

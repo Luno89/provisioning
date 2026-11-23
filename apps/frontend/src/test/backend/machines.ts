@@ -6,6 +6,7 @@ import { MachineAccounts } from '../../../../backend/src/machines/services/Machi
 import { KoalaInstalls } from '../../../../backend/src/machines/services/KoalaInstalls'
 import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice } from '../../../../backend/src/machines/lib/local-agent-registry'
 import { ProjectRepoService } from '../../../../backend/src/projects/services/ProjectRepoService'
+import { unexpectedRefusals } from '../../../../backend/src/projects/testing/project-repo-behaviour'
 import { InstanceService } from '../../../../backend/src/instances/services/InstanceService'
 import { generateIdentityKey } from '../../../../backend/src/instances/lib/identity-token'
 import type { GiteaService } from '../../../../backend/src/projects/services/GiteaService'
@@ -54,7 +55,7 @@ export async function rootSidesOf(site: Site): Promise<RootSides> {
     mesh: { createPreAuthKey: async () => ({ key: 'preauth' }), removeNode: async () => undefined },
     clients: machineClientsAt(db),
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
-    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
+    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY, undefined, { refusals: unexpectedRefusals }),
     instances: () => ({ places }),
     installWorkflows: workflows,
     dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
@@ -72,7 +73,7 @@ export function machinesOf({ db, origin }: Site): Machines {
   const machines: MachineService = new MachineService({
     store: db.machines,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
-    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
+    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY, undefined, { refusals: unexpectedRefusals }),
     accounts: { createJoinCode: (ownerId) => accounts.createJoinCode(ownerId), remove: (ownerId, id) => accounts.remove(ownerId, id) },
   })
   const accounts: MachineAccounts = new MachineAccounts({

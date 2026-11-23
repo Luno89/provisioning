@@ -475,7 +475,6 @@
  "tests apps/backend/src/projects/services/GiteaService.test.ts <-> apps/backend/src/projects/services/GiteaService.test.ts #695dd4940f79": 1,
  "tests apps/backend/src/projects/services/ItemChatService.integration.test.ts <-> apps/backend/src/projects/services/ItemChatService.test.ts #d94fc49dd3ac": 1,
  "tests apps/backend/src/projects/services/ProjectChannelService.integration.test.ts <-> apps/backend/src/projects/services/ProjectChannelService.test.ts #d0febc210e7f": 1,
- "tests apps/backend/src/projects/services/ProjectRepoService.integration.test.ts <-> apps/backend/src/projects/services/ProjectRepoService.integration.test.ts #6a634e7ce985": 1,
  "tests apps/backend/src/projects/services/ProjectSecretsService.integration.test.ts <-> apps/backend/src/projects/services/ProjectSecretsService.test.ts #551040cc5450": 1,
  "tests apps/backend/src/projects/services/ProjectSecretsService.integration.test.ts <-> apps/backend/src/projects/services/ProjectSecretsService.test.ts #69876fcab517": 1,
  "tests apps/backend/src/projects/services/ProjectSecretsService.integration.test.ts <-> apps/backend/src/projects/services/ProjectSecretsService.test.ts #76b62b4d3507": 1,

@@ -3,7 +3,7 @@ import { mock } from 'vitest-mock-extended';
 import { decryptValue } from '../../platform/lib/crypto.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { GiteaService } from './GiteaService.js';
-import { documentsThroughAnAccountBehaviour } from '../testing/project-repo-behaviour.js';
+import { documentsThroughAnAccountBehaviour, unexpectedRefusals } from '../testing/project-repo-behaviour.js';
 import { ProjectRepoService } from './ProjectRepoService.js';
 
 const KEY = 'a'.repeat(64) as never;
@@ -14,7 +14,7 @@ function setUp(options: { webhook?: typeof webhook | undefined; recordWaitMs?: n
   const gitea = mock<GiteaService>();
   gitea.createUserAccount.mockImplementation(async (username) => ({ password: `pw-${username}` }));
   gitea.revokeUserToken.mockResolvedValue(undefined);
-  const make = (withDb = db, withGitea: GiteaService = gitea) => new ProjectRepoService(withDb, withGitea, KEY, 'webhook' in options ? options.webhook : webhook, { ...(options.recordWaitMs === undefined ? {} : { recordWaitMs: options.recordWaitMs }), ...(options.defaultCluster ? { defaultCluster: options.defaultCluster } : {}) });
+  const make = (withDb = db, withGitea: GiteaService = gitea) => new ProjectRepoService(withDb, withGitea, KEY, 'webhook' in options ? options.webhook : webhook, { refusals: unexpectedRefusals, ...(options.recordWaitMs === undefined ? {} : { recordWaitMs: options.recordWaitMs }), ...(options.defaultCluster ? { defaultCluster: options.defaultCluster } : {}) });
   return { db, gitea, repos: make(), make };
 }
 

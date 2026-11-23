@@ -5,15 +5,20 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { reopening } from '@koala/engine-core/reopening';
+import type { DependencyRefusals } from '../../platform/lib/dependencies.js';
 
 const KEY = 'a'.repeat(64) as never;
+
+export const unexpectedRefusals: DependencyRefusals = {
+  refused: (dependency, reason) => { throw new Error(`${dependency} refused for good, which this test does not expect: ${reason}`); },
+};
 
 async function setUp(make: () => Promise<Database>) {
   const db = await make();
   const gitea = mock<GiteaService>();
   gitea.createUserAccount.mockImplementation(async (username) => ({ password: `pw-${username}` }));
   gitea.revokeUserToken.mockResolvedValue(undefined);
-  return { db, gitea, repos: new ProjectRepoService(db, gitea, KEY) };
+  return { db, gitea, repos: new ProjectRepoService(db, gitea, KEY, undefined, { refusals: unexpectedRefusals }) };
 }
 
 export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>): void {
@@ -42,7 +47,7 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
 
     it('a push token Gitea refuses to revoke is revoked when Gitea answers again', async () => {
       const { db, gitea } = await setUp(make);
-      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined });
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined, refusals: unexpectedRefusals });
       gitea.findRepo.mockResolvedValue({ owner: 'koala-u1', name: 'docs' });
       gitea.createPushToken.mockResolvedValue({ name: 'push-1', token: 'tok' });
       let keptWhileUsed: unknown;
@@ -124,7 +129,7 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
 
     it('tags each token it makes with the pod that made it', async () => {
       const { db, gitea } = await setUp(make);
-      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { process: 'luno-backend-5c8d-xyz12' });
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { process: 'luno-backend-5c8d-xyz12', refusals: unexpectedRefusals });
       gitea.findRepo.mockResolvedValue({ owner: 'koala-u1', name: 'docs' });
       gitea.createPushToken.mockResolvedValue({ name: 'push-1', token: 'tok' });
       let keptWhileUsed: unknown;
@@ -137,7 +142,7 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
 
     it('revokes the tokens of pods Kubernetes no longer has, and a pod\'s tokens the moment Kubernetes says it is gone, leaving a live pod\'s alone', async () => {
       const { db, gitea } = await setUp(make);
-      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined });
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined, refusals: unexpectedRefusals });
       await repos.ensureAccountFor('u1');
       const token = (name: string, process: string) => db.projects.saveTokenToRevoke({ name, ownerId: 'u1', username: 'koala-u1', process, at: '2026-11-17T10:00:00.000Z' });
       await token('push-gone', 'luno-backend-old');
@@ -159,7 +164,7 @@ export function documentsThroughAnAccountBehaviour(make: () => Promise<Database>
 
     it('keeps trying to revoke the tokens gone pods left until Kubernetes can be read', async () => {
       const { db, gitea } = await setUp(make);
-      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined });
+      const repos = new ProjectRepoService(db, gitea, KEY, undefined, { again: () => reopening(5), log: () => undefined, refusals: unexpectedRefusals });
       await repos.ensureAccountFor('u1');
       await db.projects.saveTokenToRevoke({ name: 'push-gone', ownerId: 'u1', username: 'koala-u1', process: 'luno-backend-old', at: '2026-11-17T10:00:00.000Z' });
       let asked = 0;

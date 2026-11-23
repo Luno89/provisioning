@@ -12,6 +12,7 @@ import { ClusterService } from '../../infrastructure/services/ClusterService.js'
 import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import { unexpectedRefusals } from '../../projects/testing/project-repo-behaviour.js';
 import { projectSecretsFor } from '../../projects/services/ProjectSecretsService.js';
 import { treeTypeOfProject } from '../../projects/lib/tree-types.js';
 import type { GiteaAccount } from '../../projects/lib/projects.js';
@@ -52,7 +53,7 @@ beforeAll(async () => {
   await writeFile(path.join(dataDir, '.gitea-admin-password'), gitea.adminPassword);
   giteaService = new GiteaService(KEY, { url: gitea.url }, { dataDir });
   const setUp = await testDatabase();
-  owner = (await new ProjectRepoService(setUp, giteaService, KEY).ensureAccountFor(TEST_USER.id)).username;
+  owner = (await new ProjectRepoService(setUp, giteaService, KEY, undefined, { refusals: unexpectedRefusals }).ensureAccountFor(TEST_USER.id)).username;
   account = (await setUp.projects.getGiteaAccount(TEST_USER.id))!;
   await giteaService.createRepoForUser(owner, 'shop');
   await giteaService.commitFiles(owner, 'shop', [{ path: 'addons/x.py', content: 'value = 1\n' }], 'The release that is live');
@@ -100,7 +101,7 @@ function harness(state: keyof typeof worlds) {
       prefix: '/api/projects',
       router: (db) => {
         const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: KEY }));
-        const projectRepos = new ProjectRepoService(db, giteaService, KEY);
+        const projectRepos = new ProjectRepoService(db, giteaService, KEY, undefined, { refusals: unexpectedRefusals });
         const secrets = projectSecretsFor({
           db: db.projects,
           backend: {

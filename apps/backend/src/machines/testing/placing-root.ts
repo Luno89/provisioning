@@ -15,6 +15,7 @@ import { instancesRouter } from '../../instances/routes/instances.js';
 import { koalaInstallActivities } from '../../activities/KoalaInstallActivities.js';
 import { bundled, temporalTestEnvironment, type TestTemporal } from '../../workflows/testing/temporal-test-env.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import { unexpectedRefusals } from '../../projects/testing/project-repo-behaviour.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
@@ -92,7 +93,7 @@ export async function placingRoot(options: PlacingRootOptions): Promise<PlacingR
     mesh: { createPreAuthKey: async () => ({ key: 'k' }), removeNode: async () => undefined },
     clients: machineClientsAt(db),
     devices: { status: () => ({ online: false }), tell: () => true, ask: async () => undefined as never, drop: () => undefined },
-    projects: new ProjectRepoService(db, {} as GiteaService, 'koala-placement-key'),
+    projects: new ProjectRepoService(db, {} as GiteaService, 'koala-placement-key', undefined, { refusals: unexpectedRefusals }),
     instances: () => ({ places: instances }),
     installWorkflows: options.workflows,
     dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),

@@ -32,8 +32,8 @@ export class ProjectRepoService {
     private db: Database,
     private gitea: GiteaService,
     private masterKey: SecretKey,
-    private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
-    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined; process?: string | undefined; refusals?: DependencyRefusals | undefined } = {},
+    private webhookUrl: ((projectId: string) => Promise<string>) | undefined,
+    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined; again?: (() => Reopening) | undefined; log?: ((message: string) => void) | undefined; process?: string | undefined; refusals: DependencyRefusals },
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -386,7 +386,6 @@ export class ProjectRepoService {
   }
 
   private refused(reason: string): void {
-    if (!this.options.refusals) throw new Error(`Gitea refused for good, and this ProjectRepoService was given nowhere to say so: ${reason}`);
     this.options.refusals.refused('gitea', reason);
   }
 

@@ -10,17 +10,18 @@ import { GiteaService } from './GiteaService.js';
 import { startRealGitea, type RealGitea } from '../testing/real-gitea.js';
 import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { documentsThroughAnAccountBehaviour } from '../testing/project-repo-behaviour.js';
+import { documentsThroughAnAccountBehaviour, unexpectedRefusals } from '../testing/project-repo-behaviour.js';
 import { ProjectRepoService } from './ProjectRepoService.js';
 
 const KEY = 'a'.repeat(64);
+const recordingQuickly = (db: MongoDB, gitea: unknown) => new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20, refusals: unexpectedRefusals });
 
 describe('the Gitea user behind an account', () => {
   it('is made once when several runs need it at the same moment', async () => {
     const db = await testDatabase();
     let made = 0;
     const gitea = { createUserAccount: async (username: string) => { made += 1; await new Promise((resolve) => setTimeout(resolve, 20)); return { username, password: 'secret' }; } };
-    const repos = new ProjectRepoService(db, gitea as never, KEY as never);
+    const repos = new ProjectRepoService(db, gitea as never, KEY as never, undefined, { refusals: unexpectedRefusals });
 
     const accounts = await Promise.all([repos.ensureAccountFor('space-1'), repos.ensureAccountFor('space-1'), repos.ensureAccountFor('space-1')]);
 
@@ -30,9 +31,9 @@ describe('the Gitea user behind an account', () => {
 
   it('waits for the record when another process made the user first', async () => {
     const db = await testDatabase();
-    const theirs = new ProjectRepoService(db, { createUserAccount: async (username: string) => ({ username, password: 'theirs' }) } as never, KEY as never);
+    const theirs = new ProjectRepoService(db, { createUserAccount: async (username: string) => ({ username, password: 'theirs' }) } as never, KEY as never, undefined, { refusals: unexpectedRefusals });
     const gitea = { createUserAccount: async () => { throw new Error('HTTP 500 {"message":"pq: duplicate key value violates unique constraint \\"UQE_user_lower_name\\""}'); } };
-    const ours = new ProjectRepoService(db, gitea as never, KEY as never);
+    const ours = new ProjectRepoService(db, gitea as never, KEY as never, undefined, { refusals: unexpectedRefusals });
 
     const waiting = ours.ensureAccountFor('space-2');
     await theirs.ensureAccountFor('space-2');
@@ -47,9 +48,9 @@ describe('the Gitea user behind an account', () => {
       createUserAccount: async () => { throw new Error('Failed to create Gitea account koala-space3: HTTP 422 {"message":"user already exists [name: koala-space3]"}'); },
       setUserPassword: async (_username: string, password: string) => { passwords.push(password); },
     };
-    const repos = new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20 });
+    const repos = recordingQuickly(db, gitea);
 
-    const [first, second] = await Promise.all([repos.ensureAccountFor('space-3'), new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20 }).ensureAccountFor('space-3')]);
+    const [first, second] = await Promise.all([repos.ensureAccountFor('space-3'), recordingQuickly(db, gitea).ensureAccountFor('space-3')]);
 
     expect(first.username).toBe('koala-space3');
     expect(second.username).toBe('koala-space3');
@@ -67,7 +68,7 @@ describe('the Gitea user behind an account', () => {
       userExists: async () => true,
       setUserPassword: async (_username: string, password: string) => { passwords.push(password); },
     };
-    const repos = new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20 });
+    const repos = recordingQuickly(db, gitea);
 
     const accounts = await Promise.all([repos.ensureAccountFor('space-4'), repos.ensureAccountFor('space-4'), repos.ensureAccountFor('space-4')]);
 
@@ -83,7 +84,7 @@ describe('the Gitea user behind an account', () => {
       userExists: async () => false,
       setUserPassword: async () => undefined,
     };
-    await expect(new ProjectRepoService(db, gitea as never, KEY as never).ensureAccountFor('space-5')).rejects.toThrow(/ended by the other party/);
+    await expect(new ProjectRepoService(db, gitea as never, KEY as never, undefined, { refusals: unexpectedRefusals }).ensureAccountFor('space-5')).rejects.toThrow(/ended by the other party/);
     expect(await db.projects.getGiteaAccount('space-5')).toBeNull();
   });
 });
@@ -106,7 +107,7 @@ describe('making a project with a repository', () => {
   };
   const made = async (gitea: unknown, db?: MongoDB) => {
     const store = db ?? await testDatabase();
-    return { db: store, repos: new ProjectRepoService(store, gitea as never, KEY as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`) };
+    return { db: store, repos: new ProjectRepoService(store, gitea as never, KEY as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`, { refusals: unexpectedRefusals }) };
   };
 
   it('makes the repository, its build webhook and the record, deploying itself to the person\'s own cluster, and lays the starter in last', async () => {
@@ -152,7 +153,7 @@ describe('making a project with a repository', () => {
     const shop = await repos.createProject('u1', { id: 'p1', name: 'Shop', repo: 'shop', autoDeployOnBuild: true });
     await db.projects.saveProject({ id: 'local', name: 'On a machine', ownerId: 'u1', appType: 'local', createdAt: new Date().toISOString() });
     const later = fakeGitea();
-    const moved = new ProjectRepoService(db, later.gitea as never, KEY as never, async (id) => `http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/${id}`);
+    const moved = new ProjectRepoService(db, later.gitea as never, KEY as never, async (id) => `http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/${id}`, { refusals: unexpectedRefusals });
 
     expect(await moved.repointWebhooks()).toEqual({ repointed: 1 });
     expect(later.calls).toEqual([`hook ${shop.giteaOwner}/shop http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/p1`]);
@@ -164,7 +165,7 @@ describe('making a project with a repository', () => {
     const { repos, db } = await made(gitea);
     await repos.createProject('u1', { name: 'Shop', repo: 'shop', autoDeployOnBuild: true });
     await expect(repos.createProject('u1', { name: 'Shop again', repo: 'shop', autoDeployOnBuild: true })).rejects.toThrow('already have a project whose repository is called "shop"');
-    await expect(new ProjectRepoService(db, gitea as never, KEY as never).createProject('u1', { name: 'x', repo: 'x', autoDeployOnBuild: true })).rejects.toThrow('nothing says where their pushes are sent');
+    await expect(new ProjectRepoService(db, gitea as never, KEY as never, undefined, { refusals: unexpectedRefusals }).createProject('u1', { name: 'x', repo: 'x', autoDeployOnBuild: true })).rejects.toThrow('nothing says where their pushes are sent');
   });
 });
 
@@ -229,7 +230,7 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
         return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
       },
     });
-    const repos = new ProjectRepoService(db, flaky, KEY as never, undefined, { again: () => reopening(20), log: () => undefined });
+    const repos = new ProjectRepoService(db, flaky, KEY as never, undefined, { again: () => reopening(20), log: () => undefined, refusals: unexpectedRefusals });
 
     const pushed = await repos.pushDocuments({ ownerId: 'tok-1', repo: 'docs', describe: 'Docs', bundle: await bundled() });
     expect(pushed).toMatchObject({ repo: 'docs' });
@@ -242,7 +243,7 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
 
   it('a branch pushed to a new repository becomes its main, is pulled back and compared, and every token used is revoked', async () => {
     const db = await testDatabase();
-    const repos = new ProjectRepoService(db, gitea, KEY as never);
+    const repos = new ProjectRepoService(db, gitea, KEY as never, undefined, { refusals: unexpectedRefusals });
     const work = await mkdtemp(path.join(scratch, 'branch-'));
     const git = (...args: string[]) => execFileSync('git', ['-C', work, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]).toString();
     git('init', '-q', '-b', 'draft');
@@ -283,14 +284,14 @@ describe('the Gitea tokens a push makes, on a real Gitea', () => {
 
   it('a token left from a push that failed to revoke is revoked at the next start', async () => {
     const db = await testDatabase();
-    const repos = new ProjectRepoService(db, gitea, KEY as never);
+    const repos = new ProjectRepoService(db, gitea, KEY as never, undefined, { refusals: unexpectedRefusals });
     const { username } = await repos.ensureAccountFor('tok-2');
     const account = (await db.projects.getGiteaAccount('tok-2'))!;
     const left = await gitea.createPushToken(username, decryptValue(account.passwordEnc, KEY as never));
     await db.projects.saveTokenToRevoke({ name: left.name, ownerId: 'tok-2', username, process: 'backend-that-stopped', at: new Date().toISOString() });
     expect(await tokensOf(db, 'tok-2')).toEqual([left.name]);
 
-    expect(await new ProjectRepoService(db, gitea, KEY as never).revokeLeftoverTokens([])).toBe(1);
+    expect(await new ProjectRepoService(db, gitea, KEY as never, undefined, { refusals: unexpectedRefusals }).revokeLeftoverTokens([])).toBe(1);
 
     expect(await tokensOf(db, 'tok-2')).toEqual([]);
     expect(await db.projects.getTokensToRevoke()).toEqual([]);

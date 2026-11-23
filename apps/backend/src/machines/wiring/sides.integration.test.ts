@@ -14,6 +14,7 @@ import type { MachineDevices } from '../services/MachineService.js';
 import { accountMachinesRouter } from '../routes/account-machines.js';
 import { machineSides, type MachineSides } from './sides.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import { unexpectedRefusals } from '../../projects/testing/project-repo-behaviour.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { InstanceReach } from '../../instances/services/InstanceReach.js';
@@ -124,7 +125,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>,
   rootSide = machineSides({
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: pem }),
     db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh, meshLoginServer: 'https://mesh.koala.test', clients: machineClientsAt(rootDb, root.url),
-    devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY),
+    devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY, undefined, { refusals: unexpectedRefusals }),
     instances: () => ({ service: instances, tellInstance }),
     dependencies: new DependencyStates({ process: 'backend', described: ['mongo', 'temporal'] }),
   });
@@ -144,7 +145,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>,
   const role = roleFromEnv({ ROLE: 'instance', INSTANCE_ID: instanceId, INSTANCE_OWNER_ID: 'bo', ROOT_URL: root.url, ROOT_PUBLIC_KEYS: publicKeyPem(identityKeysFrom(pem).publicKey) });
   const side = new InstanceSide(role, { edge: { off: 'this test runs no edge' }, unreachableAfterMs: 600_000 }, async () => token);
   const devices = recordingDevices();
-  const projects = new ProjectRepoService(instanceDb, {} as GiteaService, KEY);
+  const projects = new ProjectRepoService(instanceDb, {} as GiteaService, KEY, undefined, { refusals: unexpectedRefusals });
   const instanceSide: MachineSides = machineSides({
     role, db: instanceDb, io: instance.io, dataKey: KEY, publicUrl: instance.url, mesh,
     devices, projects, rootToken: async () => token, side,

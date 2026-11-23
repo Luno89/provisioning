@@ -6,6 +6,7 @@ import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test
 import type { Database } from '../../platform/lib/db-interface.js';
 import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import { unexpectedRefusals } from '../../projects/testing/project-repo-behaviour.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
@@ -21,7 +22,7 @@ const machinesOf = (db: Database, mesh = 'https://mesh.koala.test', now?: () => 
   const machines: MachineService = new MachineService({
     store: db.machines,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
-    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
+    projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY, undefined, { refusals: unexpectedRefusals }),
     accounts: { createJoinCode: (ownerId) => made.createJoinCode(ownerId), remove: (ownerId, id) => made.remove(ownerId, id) },
   });
   const made: MachineAccounts = new MachineAccounts({

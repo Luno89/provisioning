@@ -9,6 +9,7 @@ import { createWorkspaceRepoResolver } from '../../engine-host/sandboxes/workspa
 import { ownedBy } from '../../platform/lib/ownership.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import { unexpectedRefusals } from '../../projects/testing/project-repo-behaviour.js';
 import { startRealGitea, type RealGitea } from '../../projects/testing/real-gitea.js';
 
 const KEY = 'documents-route-test-key' as never;
@@ -38,7 +39,7 @@ beforeAll(async () => {
   harness = await mountRouter({
     prefix: '/api/documents',
     router: (db) => {
-      const projectRepos = new ProjectRepoService(db, giteaService, KEY);
+      const projectRepos = new ProjectRepoService(db, giteaService, KEY, undefined, { refusals: unexpectedRefusals });
       return documentsRouter({
         documents: new DocumentService({
           repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
@@ -58,7 +59,7 @@ beforeAll(async () => {
   await db.engine.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'research', messages: [], createdAt: 'then', updatedAt: 'then' } as never);
   await db.engine.saveConversation({ id: 'c2', ownerId: 'someone-else', title: 'theirs', messages: [], createdAt: 'then', updatedAt: 'then' } as never);
   await db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Health', type: 'api', createdAt: 'then', updatedAt: 'then' } as never);
-  owner = (await new ProjectRepoService(db, giteaService, KEY).ensureAccountFor(TEST_USER.id)).username;
+  owner = (await new ProjectRepoService(db, giteaService, KEY, undefined, { refusals: unexpectedRefusals }).ensureAccountFor(TEST_USER.id)).username;
 
   await giteaService.createRepoForUser(owner, 'research-c1');
   await giteaService.commitFiles(owner, 'research-c1', [{ path: 'research/r1/findings.md', content: '# Findings' }], 'Research findings');
