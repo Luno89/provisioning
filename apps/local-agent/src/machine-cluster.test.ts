@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
+import { MACHINE_CLUSTER_ABSENT, MACHINE_CLUSTER_KEPT, MACHINE_OFF_MESH } from '@koala/engine-core';
 import { expectReadyOnlySinceStart } from '@koala/provision/testing';
 import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, METRICS_CLIENT_MISSING, clusterOnConnect, machineClusterOp, metricsClientInto, clusterState, kubeconfigOnMesh, machineChartCluster, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type MachineHost } from './machine-cluster.js';
 
@@ -91,10 +91,12 @@ describe('a machine\'s own cluster', () => {
     expect(await runMachineCluster(host({ installed: false }).machine, { kind: 'stop' })).toEqual({ state: 'absent' });
   });
 
-  it('keeps running when asked to stop while Koala is on it, answering as a running cluster', async () => {
-    const { machine, calls } = host({ active: 'active', koala: true, readyAt: [START - 3_600_000] });
-    expect(await runMachineCluster(machine, { kind: 'stop' })).toMatchObject({ state: 'running', meshIp: '100.64.0.7' });
-    expect(calls.some((call) => call.includes('stop') || call.includes(K3S_KILLALL))).toBe(false);
+  it('keeps its cluster when asked to stop while Koala is on it, saying why, and starts or stops nothing', async () => {
+    for (const active of ['active', 'inactive']) {
+      const { machine, calls } = host({ active, koala: true, readyAt: [START - 3_600_000] });
+      expect(await machineClusterOp(machine, { kind: 'stop' })).toEqual({ state: 'kept', why: MACHINE_CLUSTER_KEPT });
+      expect(calls).toEqual([]);
+    }
   });
 
   it('refuses to start without k3s or off the mesh, and fails with k3s\'s own words when its unit fails while starting', async () => {

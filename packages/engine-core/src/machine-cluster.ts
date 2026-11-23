@@ -3,7 +3,10 @@ export type MachineClusterOp = { kind: 'start' } | { kind: 'stop' };
 export type MachineClusterResult =
   | { state: 'running'; kubeconfig: string; meshIp: string }
   | { state: 'stopped' }
+  | { state: 'kept'; why: string }
   | { state: 'absent' };
+
+export const MACHINE_CLUSTER_KEPT = 'kept: it holds your Koala';
 
 export interface MachineWorkStop {
   workflowIds: string[];
