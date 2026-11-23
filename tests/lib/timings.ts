@@ -85,6 +85,11 @@ export function heldOverBudget(tests: readonly TestTime[]): string[] {
 
 export const isHeld = (tier: Tier): boolean => HELD.has(tier);
 
+export function tierOf(project: string): Tier {
+  if (project in TEST_BUDGET) return project as Tier;
+  throw new Error(`the test project ${project} is no layer, so it has no budget: name it one of ${Object.keys(TEST_BUDGET).join(', ')}`);
+}
+
 const minutes = (seconds: number): string => `${(seconds / 60).toFixed(1)} min`;
 
 export function layerOverBudget(layer: Layer, seconds: number): string | undefined {

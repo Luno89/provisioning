@@ -1,7 +1,7 @@
 import { relative, resolve } from 'node:path';
 import type { Reporter, TestModule } from 'vitest/node';
 import { judgeTests, KNOWN_SLOW, readSlow, SLOW_LIST, SLOW_LIST_FROM } from '../lib/slow.js';
-import { keepTimings, type Tier } from '../lib/timings.js';
+import { keepTimings, tierOf } from '../lib/timings.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 
@@ -10,7 +10,7 @@ const lines = (lines: readonly string[]): string => lines.map((line) => `  ${lin
 export default class TimingReporter implements Reporter {
   onTestRunEnd(modules: ReadonlyArray<TestModule>): void {
     const tests = modules.flatMap((module) => {
-      const tier = module.project.name as Tier;
+      const tier = tierOf(module.project.name);
       const file = relative(ROOT, module.moduleId);
       return [...module.children.allTests()].filter((test) => test.result().state === 'passed').map((test) => ({
         name: `${file} > ${test.fullName}`, tier, seconds: (test.diagnostic()?.duration ?? 0) / 1000,

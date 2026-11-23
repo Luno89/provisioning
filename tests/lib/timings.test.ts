@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { slowerThanUsual, type Timed, overBudget, heldOverBudget, layerOverBudget } from './timings.js';
+import { slowerThanUsual, type Timed, overBudget, heldOverBudget, layerOverBudget, tierOf } from './timings.js';
 
 const timed = (commit: string, name: string, seconds: number, kind: Timed['kind'] = 'step'): Timed => ({ at: '2026-11-10T00:00:00Z', commit, kind, name, seconds });
 
@@ -71,5 +71,16 @@ describe('the budgets each layer is held to', () => {
     expect(layerOverBudget('unit', 150)).toBe('the unit layer took 2.5 min, over the 2.0 min it may take');
     expect(layerOverBudget('container', 900)).toBeUndefined();
     expect(layerOverBudget('component', 301)).toBe('the component layer took 5.0 min, over the 5.0 min it may take');
+  });
+});
+
+describe('the layer of a test project', () => {
+  it('is the project\'s name when that names a layer', () => {
+    expect(tierOf('container')).toBe('container');
+    expect(tierOf('integration')).toBe('integration');
+  });
+
+  it('is refused for any other name, since such a project would have no budget', () => {
+    expect(() => tierOf('e2e')).toThrow('the test project e2e is no layer');
   });
 });

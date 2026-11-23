@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { WORKSPACES } from '../coupling/workspaces.js';
 import { judgeLayer, KNOWN_SLOW, readSlow, SLOW_LIST, SLOW_LIST_FROM } from '../lib/slow.js';
 import { LAYER_BUDGET, type Layer } from '../lib/timings.js';
-import { filesListed, noFilesIn, workspacesWithFiles } from './layers.js';
+import { filesListed, noFilesIn, testedWorkspaces, workspacesWithFiles } from './layers.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const VITEST = join(ROOT, 'node_modules', '.bin', 'vitest');
@@ -14,7 +14,14 @@ if (!(layer in LAYER_BUDGET)) {
   process.exit(1);
 }
 
-const listed = new Map(WORKSPACES.map((workspace) => {
+const globs = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { workspaces: string[] }).workspaces;
+const workspaces = testedWorkspaces(
+  globs,
+  (dir) => readdirSync(join(ROOT, dir), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+  (folder) => existsSync(join(ROOT, folder, 'vitest.config.ts')),
+);
+
+const listed = new Map(workspaces.map((workspace) => {
   const listing = spawnSync(VITEST, ['list', '--filesOnly', '--project', layer], { cwd: join(ROOT, workspace.folder), encoding: 'utf8' });
   if (listing.status !== 0) {
     console.error(`${workspace.name}: listing the ${layer} files failed\n${listing.stdout}${listing.stderr}`);
@@ -23,7 +30,7 @@ const listed = new Map(WORKSPACES.map((workspace) => {
   return [workspace.name, filesListed(layer, listing.stdout)];
 }));
 
-const ones = workspacesWithFiles(WORKSPACES, listed);
+const ones = workspacesWithFiles(workspaces, listed);
 if (ones.length === 0) {
   console.error(noFilesIn(layer));
   process.exit(1);
