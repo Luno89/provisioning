@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch --exclude data src/index.ts",
     "start": "node --import tsx src/index.ts",
-    "test": "npm run test:unit && npm run test:integration",
+    "test": "npm run test:unit && npm run test:component && npm run test:contract && npm run test:container && npm run test:integration",
     "test:unit": "vitest run --project unit",
     "test:component": "vitest run --project component",
     "test:contract": "vitest run --project contract",

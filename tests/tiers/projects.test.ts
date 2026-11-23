@@ -19,6 +19,11 @@ describe('the projects a workspace gets', () => {
     expect(owners).toEqual([project]);
   });
 
+  it.each([['unit', 'unit-guard.ts'], ['component', 'component-guard.ts'], ['contract', 'contract-guard.ts'], ['container', 'container-guard.ts']])('hold the %s layer to its own guard', (name, guard) => {
+    const setup = projects.find((one) => one.test?.name === name)?.test?.setupFiles;
+    expect((Array.isArray(setup) ? setup : []).filter((file) => file.endsWith('-guard.ts')).map((file) => file.split('/').pop())).toEqual([guard]);
+  });
+
   it('give a plain *.test file to unit alone', () => {
     const owners = projects.filter((one) => matches(one.test?.include ?? [], pattern('unit').replace('.unit', '')) && !matches(one.test?.exclude ?? [], pattern('unit').replace('.unit', ''))).map((one) => one.test?.name);
     expect(owners).toEqual(['unit']);
