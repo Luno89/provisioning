@@ -206,6 +206,13 @@ export interface ResolvedAgentInfo {
 
 export interface ToolRuntime {
   run(args: ToolCallArgs, attempt?: number, signal?: AbortSignal): Promise<ToolCallOutcome>;
+  check(args: ToolCallArgs): Promise<ToolCallOutcome | undefined>;
+  shown(args: ToolCallArgs, outcome: ToolCallOutcome): Promise<ToolCallOutcome>;
+}
+
+export interface ToolShownArgs {
+  args: ToolCallArgs;
+  outcome: ToolCallOutcome;
 }
 
 export interface MergeRuntime {

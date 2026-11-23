@@ -11,7 +11,7 @@ import type { HandOffChecks } from '../tools/hand-offs.js';
 export interface HostNodeServices {
   registry: Pick<AgentRegistry, 'agent' | 'callable' | 'tools'>;
   models: ModelServiceLike;
-  tools: ToolRuntime;
+  tools: Pick<ToolRuntime, 'run'>;
   grants: { grant(id: string): Promise<{ principal: Principal } | undefined> } & HandOffChecks['grants'];
   environments: {
     describe(ticket: RunPlace, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;

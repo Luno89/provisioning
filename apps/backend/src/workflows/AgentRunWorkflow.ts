@@ -53,13 +53,12 @@ import {
   type AutoModeArgs,
   type RemoteNodeRequest,
   type RemoteNodeResult,
-  type ResolveAgentArgs,
-  type ResolvedAgentInfo,
   type ToolCallArgs,
   type ToolCallOutcome,
   type EnvironmentHandleRef,
-  type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
+import { checkedCall } from '../engine/lib/checked-call.js';
+import type { EngineActivities } from '../engine-host/temporal/activities.js';
 import { REVOKED_SAID, runGrantProblem, type Handover, type RevokedBecause } from '../engine/lib/run-grants.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
@@ -70,24 +69,24 @@ import { tracedSummary } from '../engine/lib/turn-log.js';
 import { externalCallId, externalRunEvents, externalToolName, permissionChoice, type ExternalToolSeen } from '../machines/lib/external-agent-events.js';
 import type { ExternalAgentStepArgs, ExternalAgentStepResult, ExternalCallAnswer, ExternalToolCall, MachineGitOp, MachineGitResult } from '@koala/engine-core';
 import { machineBranch, machineFolder, machineStepFolder } from '../machines/lib/machine-branches.js';
-import type { MachineSendRequest, MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
-import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
+import type { MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ignore } from '@koala/engine-core/failures';
 
 export const CONTINUE_AFTER_EVENTS = 10_000;
 
-interface EngineRemote {
-  EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
-  EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
-  EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
-  EngineMachineSendActivity(args: MachineSendRequest): Promise<{ repo: string; folder: string; commit: string }>;
-  EngineMachineTakeActivity(args: MachineWorkRequest & { message?: string | undefined }): Promise<BroughtBack>;
-  EngineMachineKeepActivity(args: MachineWorkRequest): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
-  EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
-  EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
-  EngineHandoverActivity(args: HandoverArgs): Promise<Handover>;
-}
+type EngineRemote = Pick<EngineActivities,
+  | 'EngineNodeActivity'
+  | 'EngineResolveAgentActivity'
+  | 'EngineToolActivity'
+  | 'EngineToolCheckActivity'
+  | 'EngineToolShownActivity'
+  | 'EngineMachineSendActivity'
+  | 'EngineMachineTakeActivity'
+  | 'EngineMachineKeepActivity'
+  | 'EngineMachineDropActivity'
+  | 'EngineMachineNameActivity'
+  | 'EngineHandoverActivity'>;
 
 interface DeviceRemote {
   ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult>;
@@ -151,6 +150,7 @@ const MACHINE_MERGES = 'machine-merges';
 const HANDED_WORK_MERGED = 'handed-work-merged';
 const RUN_GRANTS = 'run-grants';
 const ENDINGS_HEARD = 'endings-heard';
+const MACHINE_CALLS_CHECKED = 'machine-calls-checked';
 const MACHINE_ANSWER_WAIT_MS = 15_000;
 const MACHINE_GATHER_MS = 1_000;
 
@@ -313,7 +313,17 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           retry: ACTIVITY_RETRY,
           ...LIVE_ACTIVITY,
         });
-        const outcome = placedOnly(await cancellable(() => onDevice.EngineToolActivity(sent)));
+        const onMachine = (): Promise<ToolCallOutcome> => cancellable(() => onDevice.EngineToolActivity(sent));
+        const outcome = placedOnly(patched(MACHINE_CALLS_CHECKED)
+          ? await checkedCall<ToolCallArgs, ToolCallOutcome>({
+            check: async () => {
+              const refused = await engine.EngineToolCheckActivity(sent);
+              return refused ? { refused } : { ready: sent };
+            },
+            run: onMachine,
+            shown: (ran) => engine.EngineToolShownActivity({ args: sent, outcome: ran }),
+          })
+          : await onMachine());
         keep(outcome.artifacts);
         return outcome;
       }
