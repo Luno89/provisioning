@@ -42,6 +42,11 @@ describe('a fetch that never got an answer', () => {
   it('is final when the name it asked for does not resolve', () => {
     expect(failureOf(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ENOTFOUND' } })).kind).toBe('final');
   });
+
+  it('is final, saying why, when it refused the certificate it was answered with', () => {
+    const refused = Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('self-signed certificate in certificate chain'), { code: 'SELF_SIGNED_CERT_IN_CHAIN' }) });
+    expect(failureOf(refused)).toEqual({ kind: 'final', reason: 'fetch failed: self-signed certificate in certificate chain' });
+  });
 });
 
 describe('a token asked to be revoked', () => {

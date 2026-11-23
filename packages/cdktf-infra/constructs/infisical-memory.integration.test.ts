@@ -9,7 +9,6 @@ import { platformService } from "./platform-services.js";
 const run = promisify(execFile);
 const REDIS_IMAGE = "redis:7.4.2";
 const HEADROOM = 1.5;
-const MIB = 1024 * 1024;
 
 interface Pin { kind: string; name: string; version: string; source?: string }
 const pins = (JSON.parse(readFileSync(new URL("../../../dependencies.pins.json", import.meta.url), "utf8")) as { components: Pin[] }).components;
@@ -45,27 +44,25 @@ afterAll(async () => {
 });
 
 describe("the pinned Infisical image against the memory Koala gives it", () => {
-  it("runs its migrations on an empty database and starts, within a limit that holds the measured peak with headroom", async () => {
+  it("runs its migrations on an empty database and starts within the limit Koala gives it less its headroom", async () => {
     const set = standaloneSet();
     expect(set["infisical.image.tag"]).toBe(infisicalImage.version);
     const limit = mebibytes(set["infisical.resources.limits.memory"]!);
+    const room = Math.floor(limit / HEADROOM);
     await docker("network", "create", label);
     await docker("run", "-d", "--name", `${label}-pg`, "--network", label, "-e", "POSTGRES_PASSWORD=pw", "-e", "POSTGRES_DB=infisical", postgresImage.source!);
     await docker("run", "-d", "--name", `${label}-redis`, "--network", label, REDIS_IMAGE);
     while (await exitCode("exec", `${label}-pg`, "pg_isready", "-U", "postgres", "-d", "infisical") !== 0) await pause(500);
     const app = `${label}-app`;
     const env = { ENCRYPTION_KEY: randomBytes(16).toString("hex"), AUTH_SECRET: randomBytes(32).toString("base64"), DB_CONNECTION_URI: `postgresql://postgres:pw@${label}-pg:5432/infisical`, REDIS_URL: `redis://${label}-redis:6379`, SITE_URL: "http://localhost" };
-    await docker("run", "-d", "--name", app, "--network", label, "--memory", `${limit}m`, "--memory-swap", `${limit}m`, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), infisicalImage.source!);
+    await docker("run", "-d", "--name", app, "--network", label, "--memory", `${room}m`, "--memory-swap", `${room}m`, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), infisicalImage.source!);
     let started = false;
     while (!started && await alive(app)) {
       started = (await run("docker", ["logs", app])).stdout.includes("Setting up background sync process");
       if (!started) await pause(1000);
     }
     const state = await docker("inspect", "-f", "{{.State.OOMKilled}} {{.State.ExitCode}}", app);
-    expect(state, `Infisical ${infisicalImage.version} died at ${limit}Mi`).toBe("false 0");
+    expect(state, `Infisical ${infisicalImage.version} died at ${room}Mi, so the ${limit}Mi Koala gives it has less than ${HEADROOM} times what it needs`).toBe("false 0");
     expect(started).toBe(true);
-    const id = await docker("inspect", "-f", "{{.Id}}", app);
-    const peak = Number(readFileSync(`/sys/fs/cgroup/system.slice/docker-${id}.scope/memory.peak`, "utf8")) / MIB;
-    expect(limit, `peak was ${Math.round(peak)}Mi`).toBeGreaterThanOrEqual(peak * HEADROOM);
   });
 });
