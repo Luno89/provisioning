@@ -9,6 +9,8 @@ export default defineConfig({
     environment: 'node',
     projects: tiers({
       include: ['src/**/*.test.ts', '../../tests/lib/*.test.ts', '../../tests/coupling/*.test.ts', '../../tests/copies/*.test.ts','../../tests/alignment/*.test.ts', '../../tests/tiers/*.test.ts'],
+      component: { globalSetup: ['./vitest.global-setup.ts'], setupFiles: ['./vitest.setup.ts'] },
+      container: { globalSetup: ['./vitest.global-setup.ts', './vitest.temporal-setup.ts'], optional: OPTIONAL_SETUPS, setupFiles: ['./vitest.setup.ts'] },
       integration: { globalSetup: ['./vitest.global-setup.ts', './vitest.temporal-setup.ts'], optional: OPTIONAL_SETUPS, setupFiles: ['./vitest.setup.ts'] },
     }),
   },
