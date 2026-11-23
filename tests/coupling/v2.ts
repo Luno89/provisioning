@@ -37,6 +37,10 @@ export interface Context {
 const NAMED = /\.(component|contract|container)\.test\.[a-z]+$/;
 const INTEGRATION = /\.integration\.test\.[a-z]+$/;
 
+export const JUDGED_FROM = '744567b6ca15e7be04bfc2b27768fd8585b67c54';
+
+export const changedBase = (at: { shipped: string; startShipped: boolean }): string => (at.startShipped ? at.shipped : JUDGED_FROM);
+
 export const layerOf = (testFile: string): Layer => {
   if (/-live\.ts$/.test(testFile) || testFile === STARTUP) return 'vm';
   const named = NAMED.exec(testFile)?.[1];

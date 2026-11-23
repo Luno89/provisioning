@@ -1,6 +1,6 @@
 import { matchesGlob } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { tiers } from './projects.js';
+import { projectOfTest, tiers } from './projects.js';
 
 const names = ['unit', 'component', 'contract', 'container', 'integration'];
 const pattern = (kind: string): string => `src/a/b.${kind}.test.ts`;
@@ -31,3 +31,16 @@ describe('the projects a workspace gets', () => {
 });
 
 const matches = (globs: string[], file: string): boolean => globs.some((glob) => matchesGlob(file, glob));
+
+describe('the project a test file runs in', () => {
+  it.each([
+    ['src/a/b.test.ts', 'unit'],
+    ['src/a/b.component.test.ts', 'component'],
+    ['src/a/b.contract.test.tsx', 'contract'],
+    ['src/a/b.container.test.ts', 'container'],
+    ['src/a/b.integration.test.ts', 'integration'],
+    ['src/a/b.real-minio.test.ts', 'integration'],
+  ])('puts %s in %s', (file, project) => {
+    expect(projectOfTest(file)).toBe(project);
+  });
+});

@@ -120,6 +120,7 @@ describe('the tests that sit next to a file', () => {
   it('finds a file\'s own unit and integration tests among those that exist', () => {
     const exists = new Set(['apps/backend/src/a/b.test.ts', 'apps/backend/src/a/b.integration.test.ts', 'apps/backend/src/a/c.test.ts']);
     expect(siblingTests('apps/backend/src/a/b.ts', (path) => exists.has(path))).toEqual(['apps/backend/src/a/b.test.ts', 'apps/backend/src/a/b.integration.test.ts']);
+    expect(siblingTests('apps/backend/src/c/d.ts', (path) => ['apps/backend/src/c/d.component.test.ts', 'apps/backend/src/c/d.container.test.ts'].includes(path))).toEqual(['apps/backend/src/c/d.component.test.ts', 'apps/backend/src/c/d.container.test.ts']);
     expect(siblingTests('apps/frontend/src/X.tsx', () => false)).toEqual([]);
   });
 });

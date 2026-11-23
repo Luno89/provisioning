@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Setup } from '../tiers/projects.js';
+import { projectOfTest, type Setup } from '../tiers/projects.js';
 import { commitOf, gatheredIn, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import { changedBetween, changedLines, fileHashes, testsToRerun } from './impact.js';
 import { runsIn } from './artifacts.js';
@@ -11,7 +11,6 @@ import { workspaceOf, WORKSPACES, type Workspace } from './workspaces.js';
 
 const TEST_FILE = /\.test\.(ts|tsx|mjs)$/;
 const REPO_TESTS = /^tests\/(lib|coupling|alignment|tiers)\/[^/]+\.test\.ts$/;
-const INTEGRATION_TEST = /\.(integration|real-[^/.]+)\.test\.(ts|tsx|mjs)$/;
 const BACKEND = WORKSPACES.find((workspace) => workspace.name === 'backend')!;
 
 const run = (command: string, args: string[], cwd = ROOT, env: NodeJS.ProcessEnv = process.env): boolean =>
@@ -61,9 +60,9 @@ if (!gathered?.complete || !gathered.files || failed.length > 0) {
       const mine = plan.tests.filter((test) => workspaceOfTest(test) === workspace);
       if (mine.length === 0) continue;
       const cwd = join(ROOT, workspace.folder);
-      const integration = mine.filter((test) => INTEGRATION_TEST.test(test));
+      const integration = mine.filter((test) => projectOfTest(test) !== 'unit');
       const setups = setupsFor(integration, runs, changed, { read: readIn, exists: (file) => existsSync(join(ROOT, file)), providers: await providersOf(workspace) });
-      const projects = [...(integration.length < mine.length ? ['unit'] : []), ...(integration.length > 0 ? ['integration'] : [])];
+      const projects = [...new Set(mine.map(projectOfTest))];
       if (integration.length > 0) console.log(`${workspace.name}: ${mine.length} test files, starting ${setups.length > 0 ? setups.join(', ') : 'none'} of its optional setups`);
       const ok = run('npx', ['vitest', 'run', ...projects.flatMap((project) => ['--project', project]), ...mine.map((test) => relative(cwd, join(ROOT, test)))], cwd, { ...process.env, COUPLING_COVERAGE: runsDir, TEMPORAL_DEBUG: '1', KOALA_SETUPS: setups.join(',') });
       passed &&= ok;

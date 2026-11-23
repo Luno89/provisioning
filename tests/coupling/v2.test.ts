@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ran, RanRange } from './collect.js';
 import type { Graph, Unit } from './graph.js';
-import { codebaseOf, DEPENDENCIES, layerOf, layerOfRun, SHARING, versionsIn } from './v2.js';
+import { changedBase, codebaseOf, DEPENDENCIES, JUDGED_FROM, layerOf, layerOfRun, SHARING, versionsIn } from './v2.js';
 import { STARTUP } from './live.js';
 
 const unit = (id: string, file: string, name: string, extra: Partial<Unit> = {}): Unit => ({ id, file, name, line: 1, column: 1, start: 0, end: 0, inTest: false, ...extra });
@@ -149,5 +149,15 @@ describe('Koala\'s code as the coupler sees it', () => {
     expect(DEPENDENCIES['@temporalio/client']).toBe('component');
     expect(DEPENDENCIES.minio).toBe('container');
     expect(DEPENDENCIES.yaml).toBeUndefined();
+  });
+});
+
+describe('what counts as changed when the coupler judges', () => {
+  it('is what changed since the last shipped commit, once ship has pushed past the pyramid\'s start', () => {
+    expect(changedBase({ shipped: 'abc', startShipped: true })).toBe('abc');
+  });
+
+  it('is what changed since the pyramid started, while the last shipped commit is older', () => {
+    expect(changedBase({ shipped: 'abc', startShipped: false })).toBe(JUDGED_FROM);
   });
 });

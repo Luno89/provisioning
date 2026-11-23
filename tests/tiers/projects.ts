@@ -21,6 +21,12 @@ const COUPLING = here('../coupling/vitest-setup.ts');
 const WORLD = here('../../packages/provision/testing/world-setup.ts');
 const UNIT_WORLD = here('../../packages/provision/testing/unit-world-setup.ts');
 
+export function projectOfTest(file: string): string {
+  const named = /\.(component|contract|container|integration|real-[^/.]+)\.test\.(ts|tsx|mjs)$/.exec(file)?.[1];
+  if (named === undefined) return 'unit';
+  return named.startsWith('real-') ? 'integration' : named;
+}
+
 export interface Setup { globalSetup: string; setupFiles?: string[] }
 
 export const SETUPS_WANTED = 'KOALA_SETUPS';

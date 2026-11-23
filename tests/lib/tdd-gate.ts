@@ -27,7 +27,7 @@ export function siblingTests(path: string, exists: (path: string) => boolean): s
   const match = /^(.*)\.(ts|tsx)$/.exec(path);
   if (!match) return [];
   const stem = match[1]!;
-  return [`${stem}.test.ts`, `${stem}.test.tsx`, `${stem}.integration.test.ts`, `${stem}.integration.test.tsx`].filter(exists);
+  return ['', '.component', '.contract', '.container', '.integration'].flatMap((layer) => [`${stem}${layer}.test.ts`, `${stem}${layer}.test.tsx`]).filter(exists);
 }
 
 const WRITE_FIRST = 'write the failing test first: this change has no new or changed test since the last commit, so there is nothing that shows the change is missing (red, then green, then refactor)';

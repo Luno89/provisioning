@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { heldTo, judge, learnedWeights, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
 import { ARTIFACTS, OUT, ROOT, runsIn, runsOf, type Gathered } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
-import { codebaseOf, DEPENDENCIES, SHARING, versionsIn, type Since } from './v2.js';
+import { changedBase, codebaseOf, DEPENDENCIES, JUDGED_FROM, SHARING, versionsIn, type Since } from './v2.js';
 import { AREAS, evidenceFrom, scoresIn, survivorsIn, type KeptRun, type MutationReport, type Unchecked } from './mutation.js';
 import { backtest, faultEvidence, type KnownFault } from './faults.js';
 
@@ -18,6 +18,10 @@ const lines = (text: string): string[] => text.split('\n').filter(Boolean);
 const untracked = lines(git(['ls-files', '--others', '--exclude-standard']));
 const changedSince = (commit: string): string[] => [...new Set([...lines(git(['diff', '--name-only', commit])), ...untracked])];
 const modules = Object.keys(DEPENDENCIES);
+const shipped = git(['merge-base', 'HEAD', 'origin/main']).trim();
+const ancestry = spawnSync('git', ['merge-base', '--is-ancestor', JUDGED_FROM, shipped], { cwd: ROOT, encoding: 'utf8' });
+if (ancestry.status !== 0 && ancestry.status !== 1) throw new Error(`git could not say whether ${JUDGED_FROM} is shipped: ${ancestry.stderr.trim()}`);
+const startShipped = ancestry.status === 0;
 
 const sinceByTest = new Map<string, Since>();
 const runs = ARTIFACTS.flatMap((artifact) => {
@@ -48,7 +52,7 @@ for (const { workspace, report } of Object.values(AREAS)) {
   Object.assign(scores, scoresIn(run, workspace, Object.values(graph.units)));
 }
 const codebase = { ...codebaseOf(graph, runs, {
-  changed: changedSince(git(['merge-base', 'HEAD', 'main']).trim()),
+  changed: changedSince(changedBase({ shipped, startShipped })),
   since: (test) => sinceByTest.get(test),
   versions: versionsIn(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'), modules),
   churn,
