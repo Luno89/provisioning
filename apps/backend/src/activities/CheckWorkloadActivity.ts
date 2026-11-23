@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { ignore } from '@koala/engine-core/failures';
+import { failureOf, ignore } from '@koala/engine-core/failures';
 import { ROLLOUT_KINDS, rolloutOf, type WorkloadHealth } from '@koala/provision';
 import { namespaceOf, type Reach } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -22,13 +22,20 @@ export interface CheckWorkloadResult {
 
 export async function CheckWorkloadActivity(args: CheckWorkloadArgs, steps: Pick<ClusterSteps, 'access'>): Promise<CheckWorkloadResult> {
   const reach = handedReach(args);
+  const waiting = async (health: 'starting' | 'unknown', reason: string): Promise<CheckWorkloadResult> => {
+    if (args.logFile && reason !== args.told) await fs.appendFile(args.logFile, `[deploy] waiting: ${reason}\n`).catch(ignore('the log only shows progress, and the wait goes on without it'));
+    return { health, reason };
+  };
+  let listed: unknown;
   try {
-    const rollout = rolloutOf(JSON.parse(await steps.access.kubectl(reach, ['get', ROLLOUT_KINDS, '-n', namespaceOf(args), '-o', 'json'])));
-    if (rollout.state === 'done') return { health: 'healthy', reason: '' };
-    if (rollout.state === 'hopeless') return { health: 'unhealthy', reason: rollout.reason };
-    if (args.logFile && rollout.waiting !== args.told) await fs.appendFile(args.logFile, `[deploy] waiting: ${rollout.waiting}\n`).catch(ignore('the log only shows progress, and the wait goes on without it'));
-    return { health: 'starting', reason: rollout.waiting };
+    listed = JSON.parse(await steps.access.kubectl(reach, ['get', ROLLOUT_KINDS, '-n', namespaceOf(args), '-o', 'json']));
   } catch (err) {
-    return { health: 'unknown', reason: `could not read the workload: ${(err as Error).message}` };
+    const failure = failureOf(err);
+    if (failure.kind === 'final') return { health: 'unhealthy', reason: `the workload could not be read: ${failure.reason}` };
+    return waiting('unknown', `the workload cannot be read yet: ${failure.reason}`);
   }
+  const rollout = rolloutOf(listed);
+  if (rollout.state === 'done') return { health: 'healthy', reason: '' };
+  if (rollout.state === 'hopeless') return { health: 'unhealthy', reason: rollout.reason };
+  return waiting('starting', rollout.waiting);
 }
