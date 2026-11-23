@@ -14,9 +14,12 @@ import * as plansApi from '../../projects/api/plans';
 import { planKeys } from '../../projects/api/plans';
 import * as channelApi from '../../projects/api/project-channel.js';
 import * as filesApi from '../../files/api/files';
+import * as modelsApi from '../../models/api';
+import * as agentsApi from '../api/agents';
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
+  createChatConversation: vi.fn((await orig<typeof chatPackApi>()).createChatConversation),
   listChatConversations: vi.fn().mockResolvedValue([]),
   getChatConversation: vi.fn().mockImplementation(async (id: string) => ({
     id,
@@ -847,5 +850,37 @@ describe('ChatSurface following the address', () => {
     expect(await screen.findByText('said in c2')).toBeInTheDocument();
     expect(screen.queryByText('said in c1')).not.toBeInTheDocument();
     vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([]);
+  });
+});
+
+describe('ChatSurface keeping what is typed', () => {
+  function later<T>() {
+    let settle: (value: T) => void = () => undefined;
+    const promise = new Promise<T>((resolve) => { settle = resolve; });
+    return { promise, settle };
+  }
+
+  it('keeps the words typed into a new chat while its conversation, agents and models arrive', async () => {
+    const conversation = later<chatPackApi.ChatConversation>();
+    const agents = later<agentsApi.Agent[]>();
+    const models = later<modelsApi.ModelProvider[]>();
+    const madeAgents = await vi.mocked(agentsApi.listAgents).getMockImplementation()!();
+    const madeModels = await vi.mocked(modelsApi.listModels).getMockImplementation()!();
+    vi.mocked(chatPackApi.createChatConversation).mockResolvedValueOnce({ id: 'c-new', title: 'New conversation', messages: [] } as never);
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation((id: string) => (id === 'c-new' ? conversation.promise : Promise.resolve({ id, title: id, messages: [] })) as never);
+    vi.mocked(agentsApi.listAgents).mockReturnValueOnce(agents.promise);
+    vi.mocked(modelsApi.listModels).mockReturnValueOnce(models.promise);
+    renderWithProviders(<ChatSurface />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Chat' }));
+    await waitFor(() => expect(chatPackApi.getChatConversation).toHaveBeenCalledWith('c-new'));
+    fireEvent.change(screen.getByPlaceholderText(/^Message/), { target: { value: 'what runs on this GPU?' } });
+
+    conversation.settle({ id: 'c-new', title: 'New conversation', messages: [] } as never);
+    agents.settle(madeAgents);
+    models.settle(madeModels);
+    await waitFor(() => expect(screen.queryByText('Fetching this conversation…')).not.toBeInTheDocument());
+    expect(await screen.findByPlaceholderText('Message Koala...')).toHaveValue('what runs on this GPU?');
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled();
   });
 });
