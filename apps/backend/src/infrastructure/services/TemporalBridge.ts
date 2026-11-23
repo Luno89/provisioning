@@ -464,14 +464,7 @@ export class TemporalBridge {
   }
 
   async startActiveWorkflowRecovery(): Promise<void> {
-    if (!this.client) {
-      try {
-        this.client = await getDefaultClient(undefined, this.seams.connect)
-      } catch (err) {
-        console.warn(`[TemporalBridge] Skipping recovery, Temporal client not ready: ${(err as Error).message}`)
-        return
-      }
-    }
+    this.client ??= await getDefaultClient(undefined, this.seams.connect)
 
     await this.followWork()
     this.startReconciliationLoop()

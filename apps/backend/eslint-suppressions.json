@@ -190,9 +190,6 @@
   "src/infrastructure/services/TemporalBridge.ts": {
     "failures/no-warn-and-carry-on": {
       "count": 6
-    },
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/infrastructure/wiring/openwebui-admin.ts": {

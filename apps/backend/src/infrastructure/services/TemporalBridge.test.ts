@@ -63,6 +63,17 @@ describe('connecting to Temporal', () => {
     expect(instance.isReady()).toBe(true);
   });
 
+  it('does not take recovery as done while Temporal cannot be reached, so whoever started it tries again and then follows the runs', async () => {
+    const { instance, connect, client } = bridge();
+    const unreachable = Object.assign(new Error('14 UNAVAILABLE: No connection established'), { code: 14 });
+    connect.mockRejectedValueOnce(unreachable);
+    await expect(instance.startActiveWorkflowRecovery()).rejects.toBe(unreachable);
+    expect(instance.isReady()).toBe(false);
+    await instance.startActiveWorkflowRecovery();
+    expect(instance.client).toBe(client);
+    await instance.stop();
+  });
+
   it('connects to the default address when none is given', async () => {
     const { instance, connect } = bridge();
     await instance.start();
