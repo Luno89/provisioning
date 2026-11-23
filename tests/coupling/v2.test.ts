@@ -39,6 +39,22 @@ describe('Koala\'s code as the coupler sees it', () => {
     expect(layerOf(STARTUP)).toBe('vm');
   });
 
+  it('names the layer a test file\'s own suffix says: component, contract or container', () => {
+    expect(layerOf('apps/backend/src/projects/services/save.component.test.ts')).toBe('component');
+    expect(layerOf('apps/backend/src/files/services/store.contract.test.ts')).toBe('contract');
+    expect(layerOf('apps/backend/src/clusters/services/access.container.test.ts')).toBe('container');
+    expect(layerOf('apps/frontend/src/features/x/Thing.component.test.tsx')).toBe('component');
+  });
+
+  it('keeps a component, contract or container test at the layer its suffix names, whatever real things it ran', () => {
+    const run = (testFile: string, ...helpers: string[]): Ran => ({ testFile, files: Object.fromEntries(helpers.map((file) => [file, [ran(1, 'helper')]])) });
+
+    expect(layerOfRun(run('apps/backend/src/x/y.component.test.ts', 'apps/backend/src/infrastructure/testing/real-k3s.ts'))).toBe('component');
+    expect(layerOfRun(run('apps/backend/src/x/y.component.test.ts', 'apps/backend/src/files/testing/object-store-contract.ts'))).toBe('component');
+    expect(layerOfRun(run('apps/backend/src/x/y.contract.test.ts', 'apps/backend/src/infrastructure/testing/real-k3s.ts'))).toBe('contract');
+    expect(layerOfRun(run('apps/backend/src/x/y.container.test.ts', 'apps/backend/src/platform/lib/settings.ts'))).toBe('container');
+  });
+
   it('places an integration test by the real things it ran: a container when it started real k3s, MinIO, Gitea, compose or Temporal, a contract when it ran a shared contract suite, else component', () => {
     const run = (testFile: string, ...helpers: string[]): Ran => ({ testFile, files: Object.fromEntries(helpers.map((file) => [file, [ran(1, 'helper')]])) });
     const IT = 'apps/backend/src/x/y.integration.test.ts';

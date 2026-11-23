@@ -34,8 +34,15 @@ export interface Context {
   failures?: Record<string, number>;
 }
 
-export const layerOf = (testFile: string): Layer =>
-  /-live\.ts$/.test(testFile) || testFile === STARTUP ? 'vm' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit';
+const NAMED = /\.(component|contract|container)\.test\.[a-z]+$/;
+const INTEGRATION = /\.integration\.test\.[a-z]+$/;
+
+export const layerOf = (testFile: string): Layer => {
+  if (/-live\.ts$/.test(testFile) || testFile === STARTUP) return 'vm';
+  const named = NAMED.exec(testFile)?.[1];
+  if (named === 'component' || named === 'contract' || named === 'container') return named;
+  return INTEGRATION.test(testFile) ? 'component' : 'unit';
+};
 
 const REAL_THINGS = /(^|\/)testing\/(real-[^/]+|private-cluster|cluster-wide|root-services-world|containers?|temporal-test-env)\.ts$/;
 const CONTRACTS = /(^|\/)testing\/[^/]*contract\.ts$/;
@@ -44,8 +51,7 @@ const ranAny = (run: Ran, matching: RegExp): boolean =>
   Object.entries(run.files).some(([file, ranges]) => matching.test(file) && ranges.some((range) => range.count > 0));
 
 export function layerOfRun(run: Ran): Layer {
-  const named = layerOf(run.testFile);
-  if (named !== 'component') return named;
+  if (!INTEGRATION.test(run.testFile)) return layerOf(run.testFile);
   if (ranAny(run, REAL_THINGS)) return 'container';
   return ranAny(run, CONTRACTS) ? 'contract' : 'component';
 }

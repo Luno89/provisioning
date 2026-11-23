@@ -173,10 +173,66 @@ describe('code no test runs', () => {
   });
 
   it('counts a run from any layer, the daily VM run included, as running the code', () => {
-    const judged = judge(codebase({ runs: [{ test: 'daily', layer: 'vm', units: ['save', 'store', 'orphan'], links: [] }], changed: ['orphan'] }), WEIGHTS);
+    const judged = judge(codebase({
+      links: [{ id: 'c.ts:2', from: 'orphan', to: ['pkg:mongodb#insertOne'], kind: 'dependency', path: ['mongodb', 'users', 'insertOne'] }],
+      runs: [{ test: 'daily', layer: 'vm', units: ['save', 'store', 'orphan'], links: [] }],
+      changed: ['orphan'],
+    }), WEIGHTS);
 
     expect(judged.blocking).toEqual([]);
     expect(judged.untested).toEqual([]);
+  });
+
+  it('says why each changed unit is refused', () => {
+    const judged = judge(codebase({ runs: [{ test: 'u', layer: 'unit', units: ['save'], links: [] }], changed: ['store'] }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([{ id: 'store', file: 'b.ts', name: 'store', line: 1, reason: 'no test runs it' }]);
+  });
+});
+
+describe('logic only a test above unit runs', () => {
+  it('blocks changed logic that only a component run runs, saying it needs a unit test', () => {
+    const judged = judge(codebase({ runs: [{ test: 'c', layer: 'component', units: ['save'], links: [] }], changed: ['save'] }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([{ id: 'save', file: 'a.ts', name: 'save', line: 1, reason: 'runs only at component; its logic needs a unit test' }]);
+  });
+
+  it('names every layer above unit that runs it', () => {
+    const judged = judge(codebase({ runs: [{ test: 'v', layer: 'vm', units: ['save'], links: [] }, { test: 'k', layer: 'container', units: ['save'], links: [] }], changed: ['save'] }), WEIGHTS);
+
+    expect(judged.blocking.map((unit) => unit.reason)).toEqual(['runs only at container, vm; its logic needs a unit test']);
+  });
+
+  it('lets changed logic through once a unit run runs it as well', () => {
+    const judged = judge(codebase({ runs: [{ test: 'c', layer: 'component', units: ['save'], links: [] }, { test: 'u', layer: 'unit', units: ['save'], links: [] }], changed: ['save'] }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([]);
+  });
+
+  it('lets a changed adapter that calls an outside service itself be proven at the layer of the real thing', () => {
+    const judged = judge(codebase({
+      links: [{ id: 'b.ts:2', from: 'store', to: ['pkg:@kubernetes/client-node#apply'], kind: 'dependency', path: ['@kubernetes/client-node', 'apply'] }],
+      runs: [{ test: 'k', layer: 'container', units: ['store'], links: [] }],
+      changed: ['store'],
+    }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([]);
+  });
+
+  it('holds a unit whose only calls are into Koala\'s own pieces to a unit test', () => {
+    const judged = judge(codebase({
+      links: [{ id: 'a.ts:2', from: 'save', to: ['store'], kind: 'composition' }, { id: 'b.ts:2', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency', path: ['mongodb', 'users', 'insertOne'] }],
+      runs: [{ test: 'c', layer: 'component', units: ['save', 'store'], links: [] }],
+      changed: ['save'],
+    }), WEIGHTS);
+
+    expect(judged.blocking.map((unit) => unit.id)).toEqual(['save']);
+  });
+
+  it('leaves unchanged logic that only runs above unit unblocked', () => {
+    const judged = judge(codebase({ runs: [{ test: 'c', layer: 'component', units: ['save', 'store', 'orphan'], links: [] }], changed: [] }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([]);
   });
 });
 
@@ -197,8 +253,8 @@ describe('the report', () => {
       '  1.00  a.ts:2 composition, proven nowhere',
       'riskiest functions:',
       '  1.00  b.ts:1 store, run nowhere',
-      'changed code no test runs (blocks):',
-      '  b.ts:1 store',
+      'changed code the coupler refuses (blocks):',
+      '  b.ts:1 store: no test runs it',
     ]);
   });
 });

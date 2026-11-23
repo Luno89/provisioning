@@ -37,7 +37,9 @@ export interface JudgedUnit extends CodeUnit { runAt: Layer[]; confidence: numbe
 
 const SCORE_STRENGTH = 10;
 
-export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: CodeUnit[]; unchecked: Array<CodeUnit & Unchecked> }
+export interface Blocked extends CodeUnit { reason: string }
+
+export interface Judgement { units: CodeUnit[]; functions: JudgedUnit[]; links: JudgedLink[]; untested: CodeUnit[]; blocking: Blocked[]; unchecked: Array<CodeUnit & Unchecked> }
 
 const REAL_FROM: Layer = 'contract';
 
@@ -133,12 +135,20 @@ export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKi
   });
   const changed = new Set(codebase.changed);
   const untested = codebase.units.filter((unit) => !ranAt.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id));
+  const reasonOf = (unit: CodeUnit): string | undefined => {
+    const layers = ranAt.get(unit.id);
+    if (layers === undefined) return 'no test runs it';
+    if (layers.has('unit') || outward.has(unit.id)) return undefined;
+    return `runs only at ${LAYERS.filter((layer) => layers.has(layer)).join(', ')}; its logic needs a unit test`;
+  };
+  const blocking = codebase.units.filter((unit) => changed.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id))
+    .flatMap((unit): Blocked[] => { const reason = reasonOf(unit); return reason === undefined ? [] : [{ ...unit, reason }]; });
   return {
     units: codebase.units,
     functions: riskiestFirst(functions),
     links: riskiestFirst(links),
     untested,
-    blocking: untested.filter((unit) => changed.has(unit.id)),
+    blocking,
     unchecked: codebase.units.flatMap((unit) => { const missed = codebase.unchecked?.[unit.id]; return missed ? [{ ...unit, ...missed }] : []; }).sort((a, b) => b.survived - a.survived),
   };
 }
@@ -161,8 +171,8 @@ export function reportOf(judged: Judgement, riskiest: number): string {
   lines.push('riskiest functions:');
   for (const unit of judged.functions.slice(0, riskiest)) lines.push(`  ${unit.risk.toFixed(2)}  ${unit.file}:${unit.line} ${unit.name}, ${unit.runAt.length > 0 ? `run at ${unit.runAt.join(', ')}` : unit.lentBy ? `run nowhere, lent proof by ${unit.lentBy}` : 'run nowhere'}`);
   if (judged.blocking.length > 0) {
-    lines.push('changed code no test runs (blocks):');
-    for (const unit of judged.blocking) lines.push(`  ${unit.file}:${unit.line} ${unit.name}`);
+    lines.push('changed code the coupler refuses (blocks):');
+    for (const unit of judged.blocking) lines.push(`  ${unit.file}:${unit.line} ${unit.name}: ${unit.reason}`);
   }
   if (judged.unchecked.length > 0) {
     lines.push('tests let planted faults through:');
