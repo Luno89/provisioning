@@ -66,6 +66,7 @@ import {
   type RunEnvironment,
   type RunTicket,
   type ToolCallArgs,
+  type ToolCallOutcome,
   type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
 import { testWorker } from './testing/test-worker.js';
@@ -207,6 +208,8 @@ function activities(options: {
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
       EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry, grants: GRANTS, machineProblem: theOwnersMachines } as never).EngineResolveAgentActivity),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
+      EngineToolCheckActivity: vi.fn(async (_args: ToolCallArgs): Promise<ToolCallOutcome | undefined> => undefined),
+      EngineToolShownActivity: vi.fn(async ({ outcome }: { args: ToolCallArgs; outcome: ToolCallOutcome }) => outcome),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
       EngineMachineNameActivity: vi.fn(createEngineActivities({ machineName: async (_ownerId: string, deviceId: string) => (deviceId === 'desk' ? 'Desk' : undefined) } as never).EngineMachineNameActivity),
       EngineHandoverActivity: vi.fn(async (_args: HandoverArgs) => ({ note: 'Asked the person, got no answer yet.', path: 'handover/run.md' })),
