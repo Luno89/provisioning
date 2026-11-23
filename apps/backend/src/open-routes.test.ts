@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { JOIN_PROGRESS_PATH } from '@koala/engine-core/machine-join';
 import { KOALA_INSTALL_FOLLOW_PATH, koalaInstallProgressPath } from '@koala/engine-core/koala-install';
 import { createAuth } from './platform/middleware/auth.js';
@@ -7,6 +7,7 @@ import { BrowserSessions } from './platform/services/BrowserSessions.js';
 import { AccessRevocations } from './platform/services/AccessRevocations.js';
 import { memoryDatabase } from './platform/testing/memory-database.js';
 import { openRoutesOf } from './open-routes.js';
+import { guardedBy } from './platform/testing/guarded.js';
 
 const underApi = (path: string): string => {
   if (!path.startsWith('/api/')) throw new Error(`${path} is not under /api, where root's guard stands`);
@@ -14,14 +15,7 @@ const underApi = (path: string): string => {
 };
 
 async function guarded(role: 'root' | 'instance', method: string, path: string) {
-  let statusCode = 0;
-  let body: unknown;
-  let nexted = false;
   const req = { method, url: underApi(path), path: underApi(path), originalUrl: path, baseUrl: '/api', headers: { authorization: 'Bearer from-the-machine' } } as unknown as Request;
-  const res = {
-    status(code: number) { statusCode = code; return this; },
-    json(payload: unknown) { body = payload; return this; },
-  } as unknown as Response;
   const db = memoryDatabase();
   const sessions = new BrowserSessions({ store: db.platform, secret: 'k', securedFor: () => false });
   const auth = createAuth({
@@ -29,8 +23,7 @@ async function guarded(role: 'root' | 'instance', method: string, path: string) 
     throughRoot: { sessions, signIn: { fresh: () => { throw new Error('no one is signed in here'); }, end: () => { throw new Error('no one is signed in here'); } } },
     ...(role === 'root' ? { revocations: new AccessRevocations() } : {}),
   });
-  await auth.requireAuth(req, res, () => { nexted = true; });
-  return { statusCode, body, nexted };
+  return guardedBy(auth.requireAuth, req);
 }
 
 describe('a person\'s removal on root, once they are signed out everywhere', () => {

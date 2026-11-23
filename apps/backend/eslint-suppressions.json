@@ -317,11 +317,6 @@
       "count": 2
     }
   },
-  "src/platform/middleware/auth.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/projects/lib/project-shipping.ts": {
     "no-restricted-syntax": {
       "count": 1

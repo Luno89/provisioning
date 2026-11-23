@@ -11,6 +11,7 @@ import { setupCodeProblem } from '../lib/first-admin.js';
 import type { Database } from '../lib/db-interface.js';
 import type { InviteMetadata, UserMetadata } from '../lib/types.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
+import { asyncRoute } from './async-route.js';
 import { authorize, principalOf, type Actions, type BearerSignIn, type Principal, type Resource } from '../lib/permissions.js';
 
 export interface ThroughRoot {
@@ -188,7 +189,7 @@ export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, th
     return throughRoot.signIn.end(person);
   }
 
-  const requireAuth: express.RequestHandler = async (req, res, next) => {
+  const requireAuth: express.RequestHandler = asyncRoute(async (req, res, next) => {
     if (await opens(req, res)) return next();
     await ran(sessions.handle, req, res);
     const presented = bearer ? /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1] : undefined;
@@ -203,7 +204,7 @@ export function createAuth({ db, publicUrl, role, instanceOwnerId, setupCode, th
     if (!held) return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
     signedIn(req, { user: held.user, sessionId: req.sessionID, principal: principalOfPerson(held.person, held.user) });
     next();
-  };
+  });
 
   const requireOperator = (action: Actions['install']): express.RequestHandler => (req, res, next) => {
     const principal = (req as { principal?: Principal }).principal;
