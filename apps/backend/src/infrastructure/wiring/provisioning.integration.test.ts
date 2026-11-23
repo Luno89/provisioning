@@ -97,7 +97,6 @@ async function koalaAt(clusterId: string, root: ProvisionRoot = { setup: async (
     client: () => env.client.workflow,
     connected: async () => undefined,
     root,
-    up: () => undefined,
     koala: { ownerId: OWNER.id, clusterId, revision: 2 },
   });
   if (isOff(provisioning)) throw new Error(provisioning.off);
