@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Worker } from '@temporalio/worker';
 import { reopening } from '@koala/engine-core/reopening';
+import { PROVISION_PIECES } from '@koala/engine-core/koala-install';
 import type { ModelProvider } from '@koala/agent-engine';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -179,7 +180,7 @@ describe('Koala setting itself up after its chart, from the backend\'s start to 
     await provisioning.close();
     expect(await env.client.workflow.getHandle(koalaInstallWorkflowId('install-1')).result()).toBe('ready');
 
-    expect(applied).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea', 'verdaccio', 'infisical', 'monitoring']);
+    expect(applied.sort()).toEqual(PROVISION_PIECES.map((piece) => piece.key).sort());
     expect(seen.some((each) => each.pieces.some((piece) => piece.key === 'egress' && piece.state === 'working' && piece.line === 'the egress proxy: ready'))).toBe(true);
     expect(await instanceDb.infrastructure.getProvisioningRun(record!.id)).toMatchObject({ state: 'up', workflowId: expect.any(String) as unknown });
     expect(await steps.access.kubectl(steps.access.own(), ['get', 'deployment', 'egress-proxy', '-n', 'koala-egress', '-o', 'jsonpath={.status.availableReplicas}'])).toBe('1');
