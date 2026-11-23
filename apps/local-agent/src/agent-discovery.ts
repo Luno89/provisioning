@@ -88,6 +88,12 @@ export function manualAgentsFrom(raw: unknown): ManualAgent[] {
   });
 }
 
+export function manualAnswerOf(answer: unknown): ManualAgent[] {
+  const error = (answer as { error?: unknown } | null | undefined)?.error;
+  if (typeof error === 'string') throw new Error(`Koala could not say which agents were added to this machine by hand: ${error}`);
+  return manualAgentsFrom(answer);
+}
+
 export const expandHome = (command: string): string => (command === '~' || command.startsWith('~/') ? path.join(os.homedir(), command.slice(1)) : command);
 
 const executable = (file: string): Promise<boolean> => present(file, constants.X_OK);

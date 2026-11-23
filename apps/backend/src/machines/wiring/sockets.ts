@@ -132,10 +132,7 @@ export function wireSockets(deps: SocketsWiringDeps): SignedInSockets {
       inTurn(() => deps.machines.recordAgentUpdate(device.id, report), 'how its agent\'s update goes');
     });
     socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
-      deps.machines.manualAgents(device.id).then(ack, (err: Error) => {
-        console.warn(`[machines] ${device.id}: the agents added to it by hand could not be read, so it is told of none this time: ${err.message}`);
-        ack([]);
-      });
+      deps.machines.manualAgents(device.id).then(ack, (err: Error) => ack({ error: err.message }));
     });
     socket.on('machine:payloads', (_request: unknown, ack: (answer: RingAnswer) => void) => ack(forMachines.ring()));
     socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(device.id, request).then(ack); });

@@ -131,10 +131,12 @@ export interface MachineAgentsReport {
   notSetUp?: string;
 }
 
-export function machineAgentsReportFrom(raw: unknown): MachineAgentsReport {
-  const report = raw as { agents?: unknown; notSetUp?: unknown } | null | undefined;
-  const notSetUp = short(report?.notSetUp, 1000);
-  return { agents: machineAgentsFrom(report?.agents), ...(notSetUp ? { notSetUp } : {}) };
+export function machineAgentsReportFrom(raw: unknown): MachineAgentsReport | { refused: string } {
+  if (!raw || typeof raw !== 'object') return { refused: 'it sent no report' };
+  const report = raw as { agents?: unknown; notSetUp?: unknown };
+  if (!Array.isArray(report.agents)) return { refused: 'its report names its agents in no list' };
+  const notSetUp = short(report.notSetUp, 1000);
+  return { agents: machineAgentsFrom(report.agents), ...(notSetUp ? { notSetUp } : {}) };
 }
 
 export function manualAgentsProblem(raw: unknown): string | null {

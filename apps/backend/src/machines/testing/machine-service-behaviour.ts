@@ -104,6 +104,16 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(await stored('gone')).toBeUndefined();
     });
 
+    it('refuses a report of agents that does not parse, saying why, and keeps the agents recorded before', async () => {
+      const before = [{ id: 'gemini', title: 'Gemini CLI', state: 'ready' as const, source: 'found' as const }];
+      await db.machines.saveLocalAgentDevice(device({ id: 'mine', agents: before }));
+      const machines = service();
+      for (const report of [null, 'nonsense', { agents: 'nonsense' }, {}]) {
+        await expect(machines.recordAgents('mine', report)).rejects.toThrow(/Desk's report of its agents was refused, so the agents recorded before are kept: /);
+        expect((await stored('mine'))?.agents).toEqual(before);
+      }
+    });
+
     it('shows a machine\'s coding agents as not set up, and why, as long as its own report says so', async () => {
       await db.machines.saveLocalAgentDevice(device({ id: 'mine' }));
       const machines = service();
