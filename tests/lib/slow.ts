@@ -27,12 +27,13 @@ export function judgeTests(tests: readonly TestTime[], slow: Baseline, files: re
   };
 }
 
-export interface JudgedLayer { failing?: string; known?: string; stale?: string }
+export interface JudgedLayer { failing?: string; known?: string; stale?: string; printed?: string }
 
 export function judgeLayer(layer: Layer, seconds: number, slow: Baseline): JudgedLayer {
   const over = layerOverBudget(layer, seconds);
   const listed = slow[layerKey(layer)] !== undefined;
   if (over === undefined) return listed ? { stale: layerKey(layer) } : {};
+  if (!isHeld(layer)) return { printed: over };
   return listed ? { known: over } : { failing: over };
 }
 

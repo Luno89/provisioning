@@ -59,7 +59,7 @@ export const TEST_BUDGET: Record<Tier, number> = { unit: 1, component: 10, contr
 
 export const LAYER_BUDGET: Record<Layer, number> = { unit: 120, component: 300, contract: 300, container: 900 };
 
-const HELD: ReadonlySet<Tier> = new Set<Tier>(['unit', 'component', 'contract', 'container']);
+const HELD: ReadonlySet<Tier> = new Set<Tier>(['component', 'contract', 'container']);
 
 const TIER_NAME: Record<Tier, string> = {
   unit: 'a unit test', component: 'a component test', contract: 'a contract test', container: 'a container test', integration: 'an integration test',

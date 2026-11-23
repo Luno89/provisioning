@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { judgeLayer, judgeTests, prunedSlow } from './slow.js';
 
 const unit = (name: string, seconds: number) => ({ name, tier: 'unit' as const, seconds });
+const component = (name: string, seconds: number) => ({ name, tier: 'component' as const, seconds });
 
 describe('which tests over budget fail', () => {
   it('fails a held test over its budget that is not on the slow list, and only prints one on it', () => {
-    const judged = judgeTests([unit('a.test.ts > one', 3), unit('a.test.ts > two', 2), unit('a.test.ts > fast', 0.1)], { 'a.test.ts > two': 1 }, ['a.test.ts']);
-    expect(judged.failing).toEqual(['a.test.ts > one: 3 s, over the 1 s a unit test may take']);
-    expect(judged.known).toEqual(['a.test.ts > two: 2 s, over the 1 s a unit test may take']);
+    const judged = judgeTests([component('a.component.test.ts > one', 30), component('a.component.test.ts > two', 20), component('a.component.test.ts > fast', 1)], { 'a.component.test.ts > two': 1 }, ['a.component.test.ts']);
+    expect(judged.failing).toEqual(['a.component.test.ts > one: 30 s, over the 10 s a component test may take']);
+    expect(judged.known).toEqual(['a.component.test.ts > two: 20 s, over the 10 s a component test may take']);
+  });
+
+  it('only prints a unit test over its budget until the unit layer has a baseline', () => {
+    const judged = judgeTests([unit('a.test.ts > one', 3)], {}, ['a.test.ts']);
+    expect(judged.failing).toEqual([]);
+    expect(judged.printed).toEqual(['a.test.ts > one: 3 s, over the 1 s a unit test may take']);
   });
 
   it('only prints an integration test over its budget', () => {
@@ -27,6 +34,11 @@ describe('which layers over budget fail', () => {
     expect(judgeLayer('component', 400, {}).failing).toContain('the component layer took');
     expect(judgeLayer('component', 400, { 'layer component': 1 }).failing).toBeUndefined();
     expect(judgeLayer('component', 400, { 'layer component': 1 }).known).toBeDefined();
+  });
+
+  it('only prints the unit layer over its budget until it has a baseline', () => {
+    expect(judgeLayer('unit', 400, {}).failing).toBeUndefined();
+    expect(judgeLayer('unit', 400, {}).printed).toContain('the unit layer took');
   });
 
   it('lists a layer on the list that was within budget', () => {

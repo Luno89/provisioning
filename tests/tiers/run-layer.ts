@@ -49,6 +49,7 @@ for (const workspace of ones) {
 
 const judged = judgeLayer(layer, seconds, readSlow(process.env[SLOW_LIST_FROM] ?? SLOW_LIST));
 if (judged.known) console.log(`${judged.known}: ${KNOWN_SLOW}`);
+if (judged.printed) console.log(judged.printed);
 if (judged.stale) console.log(`${judged.stale} is on the slow list and the layer is within its budget, prune it: npx tsx tests/tiers/slow.ts --prune "${judged.stale}"`);
 if (judged.failing) {
   console.error(judged.failing);
