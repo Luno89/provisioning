@@ -84,28 +84,33 @@ describe('the provision procedure, its pieces on real Temporal', () => {
     return { result, order, store, record: (await store.getProvisioningRun(inputs.recordId))! };
   };
 
-  it('set up again after it stopped, starts at the piece that failed, leaving the pieces already up untouched', async () => {
-    const stopped = await runOn('refused-first~refused');
+  const NOT_UP = 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full; Infisical, your secrets: the chart infisical-standalone 1.12.0 could not be read';
+  const everyPiece = PROVISION_PIECES.map((piece) => piece.key).sort();
+
+  it('set up again after it stopped, sets up only the pieces that are not up, leaving the pieces already up untouched', async () => {
+    const stopped = await runOn('refused-first~refused+broken');
     const again = await runOn('again', stopped.store, againPieces(stopped.record, stopped.record.target, 3));
     expect(again.result.outcome).toBe('ok');
-    expect(again.order).toEqual(['gitea', 'verdaccio', 'infisical', 'monitoring']);
+    expect(again.order.sort()).toEqual(['gitea', 'infisical']);
     expect(again.record.state).toBe('up');
-    expect(again.record.pieces.slice(0, 6)).toEqual(stopped.record.pieces.slice(0, 6));
+    const wereUp = (pieces: ProvisioningRecord['pieces']) => pieces.filter((piece) => piece.key !== 'gitea' && piece.key !== 'infisical');
+    expect(wereUp(again.record.pieces)).toEqual(wereUp(stopped.record.pieces));
     await expect(fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(again.record.runId, 'egress')).describe()).rejects.toThrow();
   });
 
-  it('sets up every piece in order and ends up', async () => {
+  it('sets up every piece and ends up', async () => {
     const { result, order, record } = await runOn('all');
     expect(result.outcome).toBe('ok');
-    expect(order).toEqual(PROVISION_PIECES.map((piece) => piece.key));
+    expect(order.sort()).toEqual(everyPiece);
     expect(record.state).toBe('up');
   });
 
-  it('ends failed at the first piece that can never come up, with its why, starting nothing after it', async () => {
-    const { result, order, record } = await runOn('refused');
-    expect(result).toMatchObject({ outcome: 'failed', reason: 'pod gitea-0 is Init:Error: the volume is full' });
-    expect(order).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea']);
-    expect(record).toMatchObject({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full' });
-    await expect(fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(record.runId, 'verdaccio')).describe()).rejects.toThrow();
+  it('sets up every other piece when some can never come up, then ends failed naming each piece that did not and why', async () => {
+    const { result, order, record } = await runOn('refused+broken');
+    expect(result).toMatchObject({ outcome: 'failed', reason: NOT_UP });
+    expect(order.sort()).toEqual(everyPiece);
+    expect(record).toMatchObject({ state: 'failed', why: NOT_UP });
+    expect(record.pieces.filter((piece) => piece.state !== 'up').map((piece) => [piece.key, piece.state])).toEqual([['gitea', 'failed'], ['infisical', 'failed']]);
+    expect((await fixture.env.client.workflow.getHandle(provisionPieceWorkflowId(record.runId, 'verdaccio')).describe()).status.name).toBe('COMPLETED');
   });
 });
