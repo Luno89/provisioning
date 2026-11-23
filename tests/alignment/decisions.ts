@@ -702,4 +702,13 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'Koala\'s own account keeps cluster-admin on its machine\'s cluster, which exists only for Koala; no pod Koala makes for an app or a sandbox runs as Koala\'s account or mounts a token, and a test holds every one to it. Moving the admin rights into the setup Jobs and giving the backend a namespace-scoped role is a later step. Coding agents on a person\'s machine run inside bubblewrap, installed from the distribution\'s package by the join at the pinned version: each sees its workspace and its own sign-in folder, cannot gain privileges, and cannot reach the k3s kubeconfig, so an approved command cannot become root through the cluster.',
   },
+  {
+    id: 'first-hosting',
+    subject: 'What the first hosting is, and the integration run it needs',
+    terms: ['hosted', 'hosting', 'trip', 'remotely', 'integration run'],
+    words: [
+      { at: '2026-11-23T20:30', text: 'yep go with 1 and 3 and sure you can run an integration run, root on the server and able to add my box and work on stuff remotely, I\'m going on a trip' },
+    ],
+    reading: 'The first hosting is root on its real server, the owner\'s own computer joined to it as their machine, and the owner working on their Koala from anywhere while away; no one else is invited yet. One full integration run is allowed now, while waits remain, to learn its real failures.',
+  },
 ];
