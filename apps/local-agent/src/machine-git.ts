@@ -66,14 +66,16 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
       return { ok: true, path: relative, commit: '' };
     }
     const remote = options.remote?.(op.repo) ?? remoteFor(options.backendUrl, op.repo);
-    const must = async (args: string[], what: string): Promise<string> => {
+    const answered = async (args: string[], accepted: readonly number[], what: string): Promise<ProcessResult> => {
       const ran = await git(args, folder, env);
-      if (ran.code !== 0) throw new Error(`${what}: ${hidden(ran.stderr || ran.stdout)}`);
-      return ran.stdout.trim();
+      if (!accepted.includes(ran.code)) throw new Error(`${what}: ${hidden(ran.stderr || ran.stdout)}`);
+      return ran;
     };
+    const must = async (args: string[], what: string): Promise<string> => (await answered(args, [0], what)).stdout.trim();
+    const changed = async (what: string): Promise<boolean> => (await answered(['diff', '--cached', '--quiet'], [0, 1], what)).code === 1;
 
     const unmerged = async (): Promise<string[]> =>
-      (await git(['diff', '--name-only', '--diff-filter=U'], folder, env)).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+      (await must(['diff', '--name-only', '--diff-filter=U'], 'could not list the files left in conflict')).split('\n').map((line) => line.trim()).filter(Boolean);
     const stillMarked = async (files: string[]): Promise<string[]> => {
       const marked: string[] = [];
       for (const file of files) {
@@ -83,7 +85,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
     };
     const markersSince = async (base: string): Promise<string[]> => {
       if (!base) return [];
-      const checked = await git(['diff', '--cached', '--check', base], folder, env);
+      const checked = await answered(['diff', '--cached', '--check', base], [0, 2], 'could not check the work for conflict markers');
       return [...new Set(checked.stdout.split('\n').filter((line) => line.includes('leftover conflict marker')).map((line) => line.split(':')[0]!))];
     };
 
@@ -102,7 +104,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
 
       if (op.kind === 'merge') {
         await must(['add', '-A'], 'could not stage the work');
-        if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
+        if (await changed('could not tell whether there is work to commit')) {
           await must([...AS_MACHINE, 'commit', '-q', '-m', 'Work so far, before the workspace is merged in'], 'could not commit the work');
         }
         await must([...(await signedIn()), 'fetch', '-q', remote, `+refs/heads/${op.branch}:${WORKSPACE_NOW}`], `could not fetch ${op.branch}`);
@@ -115,15 +117,15 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
       const still = op.keep ? [] : await stillMarked(await unmerged());
       if (still.length) return { ok: false, error: `these files still have conflicts to resolve: ${still.join(', ')}`, unresolved: still };
       await must(['add', '-A'], 'could not stage the work');
-      const sent = (await git(['rev-parse', '--verify', '-q', SENT], folder, env)).stdout.trim();
+      const sent = (await answered(['rev-parse', '--verify', '-q', SENT], [0, 1], 'could not read what the workspace has')).stdout.trim();
       const marked = op.keep ? [] : await markersSince(sent);
       if (marked.length) return { ok: false, error: `these files still hold conflict markers: ${marked.join(', ')}`, unresolved: marked };
-      const rewritten = sent !== '' && (await git(['merge-base', '--is-ancestor', sent, 'HEAD'], folder, env)).code !== 0;
+      const rewritten = sent !== '' && (await answered(['merge-base', '--is-ancestor', sent, 'HEAD'], [0, 1], 'could not tell whether the work was rewritten')).code === 1;
       if (rewritten) {
         const tree = await must(['write-tree'], 'could not read the work');
         const laid = await must([...AS_MACHINE, 'commit-tree', tree, '-p', sent, '-m', op.message], 'could not lay the work over what the workspace has');
         await must(['reset', '-q', '--soft', laid], 'could not lay the work over what the workspace has');
-      } else if ((await git(['diff', '--cached', '--quiet'], folder, env)).code !== 0) {
+      } else if (await changed('could not tell whether there is work to commit')) {
         await must([...AS_MACHINE, 'commit', '-q', '-m', op.message], 'could not commit the work');
       }
       await must([...(await signedIn()), 'push', '-q', '--force', remote, `HEAD:refs/heads/${op.branch}`], `could not push ${op.branch}`);
