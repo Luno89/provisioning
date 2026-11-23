@@ -1,2 +1,42 @@
 {
+  "src/acp-session.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/agent-bundle.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    }
+  },
+  "src/engine-worker.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/external-agents.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/file-present.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/join/join.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/self-update.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/terminal-ask.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  }
 }

@@ -1,2 +1,7 @@
 {
+  "lib/platform-settings.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
 }

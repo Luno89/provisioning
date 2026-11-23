@@ -1,2 +1,7 @@
 {
+  "src/procedure/machine-choice.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
 }

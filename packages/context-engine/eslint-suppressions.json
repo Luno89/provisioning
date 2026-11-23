@@ -1,2 +1,12 @@
 {
+  "src/observations/tool-args.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/state/state-vector.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
 }

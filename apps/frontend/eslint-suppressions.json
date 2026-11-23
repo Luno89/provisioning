@@ -1,2 +1,72 @@
 {
+  "src/features/checks/lib/scenario-draft.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/features/engine/components/Studio/StepNode.tsx": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/engine/hooks/useChatComposer.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/engine/hooks/useConversationTurn.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/features/files/components/StoredFiles.tsx": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/models/components/FirstModel.tsx": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/features/projects/hooks/useChatPanel.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/projects/lib/channel-asks.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    }
+  },
+  "src/shared/chat-parser/CodeBlock.tsx": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/shared/chat-parser/chat-parser.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/shared/lib/markdown-images.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/shared/lib/safe-href.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/shell/RootLayout.tsx": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/test/backend/hooks.tsx": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
 }

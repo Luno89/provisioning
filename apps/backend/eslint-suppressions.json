@@ -1,1 +1,391 @@
-{}
+{
+  "src/accounts/testing/stand-in-issuer.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/activities/CheckRunActivities.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/activities/DependencyWatchActivity.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/activities/ReleaseBrowserTestsActivity.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 4
+    }
+  },
+  "src/activities/RemoveAccountActivities.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/activities/RemoveProjectActivities.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/activities/RunPipelineActivity.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 2
+    },
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/activities/SyncConfigActivity.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/activities/cluster-jobs.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/activities/vcluster.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/checks/services/Level2Service.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 2
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine-host/registries/agent-directory.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine-host/sandboxes/image-builder.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine-host/sandboxes/kube.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine-host/sandboxes/run-environments.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/engine-host/temporal/activities.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/engine-host/temporal/stream-worker.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/engine-host/tools/project-tools.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine-host/tools/secret-tools.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine/lib/approve-ask-migration.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine/lib/corpus.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine/lib/crawl-client.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/engine/lib/e2e.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine/lib/poisoning.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/engine/services/ConversationNoticeService.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/engine/wiring/engine.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 3
+    }
+  },
+  "src/extensions/grove/operations/handlers.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/extensions/odoo/release-adapter.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/extensions/releases/operations/handlers.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/files/services/StoryDropService.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/index.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/lib/dns-issue-check.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/lib/terraform-state.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/services/InfisicalService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/services/RegistryService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/services/TemporalBridge.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 6
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/wiring/openwebui-admin.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/instances/lib/oidc.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/instances/services/DependencyWatch.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/instances/services/InstanceRoutes.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/instances/services/InstanceService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/instances/services/InstanceUpdates.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/instances/services/ReleaseCatalogue.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/instances/services/RootSignIn.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/instances/wiring/instances.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/machines/services/MachineMirror.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/machines/services/MachineRunWatch.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/machines/services/MachineService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/machines/wiring/accounts.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/machines/wiring/sockets.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/memory/services/memory-writer.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/models/lib/openrouter-connect.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/models/lib/tool-call-parsers.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/models/services/ModelService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/models/services/TreeModelsService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/monitoring/lib/web-push.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/monitoring/services/AlertWatchService.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    }
+  },
+  "src/monitoring/services/MonitoringService.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/platform/lib/auth.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/platform/lib/change-streams.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/platform/lib/keep-trying.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/platform/lib/mail-reputation.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/platform/lib/same-site.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/platform/lib/settings.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/platform/middleware/auth.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/projects/lib/project-shipping.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/projects/services/GiteaService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/releases/lib/client-import.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/releases/services/ClientImportService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/releases/services/CustomizationsService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/releases/wiring/releases.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    }
+  },
+  "src/scripts/root-services.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/worker-engine.ts": {
+    "failures/no-warn-and-carry-on": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  }
+}

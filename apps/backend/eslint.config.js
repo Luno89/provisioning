@@ -2,7 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
-import { bugBacked, SWALLOWING } from '../../eslint.bug-backed.mjs'
+import { ASYNC_HANDLER_IN_VARIABLE, bugBacked, SWALLOWING } from '../../eslint.bug-backed.mjs'
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'src')
 
@@ -139,7 +139,7 @@ const clusters = {
   },
 }
 
-const UNAWAITED_HANDLER = { selector: "CallExpression[callee.property.name=/^(get|post|put|patch|delete|use|all)$/] > :matches(ArrowFunctionExpression, FunctionExpression)[async=true]", message: 'Express 4 never awaits a handler, so one that rejects sends no response and the request hangs: wrap it in asyncRoute' }
+const UNAWAITED_HANDLER = { selector: "CallExpression[callee.property.name=/^(get|post|put|patch|delete|use|all)$/] > :matches(ArrowFunctionExpression, FunctionExpression)[async=true]", message: ASYNC_HANDLER_IN_VARIABLE.message }
 
 const ACCESS = [
   { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; there is no isAdmin' },
@@ -193,7 +193,7 @@ export default defineConfig([
     ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts', 'src/*/store.ts', 'src/*/testing/memory-store.ts'],
     languageOptions: { parser: tseslint.parser },
     rules: {
-      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER],
+      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER, ASYNC_HANDLER_IN_VARIABLE],
     },
   },
   {
@@ -201,7 +201,7 @@ export default defineConfig([
     ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts'],
     languageOptions: { parser: tseslint.parser },
     rules: {
-      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
+      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER, ASYNC_HANDLER_IN_VARIABLE, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
     },
   },
   {

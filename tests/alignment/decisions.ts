@@ -5,6 +5,13 @@ export interface Words {
   answering?: string;
 }
 
+export interface BaselineGrant {
+  path: string;
+  rule: string;
+  from: number;
+  to: number;
+}
+
 export interface Decision {
   id: string;
   subject: string;
@@ -12,6 +19,7 @@ export interface Decision {
   words: Words[];
   reading: string;
   replaced?: Array<{ words: Words; by: string }>;
+  grows?: BaselineGrant[];
 }
 
 export const DECISIONS: Decision[] = [
@@ -663,8 +671,19 @@ export const DECISIONS: Decision[] = [
     terms: ['rewrite', 'new test suite', 'new implementation', 'code audit', 'audit'],
     words: [
       { at: '2026-11-23T04:22', text: 'how bad would just writing a new test suite and a new implementation be, I feel like there\'s a crap load of bugs we\'re going to find' },
-      { at: '2026-11-23T04:25', text: 'Ok sounds reasonable' },
+      { at: '2026-11-23T04:25', text: 'Ok sounds reasonable' },      { at: '2026-11-23T16:00', text: 'yep go ahead, those four first' },
     ],
-    reading: 'No second codebase and no rewrite all at once. The audit\'s commonest fault, an error caught and carried on with an empty or guessed value, becomes a lint rule; it is fixed on the v1 path, and elsewhere a baseline holds it that only shrinks. The v1 path (join a machine, install Koala, deploy vLLM or TabbyAPI, chat) gets a new test suite at the cheapest layer for each fault, watched failing first; a module that fails it is replaced and its old code removed as the new one lands. Areas outside v1 that the owner names are archived through the archive ledger. The audit reports are what the new tests are checked against.',
+    reading: 'No second codebase and no rewrite all at once. The audit\'s commonest fault, an error caught and carried on with an empty or guessed value, becomes a lint rule; it is fixed on the v1 path, and elsewhere a baseline holds it that only shrinks. The v1 path (join a machine, install Koala, deploy vLLM or TabbyAPI, chat) gets a new test suite at the cheapest layer for each fault, watched failing first; a module that fails it is replaced and its old code removed as the new one lands. Areas outside v1 that the owner names are archived through the archive ledger. The audit reports are what the new tests are checked against. The swallowed errors the lint rule found when it came in are held in each workspace\'s suppressions, 145 in all, a count that only shrinks; the four that can keep a wait going forever on an error (the cluster rollout and Job waits, keepTrying, the machine run watch, Temporal recovery at start) are fixed first.',
+    grows: [
+      { path: 'apps/backend/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 75 },
+      { path: 'apps/backend/eslint-suppressions.json', rule: 'failures/no-warn-and-carry-on', from: 0, to: 30 },
+      { path: 'apps/frontend/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 17 },
+      { path: 'apps/frontend/eslint-suppressions.json', rule: 'failures/no-warn-and-carry-on', from: 0, to: 2 },
+      { path: 'apps/local-agent/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 13 },
+      { path: 'packages/agent-engine/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 1 },
+      { path: 'packages/cdktf-infra/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 1 },
+      { path: 'packages/context-engine/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 2 },
+      { path: 'packages/engine-core/eslint-suppressions.json', rule: 'no-restricted-syntax', from: 0, to: 4 },
+    ],
   },
 ];

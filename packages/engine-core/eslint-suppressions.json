@@ -1,2 +1,22 @@
 {
+  "src/liveness.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/stops-with.integration.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/telemetry.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/until.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
 }
