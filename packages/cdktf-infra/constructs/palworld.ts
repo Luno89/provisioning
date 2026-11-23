@@ -1,6 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { createAppProbe } from "../lib/app-probe.js";
 import { buildGameContainerPorts, createGameServerService, type GamePort } from "../lib/game-server-ports.js";
@@ -91,7 +91,7 @@ export class PalworldApp extends Construct {
 
     const selector = { app: `palworld-${id}` };
 
-    new Deployment(this, "deployment", {
+    new AppDeployment(this, "deployment", {
       waitForRollout: false,
       metadata: {
         name: "palworld",

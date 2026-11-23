@@ -1,12 +1,4 @@
-import { Construct } from "constructs";
-import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
-import { Service } from "../.gen/providers/kubernetes/service/index.js";
-import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
-import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
-import { defaultServiceType } from "../lib/service-type.js";
+import { Construct, Namespace, appDeployment, type DeploymentSpecTemplateSpec, Service, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 
 export interface JellyfinNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -128,28 +120,7 @@ export class JellyfinNativeApp extends Construct {
       ],
     };
 
-    VpnService.apply(this, ns.metadata.name, podSpec, config);
-
-    new Deployment(this, "jellyfin-deployment", {
-      waitForRollout: false,
-      metadata: {
-        name: "jellyfin",
-        namespace: ns.metadata.name,
-        labels: { app: `jellyfin-${id}` },
-      },
-      spec: {
-        replicas: "1",
-        selector: {
-          matchLabels: { app: `jellyfin-${id}` },
-        },
-        template: {
-          metadata: {
-            labels: { app: `jellyfin-${id}` },
-          },
-          spec: podSpec,
-        },
-      },
-    });
+    appDeployment(this, "jellyfin-deployment", { name: "jellyfin", namespace: ns.metadata.name, label: `jellyfin-${id}`, pod: podSpec, vpn: config });
 
     new Service(this, "jellyfin-service", {
       metadata: {

@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
+import { type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
@@ -115,7 +116,7 @@ export class Crawl4aiNativeApp extends Construct {
 
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
-    new Deployment(this, "crawl4ai-deployment", {
+    new AppDeployment(this, "crawl4ai-deployment", {
       waitForRollout: false,
       metadata: {
         name: "crawl4ai",

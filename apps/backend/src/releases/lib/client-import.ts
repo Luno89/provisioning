@@ -111,6 +111,7 @@ export function holderManifest(release: string): Record<string, unknown> {
     metadata: { name: importHolder(release), labels: releaseLabels(release) },
     spec: {
       restartPolicy: 'Never',
+      automountServiceAccountToken: false,
       containers: [{ name: 'holder', image: HOLDER_IMAGE, command: ['sleep', 'infinity'], volumeMounts: [{ name: 'import', mountPath: IMPORT_MOUNT }] }],
       volumes: [{ name: 'import', persistentVolumeClaim: { claimName: importClaim(release) } }],
     },

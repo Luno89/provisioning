@@ -9,6 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RULES: Record<string, { off: Record<string, string>; never: readonly string[] }> = {
   Release: { off: { wait: "false", timeout: "HELM_CEILING_SECONDS" }, never: ["atomic", "waitForJobs"] },
   Deployment: { off: { waitForRollout: "false" }, never: ["timeouts"] },
+  AppDeployment: { off: { waitForRollout: "false" }, never: ["timeouts"] },
   StatefulSet: { off: { waitForRollout: "false" }, never: ["timeouts"] },
   DaemonSet: { off: { waitForRollout: "false" }, never: ["timeouts"] },
   Daemonset: { off: { waitForRollout: "false" }, never: ["timeouts"] },

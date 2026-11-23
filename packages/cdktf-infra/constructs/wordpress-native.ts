@@ -1,4 +1,4 @@
-import { Construct, Namespace, Deployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, VpnService, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, appDeployment, mariadb, type DeploymentSpecTemplateSpec, Service, Secret, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 
 export interface WordPressNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -38,98 +38,7 @@ export class WordPressNativeApp extends Construct {
       },
     });
 
-    const dbPvc = new PersistentVolumeClaim(this, "db-pvc", {
-      metadata: {
-        name: "wordpress-db-pvc",
-        namespace: ns.metadata.name,
-      },
-      spec: {
-        accessModes: ["ReadWriteOnce"],
-        resources: {
-          requests: {
-            storage: dbSize,
-          },
-        },
-      },
-      waitUntilBound: false,
-    });
-
-    // DB Deployment (MariaDB)
-    new Deployment(this, "db-deployment", {
-      waitForRollout: false,
-      metadata: {
-        name: "wordpress-db",
-        namespace: ns.metadata.name,
-        labels: { app: `wordpress-db-${id}` },
-      },
-      spec: {
-        replicas: "1",
-        selector: {
-          matchLabels: { app: `wordpress-db-${id}` },
-        },
-        template: {
-          metadata: {
-            labels: { app: `wordpress-db-${id}` },
-          },
-          spec: {
-            container: [
-              {
-                name: "mariadb",
-                image: dbImage,
-                env: [
-                  { name: "MYSQL_DATABASE", value: "wordpress" },
-                  { name: "MYSQL_USER", value: "wordpress" },
-                  {
-                    name: "MYSQL_PASSWORD",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: dbSecret.metadata.name,
-                        key: "mysql-password",
-                      },
-                    },
-                  },
-                  {
-                    name: "MYSQL_ROOT_PASSWORD",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: dbSecret.metadata.name,
-                        key: "mysql-root-password",
-                      },
-                    },
-                  },
-                ],
-                port: [{ containerPort: 3306 }],
-                volumeMount: [
-                  {
-                    name: "db-data",
-                    mountPath: "/var/lib/mysql",
-                  },
-                ],
-              },
-            ],
-            volume: [
-              {
-                name: "db-data",
-                persistentVolumeClaim: {
-                  claimName: dbPvc.metadata.name,
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    new Service(this, "db-service", {
-      metadata: {
-        name: "wordpress-db-svc",
-        namespace: ns.metadata.name,
-      },
-      spec: {
-        selector: { app: `wordpress-db-${id}` },
-        port: [{ port: 3306, targetPort: "3306" }],
-      },
-    });
+    mariadb(this, { name: "wordpress", id, namespace: ns.metadata.name, image: dbImage, storage: dbSize, secretName: dbSecret.metadata.name });
 
     const podSpec: DeploymentSpecTemplateSpec = {
       container: [
@@ -155,29 +64,7 @@ export class WordPressNativeApp extends Construct {
       ],
     };
 
-    VpnService.apply(this, ns.metadata.name, podSpec, config);
-
-    // WordPress Web Deployment
-    new Deployment(this, "web-deployment", {
-      waitForRollout: false,
-      metadata: {
-        name: "wordpress",
-        namespace: ns.metadata.name,
-        labels: { app: `wordpress-web-${id}` },
-      },
-      spec: {
-        replicas: "1",
-        selector: {
-          matchLabels: { app: `wordpress-web-${id}` },
-        },
-        template: {
-          metadata: {
-            labels: { app: `wordpress-web-${id}` },
-          },
-          spec: podSpec,
-        },
-      },
-    });
+    appDeployment(this, "web-deployment", { name: "wordpress", namespace: ns.metadata.name, label: `wordpress-web-${id}`, pod: podSpec, vpn: config });
 
     new Service(this, "web-service", {
       metadata: {

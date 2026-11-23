@@ -1,7 +1,8 @@
 import { matching } from '../../platform/lib/test-matchers.js';
 import { countsIn, lastComplaint } from './image-builder.js';
 import { describe, it, expect, vi } from 'vitest';
-import { createImageBuilder, ImageBuildError } from './image-builder.js';
+import { createImageBuilder, ImageBuildError, BUILD_SERVICE_ACCOUNT } from './image-builder.js';
+import { koalaRightsIn } from '../../platform/testing/pod-rights.js';
 import { imageReference, planImage, type ToolDefinition } from '@koala/agent-engine';
 import type { KubeResult, KubeRunner } from './kube.js';
 import { reopening } from '@koala/engine-core/reopening';
@@ -125,6 +126,13 @@ describe('building what does', () => {
     expect(args.filter((arg) => ['--insecure', '--insecure-pull', '--skip-tls-verify'].includes(arg))).toEqual([]);
     expect(args).toContain(`--insecure-registry=${HOSTS.push}`);
     expect(args).toContain(`--skip-tls-verify-registry=${HOSTS.push}`);
+  });
+
+  it('builds as the build account, which no role is bound to, with no token, nothing privileged and no host folder', async () => {
+    const { run, calls } = kube();
+    await createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls), revokePushToken: async () => undefined }).ensure(CUSTOM);
+    const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+    expect(koalaRightsIn(applied.split('\n---\n').map((text) => JSON.parse(text) as unknown), { account: BUILD_SERVICE_ACCOUNT })).toEqual([]);
   });
 
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { koalaRightsIn } from '../../platform/testing/pod-rights.js';
 import { NOTHING_INSTALLED, rollBackTarget, type OdooRelease, copyDatabaseScript, filestoreJob, helmSets, idleOf, modulesIn, odooJob, newReleaseName, releaseNameOf, releasePlace, releaseTargetOf, slotStateFrom, splitImage } from './odoo-release.js';
 
 describe('the two slots of an Odoo project', () => {
@@ -82,6 +83,13 @@ describe('the jobs a release runs', () => {
     const job = filestoreJob({ name: 'j', release: 'shop', image: 'i:t', from: 'odoo_a', to: 'odoo_b' }) as { spec: { template: { spec: { containers: { command: string[] }[] } } } };
     expect(job.spec.template.spec.containers[0]!.command[2]).toBe('rm -rf /var/lib/odoo/filestore/odoo_b && if [ -d /var/lib/odoo/filestore/odoo_a ]; then cp -a /var/lib/odoo/filestore/odoo_a /var/lib/odoo/filestore/odoo_b; fi');
     expect(copyDatabaseScript('odoo_a', 'odoo_b')).toBe('dropdb --if-exists -U odoo odoo_b && createdb -U odoo odoo_b && pg_dump -U odoo odoo_a | psql -q -v ON_ERROR_STOP=1 -U odoo -d odoo_b > /dev/null');
+  });
+
+  it('run as nothing of Koala\'s: no service account, no token, nothing privileged, no host folder', () => {
+    expect(koalaRightsIn([
+      odooJob({ name: 'j', release: 'shop', image: 'i:t', database: 'odoo_a', install: ['m'], update: [], vault: { projectId: 'p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD'], database: { secret: 'shop-vault', key: 'POSTGRES_PASSWORD' }, adminKey: 'ODOO_ADMIN_PASSWORD' } }),
+      filestoreJob({ name: 'f', release: 'shop', image: 'i:t', from: 'odoo_a', to: 'odoo_b' }),
+    ])).toEqual([]);
   });
 });
 

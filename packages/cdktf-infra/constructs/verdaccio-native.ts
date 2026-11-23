@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
+import { type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { ConfigMap } from "../.gen/providers/kubernetes/config-map/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
@@ -171,7 +172,7 @@ export class VerdaccioNativeApp extends Construct {
 
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
-    new Deployment(this, "verdaccio-deployment", {
+    new AppDeployment(this, "verdaccio-deployment", {
       waitForRollout: false,
       metadata: { name: "verdaccio", namespace: ns.metadata.name, labels: { app: `verdaccio-${id}` } },
       spec: {

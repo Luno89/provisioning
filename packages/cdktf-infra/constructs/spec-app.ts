@@ -1,6 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { ConfigMap } from "../.gen/providers/kubernetes/config-map/index.js";
@@ -90,7 +90,7 @@ export class SpecApp extends Construct {
     const podSpec = rendered.deployment.spec.template.spec;
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
-    new Deployment(this, "deployment", {
+    new AppDeployment(this, "deployment", {
       waitForRollout: false,
       ...rendered.deployment,
       metadata: { ...rendered.deployment.metadata, namespace: ns.metadata.name },

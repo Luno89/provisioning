@@ -85,6 +85,7 @@ export function browserTestsJob(input: { release: string; slot: Slot; items: rea
         metadata: { labels },
         spec: {
           restartPolicy: 'Never',
+          automountServiceAccountToken: false,
           containers: [{
             name: 'playwright',
             image: E2E_RUNNER_IMAGE,
@@ -144,6 +145,7 @@ export function testLoginJob(input: { release: string; slot: Slot; image: string
         metadata: { labels },
         spec: {
           restartPolicy: 'Never',
+          automountServiceAccountToken: false,
           containers: [{
             name: 'odoo',
             image: input.image,

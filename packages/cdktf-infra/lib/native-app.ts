@@ -1,6 +1,8 @@
 export { Construct } from "constructs";
 export { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-export { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
+export { type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
+export { AppDeployment, appDeployment } from "./app-deployment.js";
+export { mariadb } from "./mariadb.js";
 export { Service } from "../.gen/providers/kubernetes/service/index.js";
 export { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 export { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";

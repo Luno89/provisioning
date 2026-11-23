@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { RunWorkspace } from '@koala/agent-engine';
 import { buildManifests, labelValue, workspaceName } from './workspace.js';
+import { koalaRightsIn } from '../../platform/testing/pod-rights.js';
+
+describe('a run\'s sandbox pod', () => {
+  it('runs as nothing of Koala\'s: no service account, no token, nothing privileged, no host folder', () => {
+    expect(koalaRightsIn(buildManifests(workspace()))).toEqual([]);
+    expect(koalaRightsIn(buildManifests(workspace({ persistent: true }), { hosts: { push: 'p', pull: 'q' }, username: 'u', password: 'x' }))).toEqual([]);
+  });
+});
 
 const LONG_RUN = 'eval2-6daa66c6-7dab-4acf-bf6d-c54e42840637-executor-reads-what-is-there';
 

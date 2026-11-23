@@ -219,54 +219,41 @@ export function odooJob(input: {
   const run = admin
     ? { command: ['sh', '-c', `odoo "$@" && printf '%s\\n' "$SET_ADMIN" | odoo ${shell}`, 'odoo'], args }
     : { command: ['odoo'], args };
-  return {
-    apiVersion: 'batch/v1',
-    kind: 'Job',
-    metadata: { name: input.name, labels: releaseLabels(input.release) },
-    spec: {
-      backoffLimit: 0,
-      ttlSecondsAfterFinished: 3600,
-      template: {
-        metadata: { labels: releaseLabels(input.release) },
-        spec: {
-          restartPolicy: 'Never',
-          securityContext: { fsGroup: 101 },
-          containers: [{
-            name: 'odoo',
-            image: input.image,
-            ...run,
-            env: [
-              { name: 'PASSWORD', valueFrom: { secretKeyRef: { name: password.secret, key: password.key } } },
-              ...(admin ? [
-                { name: 'ADMIN_PASSWORD', valueFrom: { secretKeyRef: { name: admin.secret, key: admin.key } } },
-                { name: 'SET_ADMIN', value: setAdminPasswordScript() },
-              ] : []),
-            ],
-            volumeMounts: [{ name: 'filestore', mountPath: '/var/lib/odoo' }],
-          }],
-          volumes: [{ name: 'filestore', persistentVolumeClaim: { claimName: `${input.release}-filestore` } }],
-        },
-      },
-    },
-  };
+  return filestoreJobOf(input, {
+    name: 'odoo',
+    image: input.image,
+    ...run,
+    env: [
+      { name: 'PASSWORD', valueFrom: { secretKeyRef: { name: password.secret, key: password.key } } },
+      ...(admin ? [
+        { name: 'ADMIN_PASSWORD', valueFrom: { secretKeyRef: { name: admin.secret, key: admin.key } } },
+        { name: 'SET_ADMIN', value: setAdminPasswordScript() },
+      ] : []),
+    ],
+  });
 }
 
 export function filestoreJob(input: { name: string; release: string; image: string; from: string; to: string }): Record<string, unknown> {
   const script = `rm -rf /var/lib/odoo/filestore/${input.to} && if [ -d /var/lib/odoo/filestore/${input.from} ]; then cp -a /var/lib/odoo/filestore/${input.from} /var/lib/odoo/filestore/${input.to}; fi`;
+  return filestoreJobOf(input, { name: 'copy', image: input.image, command: ['sh', '-c', script] });
+}
+
+function filestoreJobOf(job: { name: string; release: string }, container: Record<string, unknown>): Record<string, unknown> {
   return {
     apiVersion: 'batch/v1',
     kind: 'Job',
-    metadata: { name: input.name, labels: releaseLabels(input.release) },
+    metadata: { name: job.name, labels: releaseLabels(job.release) },
     spec: {
       backoffLimit: 0,
       ttlSecondsAfterFinished: 3600,
       template: {
-        metadata: { labels: releaseLabels(input.release) },
+        metadata: { labels: releaseLabels(job.release) },
         spec: {
           restartPolicy: 'Never',
+          automountServiceAccountToken: false,
           securityContext: { fsGroup: 101 },
-          containers: [{ name: 'copy', image: input.image, command: ['sh', '-c', script], volumeMounts: [{ name: 'filestore', mountPath: '/var/lib/odoo' }] }],
-          volumes: [{ name: 'filestore', persistentVolumeClaim: { claimName: `${input.release}-filestore` } }],
+          containers: [{ ...container, volumeMounts: [{ name: 'filestore', mountPath: '/var/lib/odoo' }] }],
+          volumes: [{ name: 'filestore', persistentVolumeClaim: { claimName: `${job.release}-filestore` } }],
         },
       },
     },

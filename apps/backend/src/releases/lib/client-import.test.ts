@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { claimSize, importLine, manifestVersion, moduleChanged, projectChoicesPatch, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
+import { claimSize, holderManifest, importLine, manifestVersion, moduleChanged, projectChoicesPatch, wrongVersionFrom, latestBuildOf, majorOf, missingFrom, missingSentence, odooVersionOfDockerfile, projectMajor, restorable, restoreJob, versionProblem } from './client-import.js';
+import { koalaRightsIn } from '../../platform/testing/pod-rights.js';
+
+describe('the pods that take a client\'s backup in and restore it', () => {
+  it('run as nothing of Koala\'s: no service account, no token, nothing privileged, no host folder', () => {
+    expect(koalaRightsIn([holderManifest('shop'), restoreJob({ release: 'shop', image: 'reg/shop:one', database: 'odoo_a', mode: 'copy' })])).toEqual([]);
+  });
+});
 
 describe('a client\'s Odoo backup', () => {
   it('is taken only from the project\'s own Odoo version, and never from hosted Odoo', () => {

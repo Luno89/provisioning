@@ -1,6 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
@@ -95,7 +95,7 @@ export class GitappApp extends Construct {
       });
     }
 
-    new Deployment(this, "gitapp-deployment", {
+    new AppDeployment(this, "gitapp-deployment", {
       // Confirmed live: the default (true) blocks `terraform apply` until the Deployment's
       // pods report Ready — but the imagePullSecret this Deployment needs doesn't exist until
       // *after* DeployAppActivity's `infra.deploy()` call returns (see DeployAppActivity.ts),

@@ -1,12 +1,4 @@
-import { Construct } from "constructs";
-import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
-import { Service } from "../.gen/providers/kubernetes/service/index.js";
-import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
-import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
-import { defaultServiceType } from "../lib/service-type.js";
+import { Construct, Namespace, appDeployment, type DeploymentSpecTemplateSpec, Service, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 
 export interface NavidromeNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -105,28 +97,7 @@ export class NavidromeNativeApp extends Construct {
       ],
     };
 
-    VpnService.apply(this, ns.metadata.name, podSpec, config);
-
-    new Deployment(this, "navidrome-deployment", {
-      waitForRollout: false,
-      metadata: {
-        name: "navidrome",
-        namespace: ns.metadata.name,
-        labels: { app: `navidrome-${id}` },
-      },
-      spec: {
-        replicas: "1",
-        selector: {
-          matchLabels: { app: `navidrome-${id}` },
-        },
-        template: {
-          metadata: {
-            labels: { app: `navidrome-${id}` },
-          },
-          spec: podSpec,
-        },
-      },
-    });
+    appDeployment(this, "navidrome-deployment", { name: "navidrome", namespace: ns.metadata.name, label: `navidrome-${id}`, pod: podSpec, vpn: config });
 
     new Service(this, "navidrome-service", {
       metadata: {

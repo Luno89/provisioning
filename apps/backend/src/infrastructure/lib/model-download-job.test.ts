@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { modelDownloadJob, modelJobName, MODEL_DOWNLOADS } from './model-download-job.js';
+import { koalaRightsIn } from '../../platform/testing/pod-rights.js';
 
 const job = (extra: Partial<Parameters<typeof modelDownloadJob>[0]> = {}) => modelDownloadJob({
   name: 'model-abc', image: 'vllm/vllm-openai:v0.7.2', repo: 'Qwen/Qwen2.5-0.5B-Instruct', folder: 'qwen-qwen2-5-0-5b-instruct',
@@ -28,6 +29,10 @@ describe('the job that downloads a model on the machine that runs it', () => {
     const env = container(job({ tokenSecret: 'model-abc-token' })).containers[0]!.env;
     expect(env.at(-1)).toEqual({ name: 'HF_TOKEN', valueFrom: { secretKeyRef: { name: 'model-abc-token', key: 'HF_TOKEN' } } });
     expect(JSON.stringify(env)).not.toContain('hf_');
+  });
+
+  it('runs as nothing of Koala\'s: no service account, no token, nothing privileged, and of the host only the model cache', () => {
+    expect(koalaRightsIn([job()], { hostFolder: '/var/lib/rancher/vllm-model-cache' })).toEqual([]);
   });
 
   it('is named for the folder it fills, within Kubernetes\' name limit', () => {

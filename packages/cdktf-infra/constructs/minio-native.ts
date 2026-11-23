@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Construct, Namespace, Deployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, VpnService, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, AppDeployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, VpnService, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 
 /**
  * MinIO — S3-compatible object storage, and the thing that actually holds crawled pages.
@@ -106,7 +106,7 @@ export class MinioNativeApp extends Construct {
 
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
-    new Deployment(this, "minio-deployment", {
+    new AppDeployment(this, "minio-deployment", {
       waitForRollout: false,
       metadata: { name: "minio", namespace: ns.metadata.name, labels: { app: `minio-${id}` } },
       spec: {

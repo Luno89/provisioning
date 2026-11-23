@@ -7,4 +7,13 @@ describe('the Odoo chart', () => {
     expect(deployment).toContain('- --http-interface=0.0.0.0');
     expect(deployment).toContain('httpGet: { path: /web/health, port: 8069 }');
   });
+
+  it('runs Odoo and its Postgres as nothing of Koala\'s: no service account, no token, nothing privileged, no host folder', () => {
+    const workloads = ODOO_CHART_FILES.flatMap((file) => file.content.split('\n---\n')).filter((text) => /^kind: (Deployment|StatefulSet|Job|Pod)$/m.test(text));
+    expect(workloads.map((text) => /^kind: (\w+)$/m.exec(text)?.[1])).toEqual(['StatefulSet', 'Deployment']);
+    for (const text of workloads) {
+      expect(text).toMatch(/\n  template:\n(?: {4}.*\n)*? {4}spec:\n {6}automountServiceAccountToken: false\n/);
+      expect(text).not.toMatch(/serviceAccount|privileged|hostPath/);
+    }
+  });
 });

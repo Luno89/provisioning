@@ -1,6 +1,7 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment, type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
+import { type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { secretEnv } from "../lib/app-secret.js";
 import { Manifest } from "../.gen/providers/kubernetes/manifest/index.js";
@@ -199,7 +200,7 @@ export class VllmApp extends Construct {
       ...(gpuVendor === 'amd' ? { hostNetwork: true, hostIpc: true } : {}),
     };
 
-    new Deployment(this, "vllm-deployment", {
+    new AppDeployment(this, "vllm-deployment", {
       waitForRollout: false,
       metadata: {
         name: `${sanitizedName}-vllm`,

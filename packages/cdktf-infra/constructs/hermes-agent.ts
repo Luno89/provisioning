@@ -1,12 +1,5 @@
-import { Construct } from "constructs";
-import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { Construct, Namespace, AppDeployment, Service, PersistentVolumeClaim, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
-import { Service } from "../.gen/providers/kubernetes/service/index.js";
-import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
-import { defaultServiceType } from "../lib/service-type.js";
 
 export interface HermesAgentConfig {
   readonly namespace?: string;
@@ -69,7 +62,7 @@ export class HermesAgentApp extends Construct {
       env.push({ name: "OPENAI_BASE_URL", value: config.openaiApiBaseUrl });
     }
 
-    new Deployment(this, "hermes-deployment", {
+    new AppDeployment(this, "hermes-deployment", {
       waitForRollout: false,
       metadata: {
         name: "hermes",

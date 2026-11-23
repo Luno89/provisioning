@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Construct, Namespace, Deployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, VpnService, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, appDeployment, mariadb, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
 
 export interface NextcloudNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -63,98 +63,7 @@ export class NextcloudNativeApp extends Construct {
       },
     });
 
-    const dbPvc = new PersistentVolumeClaim(this, "db-pvc", {
-      metadata: {
-        name: "nextcloud-db-pvc",
-        namespace: ns.metadata.name,
-      },
-      spec: {
-        accessModes: ["ReadWriteOnce"],
-        resources: {
-          requests: {
-            storage: dbSize,
-          },
-        },
-      },
-      waitUntilBound: false,
-    });
-
-    // DB Deployment (MariaDB)
-    new Deployment(this, "db-deployment", {
-      waitForRollout: false,
-      metadata: {
-        name: "nextcloud-db",
-        namespace: ns.metadata.name,
-        labels: { app: `nextcloud-db-${id}` },
-      },
-      spec: {
-        replicas: "1",
-        selector: {
-          matchLabels: { app: `nextcloud-db-${id}` },
-        },
-        template: {
-          metadata: {
-            labels: { app: `nextcloud-db-${id}` },
-          },
-          spec: {
-            container: [
-              {
-                name: "mariadb",
-                image: dbImage,
-                env: [
-                  { name: "MYSQL_DATABASE", value: "nextcloud" },
-                  { name: "MYSQL_USER", value: "nextcloud" },
-                  {
-                    name: "MYSQL_PASSWORD",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: dbSecret.metadata.name,
-                        key: "mysql-password",
-                      },
-                    },
-                  },
-                  {
-                    name: "MYSQL_ROOT_PASSWORD",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: dbSecret.metadata.name,
-                        key: "mysql-root-password",
-                      },
-                    },
-                  },
-                ],
-                port: [{ containerPort: 3306 }],
-                volumeMount: [
-                  {
-                    name: "db-data",
-                    mountPath: "/var/lib/mysql",
-                  },
-                ],
-              },
-            ],
-            volume: [
-              {
-                name: "db-data",
-                persistentVolumeClaim: {
-                  claimName: dbPvc.metadata.name,
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    new Service(this, "db-service", {
-      metadata: {
-        name: "nextcloud-db-svc",
-        namespace: ns.metadata.name,
-      },
-      spec: {
-        selector: { app: `nextcloud-db-${id}` },
-        port: [{ port: 3306, targetPort: "3306" }],
-      },
-    });
+    mariadb(this, { name: "nextcloud", id, namespace: ns.metadata.name, image: dbImage, storage: dbSize, secretName: dbSecret.metadata.name });
 
     const podSpec: DeploymentSpecTemplateSpec = {
       container: [
@@ -193,29 +102,7 @@ export class NextcloudNativeApp extends Construct {
       volume: [{ name: "web-data", persistentVolumeClaim: { claimName: webPvc.metadata.name } }],
     };
 
-    VpnService.apply(this, ns.metadata.name, podSpec, config);
-
-    // Nextcloud Web Deployment
-    new Deployment(this, "web-deployment", {
-      waitForRollout: false,
-      metadata: {
-        name: "nextcloud",
-        namespace: ns.metadata.name,
-        labels: { app: `nextcloud-web-${id}` },
-      },
-      spec: {
-        replicas: "1",
-        selector: {
-          matchLabels: { app: `nextcloud-web-${id}` },
-        },
-        template: {
-          metadata: {
-            labels: { app: `nextcloud-web-${id}` },
-          },
-          spec: podSpec,
-        },
-      },
-    });
+    appDeployment(this, "web-deployment", { name: "nextcloud", namespace: ns.metadata.name, label: `nextcloud-web-${id}`, pod: podSpec, vpn: config });
 
     new Service(this, "web-service", {
       metadata: {

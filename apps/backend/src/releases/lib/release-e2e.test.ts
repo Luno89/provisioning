@@ -1,5 +1,6 @@
 import { databaseSecretFrom } from './odoo-release.js';
 import { describe, it, expect } from 'vitest';
+import { koalaRightsIn } from '../../platform/testing/pod-rights.js';
 import { readE2EReport } from '../../engine/lib/e2e.js';
 import { PLAYWRIGHT_REPORT } from '../../engine/lib/e2e-fixtures.js';
 import { ODOO_PLAYWRIGHT_CONFIG } from '../../projects/lib/project-templates.js';
@@ -71,6 +72,13 @@ describe('the browser tests a release runs against its preview', () => {
     const pod = job.spec.template.spec;
     expect(pod.containers[0]!.volumeMounts).toEqual([{ name: 'filestore', mountPath: '/var/lib/odoo' }]);
     expect(pod.volumes).toEqual([{ name: 'filestore', persistentVolumeClaim: { claimName: 'shop-filestore' } }]);
+  });
+
+  it('runs its jobs as nothing of Koala\'s: no service account, no token, nothing privileged, no host folder', () => {
+    expect(koalaRightsIn([
+      browserTestsJob({ release: 'shop', slot: 'b', items: [{ key: 'f0', path: 'e2e/a.spec.ts' }] }),
+      testLoginJob({ release: 'shop', slot: 'b', image: 'reg/shop:two', database: 'odoo_b', password: { secret: 'shop-vault', key: 'POSTGRES_PASSWORD' } }),
+    ])).toEqual([]);
   });
 
   it('reads the database password from the vault once it holds one, and from a chart that keeps its own otherwise', () => {

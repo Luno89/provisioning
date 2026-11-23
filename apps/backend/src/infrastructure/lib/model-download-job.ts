@@ -66,6 +66,7 @@ export function modelDownloadJob(job: ModelDownload): Record<string, unknown> {
       template: {
         metadata: { labels: { 'app.kubernetes.io/component': 'model-download' } },
         spec: {
+          automountServiceAccountToken: false,
           restartPolicy: 'Never',
           containers: [{
             name: 'download',

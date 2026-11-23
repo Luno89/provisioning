@@ -1,7 +1,8 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
-import { Deployment, type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
+import { AppDeployment } from "../lib/app-deployment.js";
+import { type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
@@ -283,7 +284,7 @@ export class TabbyApiApp extends Construct {
       volume: volumes,
     };
 
-    new Deployment(this, "tabbyapi-deployment", {
+    new AppDeployment(this, "tabbyapi-deployment", {
       waitForRollout: false,
       metadata: {
         name: `${sanitizedName}-tabbyapi`,
