@@ -194,6 +194,10 @@
   },
   {
    "at": "2026-11-17T23:18:01.296Z"
+  },
+  {
+   "at": "2026-11-23T20:23:36.674Z",
+   "why": "exited with code 1"
   }
  ],
  "apps/backend/src/engine-host/release-runs.integration.test.ts": [

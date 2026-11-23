@@ -21,4 +21,4 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `restore-live` | 2026-11-02 06:20 | 2026-10-31 01:51 |
 | `root-metrics-live` | 2026-11-06 00:36 | 2026-11-06 00:33 |
 | `routing-live` | 2026-11-02 07:22 | 2026-11-01 05:35 |
-| `v1-live` | 2026-11-17 23:23 | 2026-11-17 23:18 |
+| `v1-live` | 2026-11-23 22:57 | 2026-11-23 20:23 |
