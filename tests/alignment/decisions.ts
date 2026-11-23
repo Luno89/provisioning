@@ -654,4 +654,14 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'Tests run in five layers (unit, component, contract, container, VM), each with its own command, cheapest first, each only once the one below passed. A fault is caught at the cheapest layer that can catch it. Real things are used once, with a simulated workload. Each dependency has one implementation, used by production and tests alike with only what lies under it injected, and extended rather than copied. A workflow\'s decisions are pure functions tested at unit, and its Temporal calls are proven on the real Temporal dev server in few, balanced scenarios. Coupling judges logic, composition and dependency calls each by its own proof; confidence adds up across layers, the daily VM run\'s coverage included, and a proven sibling\'s shared path counts; no code is completely untested.',
   },
+  {
+    id: 'audit-fix-approach',
+    subject: 'Fixing what the code audit found: a check, the v1 path rebuilt tests first, the rest archived',
+    terms: ['rewrite', 'new test suite', 'new implementation', 'code audit', 'audit'],
+    words: [
+      { at: '2026-11-23T04:22', text: 'how bad would just writing a new test suite and a new implementation be, I feel like there\'s a crap load of bugs we\'re going to find' },
+      { at: '2026-11-23T04:25', text: 'Ok sounds reasonable' },
+    ],
+    reading: 'No second codebase and no rewrite all at once. The audit\'s commonest fault, an error caught and carried on with an empty or guessed value, becomes a lint rule; it is fixed on the v1 path, and elsewhere a baseline holds it that only shrinks. The v1 path (join a machine, install Koala, deploy vLLM or TabbyAPI, chat) gets a new test suite at the cheapest layer for each fault, watched failing first; a module that fails it is replaced and its old code removed as the new one lands. Areas outside v1 that the owner names are archived through the archive ledger. The audit reports are what the new tests are checked against.',
+  },
 ];
