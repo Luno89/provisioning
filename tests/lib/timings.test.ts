@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { slowerThanUsual, type Timed, overBudget } from './timings.js';
+import { slowerThanUsual, type Timed, overBudget, heldOverBudget, layerOverBudget } from './timings.js';
 
 const timed = (commit: string, name: string, seconds: number, kind: Timed['kind'] = 'step'): Timed => ({ at: '2026-11-10T00:00:00Z', commit, kind, name, seconds });
 
@@ -37,5 +37,39 @@ describe('tests that take too long', () => {
       'd.integration.test.ts > slower: 95 s, over the 30 s an integration test may take',
       'b.test.ts > slow: 1.4 s, over the 1 s a unit test may take',
     ]);
+  });
+});
+
+describe('the budgets each layer is held to', () => {
+  const tests = [
+    { name: 'a.component.test.ts > fine', tier: 'component', seconds: 9 },
+    { name: 'b.component.test.ts > slow', tier: 'component', seconds: 11 },
+    { name: 'c.contract.test.ts > slow', tier: 'contract', seconds: 12 },
+    { name: 'd.container.test.ts > fine', tier: 'container', seconds: 59 },
+    { name: 'e.container.test.ts > slow', tier: 'container', seconds: 75 },
+    { name: 'f.integration.test.ts > slower', tier: 'integration', seconds: 95 },
+  ] as const;
+
+  it('names a component or contract test past ten seconds and a container test past a minute', () => {
+    expect(overBudget(tests)).toEqual([
+      'f.integration.test.ts > slower: 95 s, over the 30 s an integration test may take',
+      'e.container.test.ts > slow: 75 s, over the 60 s a container test may take',
+      'c.contract.test.ts > slow: 12 s, over the 10 s a contract test may take',
+      'b.component.test.ts > slow: 11 s, over the 10 s a component test may take',
+    ]);
+  });
+
+  it('holds every layer to its budget but leaves the old integration files only named', () => {
+    expect(heldOverBudget(tests)).toEqual([
+      'e.container.test.ts > slow: 75 s, over the 60 s a container test may take',
+      'c.contract.test.ts > slow: 12 s, over the 10 s a contract test may take',
+      'b.component.test.ts > slow: 11 s, over the 10 s a component test may take',
+    ]);
+  });
+
+  it('names a whole layer that took longer than it may, and says nothing of one within it', () => {
+    expect(layerOverBudget('unit', 150)).toBe('the unit layer took 2.5 min, over the 2.0 min it may take');
+    expect(layerOverBudget('container', 900)).toBeUndefined();
+    expect(layerOverBudget('component', 301)).toBe('the component layer took 5.0 min, over the 5.0 min it may take');
   });
 });

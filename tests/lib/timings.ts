@@ -51,15 +51,33 @@ export function slowerThanUsual(history: readonly Timed[], commit: string): stri
   return slower.sort();
 }
 
-export type Tier = 'unit' | 'integration';
+export type Layer = 'unit' | 'component' | 'contract' | 'container';
 
-export const TEST_BUDGET: Record<Tier, number> = { unit: 1, integration: 30 };
+export type Tier = Layer | 'integration';
 
-const TIER_NAME: Record<Tier, string> = { unit: 'a unit test', integration: 'an integration test' };
+export const TEST_BUDGET: Record<Tier, number> = { unit: 1, component: 10, contract: 10, container: 60, integration: 30 };
+
+export const LAYER_BUDGET: Record<Layer, number> = { unit: 120, component: 300, contract: 300, container: 900 };
+
+const HELD: ReadonlySet<Tier> = new Set<Tier>(['unit', 'component', 'contract', 'container']);
+
+const TIER_NAME: Record<Tier, string> = {
+  unit: 'a unit test', component: 'a component test', contract: 'a contract test', container: 'a container test', integration: 'an integration test',
+};
 
 const brief = (seconds: number): string => (seconds < 10 ? `${Number(seconds.toFixed(1))} s` : `${Math.round(seconds)} s`);
 
 export function overBudget(tests: readonly { name: string; tier: Tier; seconds: number }[]): string[] {
   return tests.filter((test) => test.seconds > TEST_BUDGET[test.tier]).sort((a, b) => b.seconds - a.seconds)
     .map((test) => `${test.name}: ${brief(test.seconds)}, over the ${TEST_BUDGET[test.tier]} s ${TIER_NAME[test.tier]} may take`);
+}
+
+export function heldOverBudget(tests: readonly { name: string; tier: Tier; seconds: number }[]): string[] {
+  return overBudget(tests.filter((test) => HELD.has(test.tier)));
+}
+
+const minutes = (seconds: number): string => `${(seconds / 60).toFixed(1)} min`;
+
+export function layerOverBudget(layer: Layer, seconds: number): string | undefined {
+  return seconds > LAYER_BUDGET[layer] ? `the ${layer} layer took ${minutes(seconds)}, over the ${minutes(LAYER_BUDGET[layer])} it may take` : undefined;
 }
