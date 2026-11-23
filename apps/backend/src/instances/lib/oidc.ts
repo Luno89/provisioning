@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { decodeJwt } from 'jose';
+import { ignore } from '@koala/engine-core/failures';
 import { claimsOf, type ClaimedUser } from '../../platform/lib/permissions.js';
 import type { Claim, RevokedBecause } from '../../platform/index.js';
 import { kidOf, type IdentityKeyPair } from './identity-token.js';
@@ -146,17 +148,55 @@ export const machineClientMetadata = (machine: { id: string; ownerId: string; ke
   koala_owner: machine.ownerId,
 });
 
-export function basicSecretOf(authorization: string | undefined): string | undefined {
+function basicPartOf(authorization: string | undefined, part: 'id' | 'secret'): string | undefined {
   const [scheme, encoded] = (authorization ?? '').split(' ');
   if (scheme?.toLowerCase() !== 'basic' || !encoded) return undefined;
   const basic = Buffer.from(encoded, 'base64').toString('utf8');
   const colon = basic.indexOf(':');
   if (colon === -1) return undefined;
   try {
-    return decodeURIComponent(basic.slice(colon + 1).replace(/\+/g, '%20'));
+    return decodeURIComponent((part === 'id' ? basic.slice(0, colon) : basic.slice(colon + 1)).replace(/\+/g, '%20'));
   } catch {
     return undefined;
   }
+}
+
+export const basicSecretOf = (authorization: string | undefined): string | undefined => basicPartOf(authorization, 'secret');
+
+export interface TokenRequestSeen {
+  clientId?: string | undefined;
+  params?: Record<string, unknown> | undefined;
+  authorization?: string | undefined;
+}
+
+const assertedClientOf = (assertion: unknown): string | undefined => {
+  if (typeof assertion !== 'string') return undefined;
+  try {
+    return decodeJwt(assertion).sub;
+  } catch (err) {
+    return ignore('an assertion root cannot read names no client, and the refusal is told without one')(err);
+  }
+};
+
+export function refusedClientOf(seen: TokenRequestSeen): string | undefined {
+  const named = seen.params?.client_id;
+  return seen.clientId ?? (typeof named === 'string' && named ? named : undefined) ?? basicPartOf(seen.authorization, 'id') ?? assertedClientOf(seen.params?.client_assertion);
+}
+
+export interface TokenRefusal {
+  error?: unknown;
+  error_description?: unknown;
+  error_detail?: unknown;
+  message?: unknown;
+}
+
+const said = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
+
+export function tokenRefusalLine(clientId: string | undefined, refusal: TokenRefusal): string {
+  const error = said(refusal.error) ?? said(refusal.message) ?? 'an error it did not name';
+  const description = said(refusal.error_description);
+  const detail = said(refusal.error_detail);
+  return `[sign-in] root refused ${clientId ?? 'a client that named no id'} at its token endpoint: ${error}${description ? ` (${description})` : ''}${detail ? `: ${detail}` : ''}`;
 }
 
 export const metricsClientMetadata = (machine: { id: string; ownerId: string; secret: string }): Record<string, unknown> => ({

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
   asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, clientAt, claimsShaped, clientMetadata, instanceClient,
-  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor,
+  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, refusedClientOf, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor, tokenRefusalLine,
 } from './oidc.js';
 
 const keys = identityKeysFrom(generateIdentityKey());
@@ -117,5 +117,23 @@ describe('the provider answers as root\'s public address, whatever host a reques
   it('keeps the address the proxy in front reported, and trusts no client-sent one when nothing is in front', () => {
     expect(asIssuerRequest('https://app.example.com/oidc', { 'x-forwarded-for': '203.0.113.9' }, true, '127.0.0.1')['x-forwarded-for']).toBe('203.0.113.9');
     expect(asIssuerRequest('http://localhost:3231/oidc', { 'x-forwarded-for': '203.0.113.9' }, false, '10.0.2.15')['x-forwarded-for']).toBe('10.0.2.15');
+  });
+});
+
+describe('which client root names when it refuses one at its token endpoint', () => {
+  const unsigned = (claims: Record<string, unknown>): string =>
+    `${Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.`;
+
+  it('takes the client it found, else the id it was given, else the one its basic sign-in or its assertion names', () => {
+    expect(refusedClientOf({ clientId: 'found', params: { client_id: 'given' } })).toBe('found');
+    expect(refusedClientOf({ params: { client_id: 'given' }, authorization: `Basic ${Buffer.from('basic:secret').toString('base64')}` })).toBe('given');
+    expect(refusedClientOf({ params: {}, authorization: `Basic ${Buffer.from('basic:secret').toString('base64')}` })).toBe('basic');
+    expect(refusedClientOf({ params: { client_assertion: unsigned({ sub: 'asserted' }) } })).toBe('asserted');
+    expect(refusedClientOf({ params: { client_assertion: 'not a token' } })).toBeUndefined();
+  });
+
+  it('says the provider\'s error, its description and its detail, and leaves out what it was not told', () => {
+    expect(tokenRefusalLine('i-1', { error: 'invalid_grant', error_description: 'grant request is invalid' })).toBe('[sign-in] root refused i-1 at its token endpoint: invalid_grant (grant request is invalid)');
+    expect(tokenRefusalLine(undefined, { error: 'invalid_request', error_detail: 'no client authentication mechanism provided' })).toBe('[sign-in] root refused a client that named no id at its token endpoint: invalid_request: no client authentication mechanism provided');
   });
 });
