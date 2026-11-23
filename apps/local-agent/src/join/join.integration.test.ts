@@ -443,7 +443,7 @@ describe('a machine\'s join through real commands, files and HTTP, on a throwawa
       const said: string[] = [];
       const following = followInstall({
         rootUrl: `https://127.0.0.1:${(secure.address() as { port: number }).port}`, token: async () => 'token-1', fetch, say: (line) => { said.push(line); }, section: () => undefined,
-        interrupted: new AbortController().signal, wait: { pause: async () => undefined },
+        interrupted: new AbortController().signal, wait: { pause: async () => { throw new Error('the follow was tried again after root\'s certificate was refused, which no later try can change'); } },
       });
       await expect(following).rejects.toThrow(/^root could not be asked how putting Koala on this machine goes: .+/);
       expect(said).toEqual([]);
