@@ -57,6 +57,23 @@ describe('a token asked to be revoked', () => {
   });
 });
 
+describe('a final failure whose words are in its cause', () => {
+  it('names every message down the cause chain, as the Temporal SDK wraps the server\'s answer', () => {
+    const grpc = Object.assign(new Error('5 NOT_FOUND: namespace koala not found'), { code: 5 });
+    const wrapped = Object.assign(new Error('Failed to start Workflow', { cause: grpc }), { name: 'ServiceError' });
+    expect(failureOf(wrapped)).toEqual({ kind: 'final', reason: 'Failed to start Workflow: 5 NOT_FOUND: namespace koala not found' });
+  });
+
+  it('names a cause only once when the message already carries it, and stops at a cause that loops', () => {
+    const inner = new Error('disk full');
+    expect(failureOf(new Error('writing failed: disk full', { cause: inner })).reason).toBe('writing failed: disk full');
+    const looped = new Error('outer');
+    const middle = new Error('middle', { cause: looped });
+    Object.assign(looped, { cause: middle });
+    expect(failureOf(looped).reason).toBe('outer: middle');
+  });
+});
+
 describe('ignoring a failure', () => {
   it('lets a failure go only when it says why', async () => {
     expect(await Promise.reject(new Error('gone already')).catch(ignore('the temp file may already be removed'))).toBeUndefined();
