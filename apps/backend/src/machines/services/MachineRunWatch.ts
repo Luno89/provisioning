@@ -1,3 +1,5 @@
+import { failureOf } from '@koala/engine-core/failures';
+import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { runIdsFrom, type RunLife } from '../lib/run-watch.js';
 
 export interface RunLiveness {
@@ -19,6 +21,7 @@ export class MachineRunWatch {
   constructor(
     private readonly runs: RunLiveness,
     private readonly log: (line: string) => void = (line) => console.warn(`[machines] ${line}`),
+    private readonly again: () => Reopening = () => reopening(),
   ) {}
 
   follow(deviceId: string, ownerId: string, raw: unknown, tell: TellRunEnded): void {
@@ -44,15 +47,27 @@ export class MachineRunWatch {
     return [...(this.following.get(deviceId)?.runs ?? [])].sort();
   }
 
+  private async lifeOf(deviceId: string, runId: string, ownerId: string): Promise<RunLife> {
+    const wait = this.again();
+    for (;;) {
+      try {
+        const now = await this.runs.life(runId, ownerId);
+        return now === 'running' ? await this.runs.closed(runId, ownerId) : now;
+      } catch (err) {
+        const failure = failureOf(err);
+        if (failure.kind === 'final') throw err;
+        this.log(`${deviceId} named ${runId}, whose state cannot be read yet, so Koala reads it again in ${wait.seconds} s: ${failure.reason}`);
+        await wait.after();
+      }
+    }
+  }
+
   private async watch(deviceId: string, following: Following, runId: string): Promise<void> {
-    const now = await this.runs.life(runId, following.ownerId).catch((err: Error): RunLife => {
-      this.log(`${deviceId} named ${runId}, whose state could not be read, so Koala waits for it to close: ${err.message}`);
-      return 'running';
-    });
-    const life = now === 'running' ? await this.runs.closed(runId, following.ownerId) : now;
+    const outcome = await this.lifeOf(deviceId, runId, following.ownerId).then((life) => ({ life }), (err: unknown) => ({ refused: failureOf(err).reason }));
     if (this.following.get(deviceId) !== following || !following.runs.has(runId)) return;
     following.runs.delete(runId);
-    if (life === 'ended') following.tell(runId);
+    if ('refused' in outcome) this.log(`${deviceId} named ${runId}, whose state Temporal refuses to give, so it is not followed: ${outcome.refused}`);
+    else if (outcome.life === 'ended') following.tell(runId);
     else this.log(`${deviceId} named ${runId}, which is not its owner's run, so nothing about it is told`);
   }
 }

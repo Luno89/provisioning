@@ -245,11 +245,6 @@
       "count": 1
     }
   },
-  "src/machines/services/MachineRunWatch.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/machines/services/MachineService.ts": {
     "no-restricted-syntax": {
       "count": 1

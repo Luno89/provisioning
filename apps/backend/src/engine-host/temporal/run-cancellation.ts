@@ -1,4 +1,4 @@
-import { ignore } from '@koala/engine-core/failures';
+import { failureOf, ignore } from '@koala/engine-core/failures';
 import { RUN_ID_MEMO, workflowOfRun } from './contracts.js';
 import type { Client } from '@temporalio/client';
 import { ownerIn } from '../../platform/lib/workflow-owner.js';
@@ -74,13 +74,18 @@ export function runLifeVia(client: () => Promise<Client>, reporter?: DependencyR
   }, 'ended');
 }
 
+function unreadUnlessFinal(err: unknown): 'unread' {
+  if (failureOf(err).kind === 'final') throw err;
+  return 'unread';
+}
+
 export function runClosedVia(client: () => Promise<Client>, reporter?: DependencyReporter, again: () => Reopening = () => reopening(RUN_WATCH_RETRY_MS)): (runId: string, ownerId: string) => Promise<RunLife> {
   const life = runLifeVia(client, reporter);
   return async (runId, ownerId) => {
     const wait = again();
     for (;;) {
       await client().then((connected) => connected.workflow.getHandle(workflowOfRun(runId)).result()).catch(ignore('a run that failed or was terminated rejects here as well, and whether it closed is asked next'));
-      const now = await life(runId, ownerId).then((read) => { wait.reset(); return read; }, () => 'unread' as const);
+      const now = await life(runId, ownerId).then((read) => { wait.reset(); return read; }, unreadUnlessFinal);
       if (now === 'ended' || now === 'not-theirs') return now;
       await wait.after();
     }
