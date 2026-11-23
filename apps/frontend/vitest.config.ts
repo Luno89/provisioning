@@ -15,17 +15,20 @@ const thePageSocketsAsABrowserDoes: Plugin = {
   resolveId: (id, importer) => (id === 'socket.io-client' && importer?.startsWith(PAGE) ? BROWSER_SOCKET : undefined),
 };
 
+const backendInProcess = {
+  globalSetup: ['../backend/vitest.global-setup.ts'],
+  setupFiles: ['../backend/vitest.setup.ts'],
+  env: { VITE_API_BASE: '/api', VITE_SOCKET_URL: '/' },
+  environment: './src/test/backend/page-environment.ts',
+  plugins: [thePageSocketsAsABrowserDoes],
+};
+
 export const frontendTiers = (include: string[]) => tiers({
   include,
   setupFiles: ['./src/test/setup.ts'],
   unit: { setupFiles: ['./src/test/unit-setup.ts'] },
-  integration: {
-    globalSetup: ['../backend/vitest.global-setup.ts'],
-    setupFiles: ['../backend/vitest.setup.ts'],
-    env: { VITE_API_BASE: '/api', VITE_SOCKET_URL: '/' },
-    environment: './src/test/backend/page-environment.ts',
-    plugins: [thePageSocketsAsABrowserDoes],
-  },
+  component: backendInProcess,
+  integration: backendInProcess,
 });
 
 export default defineConfig({

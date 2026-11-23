@@ -1,0 +1,11 @@
+{
+ "packages/agent-engine/src/model/model-call.test.ts > callModel > does not wait on an address that does not exist, or once the run is stopped": 1,
+ "apps/frontend/src/features/engine/hooks/usePlanProposals.test.tsx > usePlanProposals > refreshes the board once a change it shows is applied": 1,
+ "apps/backend/src/machines/services/MachineGitService.test.ts > git for a person's machine, through Koala > refuses a push whose commands run on past anything git sends, without reading the rest": 1,
+ "apps/backend/src/workflows/bundle.test.ts > the workflows Temporal runs > bundle, every module they reach being pure code with nothing of Node in it": 1,
+ "apps/backend/src/activities/CheckRunActivities.test.ts > a check run on its space > kills a run that has said enough, as a dying worker would, and keeps what it had said marked interrupted": 1,
+ "tests/coupling/graph.test.ts > a graph built again reuses each workspace nothing it read has changed for > builds again a workspace whose interface call now reaches an implementation that moved": 1,
+ "tests/coupling/graph.test.ts > a graph built again reuses each workspace nothing it read has changed for > builds again only the workspace whose file changed, when the others look up the same implementations": 1,
+ "tests/lib/until.test.ts > until > asks again after a lost connection or an answer of not there yet, and never after a final one or a hopeless answer": 1,
+ "layer unit": 1
+}

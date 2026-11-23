@@ -67,14 +67,23 @@ const TIER_NAME: Record<Tier, string> = {
 
 const brief = (seconds: number): string => (seconds < 10 ? `${Number(seconds.toFixed(1))} s` : `${Math.round(seconds)} s`);
 
-export function overBudget(tests: readonly { name: string; tier: Tier; seconds: number }[]): string[] {
-  return tests.filter((test) => test.seconds > TEST_BUDGET[test.tier]).sort((a, b) => b.seconds - a.seconds)
-    .map((test) => `${test.name}: ${brief(test.seconds)}, over the ${TEST_BUDGET[test.tier]} s ${TIER_NAME[test.tier]} may take`);
+export interface TestTime { name: string; tier: Tier; seconds: number }
+
+export const slowTests = (tests: readonly TestTime[]): TestTime[] =>
+  tests.filter((test) => test.seconds > TEST_BUDGET[test.tier]).sort((a, b) => b.seconds - a.seconds);
+
+export const overBudgetLine = (test: TestTime): string =>
+  `${test.name}: ${brief(test.seconds)}, over the ${TEST_BUDGET[test.tier]} s ${TIER_NAME[test.tier]} may take`;
+
+export function overBudget(tests: readonly TestTime[]): string[] {
+  return slowTests(tests).map(overBudgetLine);
 }
 
-export function heldOverBudget(tests: readonly { name: string; tier: Tier; seconds: number }[]): string[] {
+export function heldOverBudget(tests: readonly TestTime[]): string[] {
   return overBudget(tests.filter((test) => HELD.has(test.tier)));
 }
+
+export const isHeld = (tier: Tier): boolean => HELD.has(tier);
 
 const minutes = (seconds: number): string => `${(seconds / 60).toFixed(1)} min`;
 

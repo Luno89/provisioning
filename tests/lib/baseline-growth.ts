@@ -6,6 +6,7 @@ export type Baseline = Record<string, number>;
 export const STAGED: ReadonlyArray<{ path: string; by: 'rule' | 'total' }> = [
   { path: 'tests/copies/baseline.json', by: 'rule' },
   { path: 'tests/coupling/untested.json', by: 'total' },
+  { path: 'tests/tiers/slow.json', by: 'total' },
 ];
 
 const sum = (baseline: Baseline): number => Object.values(baseline).reduce((total, count) => total + count, 0);

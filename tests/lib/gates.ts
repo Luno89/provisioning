@@ -13,7 +13,7 @@ export const UNIT_STEPS: GateStep[] = [
 ];
 
 export const INTEGRATION_STEPS: GateStep[] = [
-  { name: 'the integration tier, both tiers gathering what they run', script: 'test:integration:coupled' },
+  { name: 'every layer, gathering what each runs', script: 'test:integration:coupled' },
 ];
 
 export const E2E_STEPS: GateStep[] = [

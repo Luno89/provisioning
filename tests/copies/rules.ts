@@ -39,10 +39,11 @@ export function against(found: readonly Copy[], baseline: Baseline): Against {
   return { added, fixed };
 }
 
-export function pruned(baseline: Baseline, found: readonly Copy[]): Baseline {
-  const now = counted(found);
+export function prunedTo(baseline: Baseline, now: Readonly<Record<string, number>>): Baseline {
   return Object.fromEntries(Object.entries(baseline).map(([key, was]): [string, number] => [key, Math.min(was, now[key] ?? 0)]).filter(([, count]) => count > 0));
 }
+
+export const pruned = (baseline: Baseline, found: readonly Copy[]): Baseline => prunedTo(baseline, counted(found));
 
 const KEY = /^(\S+) (\S+) <-> (\S+) #([0-9a-f]+)$/;
 
