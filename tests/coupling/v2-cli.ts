@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { heldTo, judge, learnedWeights, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
-import { ARTIFACTS, OUT, ROOT, runsIn, runsOf, type Gathered } from './artifacts.js';
+import { ARTIFACTS, gatheredIn, judgedGather, OUT, ROOT, runsIn, runsOf } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
 import { changedBase, codebaseOf, DEPENDENCIES, JUDGED_FROM, SHARING, versionsIn, type Since } from './v2.js';
 import { AREAS, evidenceFrom, scoresIn, survivorsIn, type KeptRun, type MutationReport, type Unchecked } from './mutation.js';
@@ -24,11 +24,12 @@ if (ancestry.status !== 0 && ancestry.status !== 1) throw new Error(`git could n
 const startShipped = ancestry.status === 0;
 
 const sinceByTest = new Map<string, Since>();
+const gathered = gatheredIn(OUT);
 const runs = ARTIFACTS.flatMap((artifact) => {
   const dir = runsOf(OUT, artifact);
-  const gatheredFile = join(OUT, artifact, 'gathered.json');
-  if (!existsSync(dir) || !existsSync(gatheredFile)) return [];
-  const { commit } = JSON.parse(readFileSync(gatheredFile, 'utf8')) as Gathered;
+  const record = judgedGather(artifact, { runs: existsSync(dir), gathered: gathered[artifact] });
+  if (!record) return [];
+  const { commit } = record;
   const since: Since = { files: changedSince(commit), versions: versionsIn(git(['show', `${commit}:package-lock.json`]), modules) };
   const found = runsIn(dir);
   for (const run of found) sinceByTest.set(run.testFile, since);
