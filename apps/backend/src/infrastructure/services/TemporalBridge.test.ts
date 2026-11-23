@@ -583,15 +583,6 @@ describe('the work the bridge starts on an app\'s cluster is handed how to reach
     expect(seen).toEqual([{ project: 'p1' }, { project: 'p1' }, { project: 'p1' }, undefined]);
   });
 
-  it('starts a crawl kept to a project as work for that project', async () => {
-    const { ready, workflow } = starting();
-    const seen: unknown[] = [];
-    workflow.start.mockImplementation((async () => { seen.push(workFor()); return mock(); }) as never);
-    await ready().startIngest({ ownerId: 'u1', url: 'https://example.com', projectId: 'p1' });
-    await ready().startIngest({ ownerId: 'u1', url: 'https://example.com' });
-    expect(seen).toEqual([{ project: 'p1' }, undefined]);
-  });
-
   it('hands them the reach when the cluster needs no starting', async () => {
     const { db, ready, workflow, access } = starting();
     access.handOver.mockResolvedValue({ clusterId: 'machine-desk', reach: DESK });
@@ -634,12 +625,12 @@ describe('consolidating everyone\'s memories', () => {
   });
 
   it('keeps every person\'s memories, saying why, where no memory index was given', async () => {
-    const { db, instance } = bridge({ memoryIndex: { off: 'root keeps no memories and crawls no corpus, so it has no memory index; each instance does' } });
+    const { db, instance } = bridge({ memoryIndex: { off: 'root keeps no memories, so it has no memory index; each instance does' } });
     for (const item of [lesson('c1', 'u3', 8), lesson('c2', 'u3', 6)]) await db.memory.saveMemory(item);
 
     await instance.consolidateMemoryBank();
 
     expect((await db.memory.getMemories()).every((item) => !item.mergedInto)).toBe(true);
-    expect(await db.memory.getKeepingState('u3')).toMatchObject({ state: 'down', reason: 'memories cannot be kept here: root keeps no memories and crawls no corpus, so it has no memory index; each instance does' });
+    expect(await db.memory.getKeepingState('u3')).toMatchObject({ state: 'down', reason: 'memories cannot be kept here: root keeps no memories, so it has no memory index; each instance does' });
   });
 });

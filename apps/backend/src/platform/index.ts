@@ -21,8 +21,6 @@ export { answerFailure, DEPENDENCIES, DEPENDENCY_IDS, DependencyDownError, downA
 export type { DependencyDown, DependencyId, DependencyRefusals, DependencyReporter, DependencyState, DependencyStateRow, Failure, MemoryIndexReach, Reaching } from './lib/dependencies.js';
 export { emailWayFrom } from './lib/email-way.js';
 export { firstAdminSetup } from './lib/first-admin.js';
-export { followsLinks, frontierRow } from './lib/frontier.js';
-export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
 export { unpromptedGit } from './lib/git-env.js';
 export { ACCOUNT_KEY, afterFailure, attemptsKeyFor, CONFIRM_CODES, confirmCodesKeyFor, confirmCodesSaid, CSP_REPORT_LIMIT, fullUntil, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, LOCKOUT, RATE_LIMITS, ruleFor, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid } from './lib/http-limits.js';
 export type { LockoutRule, SignInAttempts } from './lib/http-limits.js';

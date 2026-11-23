@@ -11,7 +11,6 @@ interface World {
   conversation: string;
   run: string;
   liveRun: string;
-  ingest: string;
 }
 
 const worldOf = (owner: string): World => ({
@@ -21,11 +20,10 @@ const worldOf = (owner: string): World => ({
   conversation: `chat-${owner}`,
   run: `run-${owner}`,
   liveRun: `live-${owner}`,
-  ingest: `ingest-${owner}`,
 });
 
 async function seed(db: Database, world: World): Promise<void> {
-  const { owner, project, tree, conversation, run, liveRun, ingest } = world;
+  const { owner, project, tree, conversation, run, liveRun } = world;
   await db.accounts.saveUser({ id: owner, email: `${owner}@example.com`, createdAt: at } as never);
   await db.accounts.savePasswordReset({ id: `reset-${owner}`, ownerId: owner, codeHash: 'hash', expiresAt: later, wrong: 0, sent: 1 } as never);
   await db.accounts.saveTwoFactorCode({ id: `code-${owner}`, ownerId: owner, codeHash: 'hash', expiresAt: later });
@@ -38,8 +36,6 @@ async function seed(db: Database, world: World): Promise<void> {
   await db.engine.saveConversation({ id: conversation, ownerId: owner, projectId: project, title: 'Talk', messages: [], liveTurn: { runId: liveRun }, createdAt: at, updatedAt: at } as never);
   await db.engine.appendTurnLog({ turnId: run, ownerId: owner, seq: 1, events: [], at });
   await db.engine.saveRunEffort({ runId: run, ownerId: owner, agentSlug: 'koala', procedureId: 'chat', procedureVersion: '1', modelKey: 'm', modelLabel: 'm', outcome: 'finished', rounds: 1, toolCalls: 0, totalTokens: 1, childRuns: 0, longestReply: 1, cappedAt: 0, steps: 1, wallClockMs: 1, ask: 'hi', limits: {}, startedAt: at, finishedAt: at } as never);
-  await db.engine.saveCorpusPages([{ id: `page-${owner}`, ownerId: owner, ingestId: ingest, projectId: project, url: 'https://example.com', host: 'example.com', text: 'text', bytes: 4, fetchedAt: at }]);
-  await db.engine.enqueueFrontier([{ id: `url-${owner}`, ingestId: ingest, url: 'https://example.com/a', depth: 0, rank: 0, state: 'pending' }]);
   await db.engine.saveAutoModeSettings({ ownerId: owner, agents: {} } as never);
   await db.releases.savePipelineRun({ id: `build-${owner}`, projectId: project, status: 'running', temporalWorkflowId: `build-workflow-${owner}`, createdAt: at } as never);
   await db.releases.saveOdooRelease({ id: `release-${owner}`, projectId: project, ownerId: owner } as never);
@@ -63,7 +59,6 @@ const ONE_ACCOUNT: Record<string, number> = {
   autoModeSettings: 1,
   clusters: 1,
   conversations: 1,
-  corpus: 1,
   fileShares: 1,
   giteaAccounts: 1,
   instances: 1,
@@ -94,7 +89,6 @@ export function databaseContract(make: () => Promise<Database>): void {
   describe('one account, one project and its runs across every area', () => {
     const related = (world: World) => ({
       watermarkKeys: [`conversation:${world.conversation}`],
-      ingestIds: [world.ingest],
       projectIds: [world.project],
     });
 
@@ -111,10 +105,9 @@ export function databaseContract(make: () => Promise<Database>): void {
         proposalIds: ['proposal-owner-1'],
         projectIds: [one.project],
         buildWorkflowIds: ['build-workflow-owner-1'],
-        ingestIds: [one.ingest],
       });
       expect(await db.accounts.accountLeftovers('owner-1')).toEqual(ONE_ACCOUNT);
-      expect(await db.accounts.accountIds('nobody')).toEqual({ runIds: [], treeIds: [], conversationIds: [], proposalIds: [], projectIds: [], buildWorkflowIds: [], ingestIds: [] });
+      expect(await db.accounts.accountIds('nobody')).toEqual({ runIds: [], treeIds: [], conversationIds: [], proposalIds: [], projectIds: [], buildWorkflowIds: [] });
     });
 
     it('removes an account\'s records from every area and leaves another account\'s alone', async () => {
@@ -124,21 +117,19 @@ export function databaseContract(make: () => Promise<Database>): void {
       await seed(db, one);
       await seed(db, two);
       const removed = await db.accounts.removeAccountRecords('owner-1', related(one));
-      expect(removed).toEqual({ ...ONE_ACCOUNT, memoryWatermarks: 1, crawl_frontier: 1, pipelineRuns: 1, oidcArtifacts: 1 });
+      expect(removed).toEqual({ ...ONE_ACCOUNT, memoryWatermarks: 1, pipelineRuns: 1, oidcArtifacts: 1 });
       expect(await db.accounts.accountLeftovers('owner-1')).toEqual({});
       expect(await db.accounts.accountLeftovers('owner-2')).toEqual(ONE_ACCOUNT);
       expect(await db.accounts.getUserById('owner-1')).toBeUndefined();
       expect(await db.accounts.getUserById('owner-2')).toMatchObject({ id: 'owner-2' });
       expect(await db.engine.getConversation('owner-1', one.conversation)).toBeUndefined();
       expect(await db.engine.getConversation('owner-2', two.conversation)).toMatchObject({ id: two.conversation });
-      expect(await db.engine.countFrontier(one.ingest)).toBe(0);
-      expect(await db.engine.countFrontier(two.ingest)).toBe(1);
       expect(await db.memory.getMemoryWatermark(`conversation:${one.conversation}`)).toBeUndefined();
       expect(await db.memory.getMemoryWatermark(`conversation:${two.conversation}`)).toBe(at);
       expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['build-owner-2']);
       expect(await db.instances.oidcFind('Grant', 'grant-owner-1')).toBeUndefined();
       expect(await db.instances.oidcFind('Grant', 'grant-owner-2')).toBeDefined();
-      expect(await db.accounts.removeAccountRecords('owner-1', { watermarkKeys: [], ingestIds: [], projectIds: [] })).toEqual({});
+      expect(await db.accounts.removeAccountRecords('owner-1', { watermarkKeys: [], projectIds: [] })).toEqual({});
     });
 
     it('removes a project\'s records from every area and unlinks the conversations and memories that named it', async () => {
@@ -150,7 +141,6 @@ export function databaseContract(make: () => Promise<Database>): void {
       expect(await db.projects.removeProjectRecords(one.project)).toEqual({
         pipelineRuns: 1,
         odooReleases: 1,
-        corpus: 1,
         secretRequests: 1,
         pendingApprovals: 1,
         tasks: 1,
@@ -165,8 +155,6 @@ export function databaseContract(make: () => Promise<Database>): void {
       expect((await db.memory.getMemories('owner-2'))[0]).toMatchObject({ projectId: two.project });
       expect((await db.projects.getProjects()).map((project) => project.id)).toEqual([two.project]);
       expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['build-owner-2']);
-      expect(await db.engine.getCorpusPages({ ownerId: 'owner-1' })).toEqual([]);
-      expect(await db.engine.getCorpusPages({ ownerId: 'owner-2' })).toHaveLength(1);
       expect(await db.infrastructure.getPendingApprovals()).toHaveLength(1);
       expect(await db.projects.removeProjectRecords(one.project)).toEqual({});
     });

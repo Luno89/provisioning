@@ -4,12 +4,10 @@ import { type AreaStore, type Identified, fieldChanges, fromDoc } from '../platf
 import { watchNudges, type Watching } from '../platform/lib/change-streams.js';
 import type { AuthoredExtension } from './lib/authored-extensions.js';
 import type { AutoModeSettings } from './lib/auto-mode.js';
-import { type Collection, type Db, MongoBulkWriteError, MongoServerError } from 'mongodb';
+import type { Collection, Db } from 'mongodb';
 import type { Conversation, ConversationMessage } from './lib/conversations.js';
-import type { CorpusPage } from './lib/corpus.js';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, GrantKind, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { ExtensionSettings } from './lib/extension-settings.js';
-import type { FrontierClaim, FrontierUrl } from '../platform/index.js';
 import { MARK_MESSAGE_CHARS, type RunMark, TURN_LOG_RETENTION_SECONDS, type TurnLogEntry } from './lib/turn-log.js';
 import type { McpServerRecord } from './lib/mcp-servers.js';
 import { type McpToolHint, hintKey } from './lib/mcp-tool-hints.js';
@@ -26,14 +24,6 @@ export interface EngineStore extends AreaStore {
   reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
   getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
   saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void>;
-  getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]>;
-  saveCorpusPages(pages: CorpusPage[]): Promise<void>;
-  deleteCorpus(ingestId: string): Promise<void>;
-  enqueueFrontier(urls: FrontierUrl[]): Promise<number>;
-  claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]>;
-  completeFrontier(ingestId: string, urls: string[]): Promise<void>;
-  countFrontier(ingestId: string): Promise<number>;
-  deleteFrontier(ingestId: string): Promise<void>;
   getConversations(): Promise<Conversation[]>;
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
@@ -158,10 +148,6 @@ export class MongoEngineStore implements EngineStore {
     return this.db().collection<Keyed>('conversations');
   }
 
-  private get corpus(): Collection<Keyed> {
-    return this.db().collection<Keyed>('corpus');
-  }
-
   private get enginePersonas(): Collection<Keyed> {
     return this.db().collection<Keyed>('enginePersonas');
   }
@@ -172,10 +158,6 @@ export class MongoEngineStore implements EngineStore {
 
   private get extensionSettings(): Collection<Keyed> {
     return this.db().collection<Keyed>('extensionSettings');
-  }
-
-  private get frontier(): Collection<Keyed> {
-    return this.db().collection<Keyed>('crawl_frontier');
   }
 
   private get mcpRequests(): Collection<Keyed> {
@@ -249,9 +231,6 @@ export class MongoEngineStore implements EngineStore {
     await this.turnLogs.createIndex({ ownerId: 1, seq: 1, at: -1 });
     await this.toolGrants.createIndex({ ownerId: 1, agent: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
-    await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
-    await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
-    await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
     await this.runGrants.createIndex({ personId: 1, state: 1 });
     await this.runGrants.createIndex({ runId: 1 });
     await this.runEndings.createIndex({ ownerId: 1, runId: 1 });
@@ -382,63 +361,6 @@ export class MongoEngineStore implements EngineStore {
       const { _id, ...rest } = doc;
       return rest as unknown as RunEnding;
     });
-  }
-
-  async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
-    const query: Record<string, unknown> = { ownerId: filter.ownerId };
-    if (filter.ingestId) query.ingestId = filter.ingestId;
-    if (filter.projectId) query.projectId = filter.projectId;
-    return (await this.corpus.find(query).toArray()).map(doc => fromDoc<CorpusPage>(doc));
-  }
-
-  async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
-    if (!pages.length) return;
-    await this.corpus.bulkWrite(pages.map((page) => {
-      const { _id, rest } = keyedDoc(page);
-      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
-    }));
-  }
-
-  async deleteCorpus(ingestId: string): Promise<void> {
-    await this.corpus.deleteMany({ ingestId });
-  }
-
-  async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
-    if (!urls.length) return 0;
-    try {
-      const res = await this.frontier.insertMany(
-        urls.map((u) => { const { _id, rest } = keyedDoc(u); return { ...rest, _id }; }),
-        { ordered: false },
-      );
-      return res.insertedCount;
-    } catch (err) {
-      if (err instanceof MongoBulkWriteError) return err.insertedCount;
-      if (err instanceof MongoServerError && err.code === 11000) return 0;
-      throw err;
-    }
-  }
-
-  async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
-    if (limit <= 0) return [];
-    const docs = await this.frontier
-      .find<{ url: unknown; depth: unknown }>({ ingestId, state: 'pending' })
-      .sort({ depth: 1, rank: -1, url: 1 })
-      .limit(limit)
-      .toArray();
-    return docs.map((d) => ({ url: String(d.url), depth: Number(d.depth) }));
-  }
-
-  async completeFrontier(ingestId: string, urls: string[]): Promise<void> {
-    if (!urls.length) return;
-    await this.frontier.updateMany({ ingestId, url: { $in: urls } }, { $set: { state: 'done' } });
-  }
-
-  async countFrontier(ingestId: string): Promise<number> {
-    return this.frontier.countDocuments({ ingestId, state: 'pending' });
-  }
-
-  async deleteFrontier(ingestId: string): Promise<void> {
-    await this.frontier.deleteMany({ ingestId });
   }
 
   async getConversations(): Promise<Conversation[]> {

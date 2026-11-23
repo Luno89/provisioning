@@ -169,7 +169,6 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
       const ids = await deps.store.accounts.accountIds(ownerId);
       const removed = await deps.store.accounts.removeAccountRecords(ownerId, {
         watermarkKeys: memoryWatermarkKeys(ids),
-        ingestIds: ids.ingestIds,
         projectIds: ids.projectIds,
       });
       return files > 0 ? { ...removed, storedFiles: (removed.storedFiles ?? 0) + files } : removed;

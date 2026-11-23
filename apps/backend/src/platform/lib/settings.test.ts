@@ -4,7 +4,7 @@ import { identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { pemOf } from './platform-role.js';
 import { describe, expect, it } from 'vitest';
 import {
-  backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, operatorCredentialsFrom,
+  backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom, memoryIndexOf, operatorCredentialsFrom,
   selfUpgradeSettingsFrom, SettingsError,
 } from './settings.js';
 
@@ -196,21 +196,20 @@ describe('the settings each worker reads once, at start', () => {
     expect(hostWorkerSettingsFrom({ ...ROOT, ...WORKER }).pod).toEqual({ off: saying('root\'s workers run as processes') });
   });
 
-  it('asks an instance\'s host worker for nothing of root\'s', () => {
-    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, SEARXNG_URL: TENANT.SEARXNG_URL, CRAWL4AI_URL: TENANT.CRAWL4AI_URL, CRAWL4AI_API_TOKEN: TENANT.CRAWL4AI_API_TOKEN, QUICKWIT_URL: TENANT.QUICKWIT_URL, QDRANT_URL: TENANT.QDRANT_URL, QDRANT_API_KEY: TENANT.QDRANT_API_KEY, TEI_URL: TENANT.TEI_URL, POD_NAME: INSTANCE.POD_NAME })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
+  it('asks an instance\'s host worker for nothing of root\'s, nor for the web tools or the memory index', () => {
+    expect(hostWorkerSettingsFrom({ ...CONNECTION, ...WORKER, ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'owner-1', ROOT_URL: 'https://app.koala.dev', ROOT_PUBLIC_KEYS: rootKey, POD_NAME: INSTANCE.POD_NAME })).toMatchObject({ root: undefined, publicUrl: undefined, mesh: { off: ANY_TEXT } });
   });
 
-  it('gives an instance\'s backend, engine worker and host worker the memory index at the addresses the chart names, with Qdrant\'s key, and root none', () => {
+  it('gives an instance\'s backend and engine worker the memory index at the addresses the chart names, with Qdrant\'s key, and root none', () => {
     const index = { index: { base: TENANT.QUICKWIT_URL }, vectors: { base: TENANT.QDRANT_URL, apiKey: TENANT.QDRANT_API_KEY }, embeddings: { base: TENANT.TEI_URL } };
     const engine = { ...INSTANCE, HEALTH_PORT: '8090', TEMPORAL_ENGINE_METRICS_PORT: '9467' };
     expect(backendSettingsFrom(INSTANCE).tenant?.memoryIndex).toEqual(index);
     expect(engineWorkerSettingsFrom(engine).tenant.memoryIndex).toEqual(index);
-    expect(hostWorkerSettingsFrom({ ...INSTANCE, ...WORKER }).memoryIndex).toEqual(index);
-    expect(hostWorkerSettingsFrom({ ...ROOT, ...WORKER }).memoryIndex).toEqual({ off: saying('root keeps no memories') });
+    expect(memoryIndexOf(backendSettingsFrom(ROOT).tenant, 'root')).toEqual({ off: saying('root keeps no memories') });
     expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, QUICKWIT_URL: '' }))).toContain('QUICKWIT_URL is not set: it is where the memory index keeps and finds words; the instance chart sets it');
     expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, QDRANT_URL: '' }))).toContain('QDRANT_URL is not set: it is where the memory index keeps and finds meanings; the instance chart sets it');
     expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, TEI_URL: '' }))).toContain('TEI_URL is not set: it is where the memory index turns text into meanings; the instance chart sets it');
-    expect(problemsOf(() => hostWorkerSettingsFrom({ ...INSTANCE, ...WORKER, QDRANT_API_KEY: '' }))).toContain('QDRANT_API_KEY is not set: Qdrant answers only a caller holding it, and the instance chart makes it');
+    expect(problemsOf(() => engineWorkerSettingsFrom({ ...engine, QDRANT_API_KEY: '' }))).toContain('QDRANT_API_KEY is not set: Qdrant answers only a caller holding it, and the instance chart makes it');
   });
 
   it('gives the cluster worker its services, its Terraform and the address machines send metrics to, or why there is none', () => {

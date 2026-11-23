@@ -199,8 +199,6 @@ export interface HostWorkerSettings extends CommonSettings, WorkerHealth {
   mail: EmailWay;
   mesh: MeshSettings | Off;
   operator: OperatorCredentials;
-  webTools: WebToolSettings;
-  memoryIndex: MemoryIndex | Off;
   root: { imageTag: string; ingressDomain: string | Off } | undefined;
 }
 
@@ -345,12 +343,12 @@ const NO_MESH_HERE = (role: string): Off => ({ off: `${role} runs no mesh; root 
 function webToolsFrom(read: Reading): WebToolSettings {
   return {
     searxngUrl: urlSetting(read, 'SEARXNG_URL', 'it is where web search is asked; the instance chart sets it'),
-    crawl4aiUrl: urlSetting(read, 'CRAWL4AI_URL', 'it is where pages are read and crawled; the instance chart sets it'),
+    crawl4aiUrl: urlSetting(read, 'CRAWL4AI_URL', 'it is where pages are read; the instance chart sets it'),
     crawl4aiToken: required(read, 'CRAWL4AI_API_TOKEN', 'Crawl4AI reads pages only for a caller holding its token; the instance chart makes it'),
   };
 }
 
-const noMemoryIndex = (role: string): Off => ({ off: `${role} keeps no memories and crawls no corpus, so it has no memory index; each instance does` });
+const noMemoryIndex = (role: string): Off => ({ off: `${role} keeps no memories, so it has no memory index; each instance does` });
 
 export const memoryIndexOf = (tenant: Pick<TenantServices, 'memoryIndex'> | undefined, role: string): MemoryIndex | Off =>
   tenant ? tenant.memoryIndex : noMemoryIndex(role);
@@ -586,9 +584,7 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
   const mail = role ? read.take(() => emailWayFrom(env, role)) : undefined;
   const mesh = onRoot ? meshFrom(read) : NO_MESH_HERE(role?.role ?? 'this process');
   const operator = operatorCredentials(read);
-  const webTools = role?.role === 'instance' ? webToolsFrom(read) : {};
-  const memoryIndex = role?.role === 'instance' ? memoryIndexFrom(read) : noMemoryIndex(role?.role ?? 'this process');
-  if (!base || !memoryIndex || !health || !mail || (onRoot && (!publicUrl || !imageTag))) return finish<HostWorkerSettings>(read, 'the host worker');
+  if (!base || !health || !mail || (onRoot && (!publicUrl || !imageTag))) return finish<HostWorkerSettings>(read, 'the host worker');
   return finish(read, 'the host worker', {
     ...base,
     ...health,
@@ -597,8 +593,6 @@ export function hostWorkerSettingsFrom(env: Env): HostWorkerSettings {
     mail,
     mesh,
     operator,
-    webTools,
-    memoryIndex,
     root: onRoot ? { imageTag: imageTag!, ingressDomain: ingressDomain ?? { off: 'INGRESS_DOMAIN is not set' } } : undefined,
   });
 }

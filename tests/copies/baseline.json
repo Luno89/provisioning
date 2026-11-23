@@ -21,7 +21,6 @@
  "src apps/backend/src/engine-host/temporal/activities.ts <-> apps/backend/src/workflows/AdoptPlanWorkflow.ts #dc76c59d967b": 1,
  "src apps/backend/src/engine-host/temporal/activities.ts <-> apps/backend/src/workflows/AgentRunWorkflow.ts #b97fee98b233": 1,
  "src apps/backend/src/engine-host/temporal/contracts.ts <-> apps/backend/src/infrastructure/services/WorkFailureService.ts #cf4016a2d1c5": 1,
- "src apps/backend/src/engine-host/tools/corpus-tools.ts <-> apps/backend/src/engine-host/tools/scenario-tools.ts #6438772cdffc": 1,
  "src apps/backend/src/engine-host/tools/egress-tools.ts <-> apps/backend/src/engine-host/tools/mcp-tools.ts #8c4026d0674f": 1,
  "src apps/backend/src/engine-host/tools/kube-tools-catalogue.ts <-> apps/backend/src/engine-host/tools/kube-tools-catalogue.ts #b49442c5522a": 1,
  "src apps/backend/src/engine-host/tools/mcp-tools.ts <-> apps/backend/src/extensions/releases/tools/handlers.ts #d072d8e6f3b4": 1,

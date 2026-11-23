@@ -2,14 +2,12 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, GrantKind, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { FrontierClaim, FrontierUrl } from '../../platform/index.js';
 import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import type { AuthoredExtension } from '../lib/authored-extensions.js';
 import { withoutUnkeptAttachments } from '../lib/attachments.js';
 import type { AutoModeSettings } from '../lib/auto-mode.js';
 import type { Conversation, ConversationMessage } from '../lib/conversations.js';
-import type { CorpusPage } from '../lib/corpus.js';
 import type { ExtensionSettings } from '../lib/extension-settings.js';
 import type { McpServerRecord } from '../lib/mcp-servers.js';
 import type { McpToolHint } from '../lib/mcp-tool-hints.js';
@@ -131,11 +129,9 @@ export class MemoryEngineStore implements EngineStore {
   private readonly authoredExtensions: Rows<AuthoredExtension>;
   private readonly autoModeSettings: Rows<AutoModeSettings>;
   private readonly conversations: Rows<Conversation>;
-  private readonly corpus: Rows<CorpusPage>;
   private readonly enginePersonas: Rows<EnginePersona>;
   private readonly engineTools: Rows<EngineTool>;
   private readonly extensionSettings: Rows<ExtensionSettings>;
-  private readonly frontier: Rows<FrontierUrl>;
   private readonly mcpRequests: Rows<McpRequest>;
   private readonly mcpServers: Rows<McpServerRecord>;
   private readonly procedures: Rows<ProcedureSource>;
@@ -157,11 +153,9 @@ export class MemoryEngineStore implements EngineStore {
     this.actionProposals = new Rows(collectionIn<ActionProposal>(collections, 'actionProposals'));
     this.authoredExtensions = new Rows(collectionIn<AuthoredExtension>(collections, 'authoredExtensions'));
     this.autoModeSettings = new Rows(collectionIn<AutoModeSettings>(collections, 'autoModeSettings'));
-    this.corpus = new Rows(collectionIn<CorpusPage>(collections, 'corpus'));
     this.enginePersonas = new Rows(collectionIn<EnginePersona>(collections, 'enginePersonas'));
     this.engineTools = new Rows(collectionIn<EngineTool>(collections, 'engineTools'));
     this.extensionSettings = new Rows(collectionIn<ExtensionSettings>(collections, 'extensionSettings'));
-    this.frontier = new Rows(collectionIn<FrontierUrl>(collections, 'crawl_frontier'));
     this.mcpRequests = new Rows(collectionIn<McpRequest>(collections, 'mcpRequests'));
     this.mcpServers = new Rows(collectionIn<McpServerRecord>(collections, 'mcpServers'));
     this.procedures = new Rows(collectionIn<ProcedureSource>(collections, 'procedures'));
@@ -305,49 +299,6 @@ export class MemoryEngineStore implements EngineStore {
   async getRunEndings(ownerId: string, runIds: readonly string[]): Promise<RunEnding[]> {
     if (runIds.length === 0) return [];
     return this.runEndings.all().filter((ending) => ending.ownerId === ownerId && runIds.includes(ending.runId));
-  }
-
-  async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
-    return this.corpus.all().filter((page) => page.ownerId === filter.ownerId && (!filter.ingestId || page.ingestId === filter.ingestId) && (!filter.projectId || page.projectId === filter.projectId));
-  }
-
-  async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
-    for (const page of pages) this.corpus.put(page.id, page);
-  }
-
-  async deleteCorpus(ingestId: string): Promise<void> {
-    this.corpus.deleteWhere((page) => page.ingestId === ingestId);
-  }
-
-  async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
-    let inserted = 0;
-    for (const url of urls) {
-      if (this.frontier.has(url.id)) continue;
-      this.frontier.put(url.id, url);
-      inserted += 1;
-    }
-    return inserted;
-  }
-
-  async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
-    if (limit <= 0) return [];
-    const pending = this.frontier.all().filter((url) => url.ingestId === ingestId && url.state === 'pending');
-    return sorted(pending, [(url) => url.depth, 1], [(url) => url.rank, -1], [(url) => url.url, 1])
-      .slice(0, limit)
-      .map((url) => ({ url: String(url.url), depth: Number(url.depth) }));
-  }
-
-  async completeFrontier(ingestId: string, urls: string[]): Promise<void> {
-    if (!urls.length) return;
-    this.frontier.changeWhere((url) => url.ingestId === ingestId && urls.includes(url.url), (url) => ({ ...url, state: 'done' }));
-  }
-
-  async countFrontier(ingestId: string): Promise<number> {
-    return this.frontier.all().filter((url) => url.ingestId === ingestId && url.state === 'pending').length;
-  }
-
-  async deleteFrontier(ingestId: string): Promise<void> {
-    this.frontier.deleteWhere((url) => url.ingestId === ingestId);
   }
 
   async getConversations(): Promise<Conversation[]> {

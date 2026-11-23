@@ -12,7 +12,7 @@ const loose = (user: UserMetadata, fields: Record<string, unknown>): UserMetadat
 const loosely = (held: InviteMetadata, fields: Record<string, unknown>): InviteMetadata => ({ ...held, ...fields }) as InviteMetadata;
 const invite = (id: string, code: string, extra: Partial<InviteMetadata> = {}): InviteMetadata => ({ id, codeHash: inviteCodeHash(code), createdBy: 'owner-1', createdAt: '2026-10-01T00:00:00.000Z', ...extra });
 const later = (minutes: number): Date => new Date(Date.UTC(2030, 0, 1, 0, minutes));
-const nothingRelated = { watermarkKeys: [], ingestIds: [], projectIds: [] };
+const nothingRelated = { watermarkKeys: [], projectIds: [] };
 
 const signUp = (id: string): PendingSignUp => ({ id, email: `${id}@example.com`, passwordHash: 'p', inviteHash: 'i', codeHash: 'c1', wrong: 0, sent: 1, expiresAt: later(0) });
 const reset = (id: string): PasswordReset => ({ id, ownerId: 'owner-1', email: 'owner@example.com', codeHash: 'c1', wrong: 0, sent: 1, expiresAt: later(0) });
@@ -384,7 +384,7 @@ export function accountsStoreContract(make: () => Promise<AccountsStore>): void 
     it('finds nothing of the account\'s work among the records it keeps itself', async () => {
       const store = await make();
       await store.saveUser(person('alice'));
-      expect(await store.accountIds('alice')).toEqual({ runIds: [], treeIds: [], conversationIds: [], proposalIds: [], projectIds: [], buildWorkflowIds: [], ingestIds: [] });
+      expect(await store.accountIds('alice')).toEqual({ runIds: [], treeIds: [], conversationIds: [], proposalIds: [], projectIds: [], buildWorkflowIds: [] });
     });
 
     it('counts what is left of an account, and removes it, in the records it keeps', async () => {

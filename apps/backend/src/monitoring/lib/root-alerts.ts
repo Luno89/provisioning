@@ -68,7 +68,7 @@ export const rootAlertsManifest = (): Record<string, unknown> => rulesManifest(R
 export const INSTANCE_PROCESSES = [
   { service: 'koala-worker-engine', name: 'The engine worker, which runs your chats, agents and checks' },
   { service: 'koala-worker-cluster', name: 'The cluster worker, which deploys your apps' },
-  { service: 'koala-worker-host', name: 'The host worker, which runs server orders and the crawl' },
+  { service: 'koala-worker-host', name: 'The host worker, which runs server orders' },
 ] as const;
 
 export const INSTANCE_ALERTS: readonly RootAlert[] = INSTANCE_PROCESSES.map((process) => ({

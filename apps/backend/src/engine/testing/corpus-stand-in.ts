@@ -12,9 +12,7 @@ export interface CorpusStandIn {
   reach: MemoryIndexReach;
   documents(index: string): Doc[];
   points(collection: string): Doc[];
-  crawled: string[][];
   refuse(path: RegExp, status: number, said: string): void;
-  page(url: string, markdown: string): void;
   stop(): Promise<void>;
 }
 
@@ -32,12 +30,10 @@ const matchesFilter = (payload: Doc, filter: unknown): boolean => {
   return must.every((clause) => payload[clause.key] === clause.match.value);
 };
 
-export async function startCorpusStandIn(token = 'crawl-token'): Promise<CorpusStandIn> {
+export async function startCorpusStandIn(): Promise<CorpusStandIn> {
   const indexes = new Map<string, Doc[]>();
   const collections = new Map<string, Map<string, Doc>>();
   const refusals: { path: RegExp; status: number; said: string }[] = [];
-  const pages = new Map<string, string>();
-  const crawled: string[][] = [];
 
   const collection = (name: string): Map<string, Doc> => {
     const found = collections.get(name) ?? new Map<string, Doc>();
@@ -56,12 +52,6 @@ export async function startCorpusStandIn(token = 'crawl-token'): Promise<CorpusS
     if (req.method === 'POST' && path === '/embed') {
       const inputs = json().inputs as string[];
       return { status: 200, body: inputs.map(() => Array.from({ length: VECTOR_SIZE }, () => 0.1)) };
-    }
-    if (req.method === 'POST' && path === '/crawl') {
-      if (req.headers.authorization !== `Bearer ${token}`) return { status: 401, body: 'no token' };
-      const urls = json().urls as string[];
-      crawled.push(urls);
-      return { status: 200, body: { results: urls.map((at) => ({ url: at, success: true, markdown: pages.get(at) ?? '', links: { internal: [], external: [] } })) } };
     }
     if (req.method === 'POST' && path === '/api/v1/indexes') return { status: 200, body: {} };
     const quickwit = /^\/api\/v1\/([^/]+)\/(ingest|delete-tasks|search)$/.exec(path);
@@ -120,9 +110,7 @@ export async function startCorpusStandIn(token = 'crawl-token'): Promise<CorpusS
     reach: unreportedReach(endpoints),
     documents: (index) => [...(indexes.get(index) ?? [])],
     points: (name) => [...collection(name).values()],
-    crawled,
     refuse: (path, status, said) => { refusals.push({ path, status, said }); },
-    page: (at, markdown) => { pages.set(at, markdown); },
     stop: () => new Promise<void>((done) => { server.closeAllConnections(); server.close(() => done()); }),
   };
 }
