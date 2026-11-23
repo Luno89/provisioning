@@ -3,10 +3,8 @@ import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import type { PersonaRecord, ToolDefinition, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { EngineEvent } from '@koala/agent-engine';
 import type { RunEffort } from '@koala/agent-engine/procedure';
-import type { FrontierUrl } from '../../platform/index.js';
 import type { AuthoredExtension } from '../lib/authored-extensions.js';
 import type { Conversation, ConversationMessage } from '../lib/conversations.js';
-import type { CorpusPage } from '../lib/corpus.js';
 import type { McpServerRecord } from '../lib/mcp-servers.js';
 import { MARK_MESSAGE_CHARS, type TurnLogEntry } from '../lib/turn-log.js';
 import type { PoisoningSignal } from '../lib/poisoning.js';
@@ -59,10 +57,6 @@ const procedure = (id: string, ownerId?: string): ProcedureSource => ({ id, ...(
 const image = (id: WorkspaceImageSpec['id'], ownerId?: string): WorkspaceImageSpec => ({
   id, ...(ownerId ? { ownerId } : {}), image: `koala/${id}:1`, summary: `${id} image`, available: ['git'], absent: [], packageAccess: { env: [], egress: [] },
 });
-
-const page = (id: string, over: Partial<CorpusPage> = {}): CorpusPage => ({ id, ownerId: 'owner-1', ingestId: 'ingest-1', url: `https://example.com/${id}`, host: 'example.com', text: `text of ${id}`, bytes: 10, fetchedAt: at(0), ...over });
-
-const frontierUrl = (ingestId: string, url: string, depth: number, rank: number): FrontierUrl => ({ id: `${ingestId}:${url}`, ingestId, url, depth, rank, state: 'pending' });
 
 const mcpRequest = (id: string, over: Partial<McpRequest> = {}): McpRequest => ({ id, ownerId: 'owner-1', conversationId: 'chat-1', server: 'github', why: 'to read issues', status: 'requested', createdAt: at(1), updatedAt: at(1), ...over });
 
@@ -554,69 +548,6 @@ export function engineStoreContract(make: () => Promise<EngineStore>): void {
       await store.markPoisoningSignalTold('s1', at(5));
       expect((await store.getUntoldPoisoningSignals()).map((found) => found.id)).toEqual(['s2']);
       expect(await store.getPoisoningSignal('owner-1', 's1')).toMatchObject({ toldAt: at(5) });
-    });
-  });
-
-  describe('the crawl corpus and frontier', () => {
-    it('keeps pages, replacing one saved again, and finds them by owner, ingest and project', async () => {
-      const store = await make();
-      await store.saveCorpusPages([page('p1'), page('p2', { projectId: 'project-1' }), page('p3', { ingestId: 'ingest-2' }), page('p4', { ownerId: 'owner-2' })]);
-      await store.saveCorpusPages([page('p1', { text: 'newer' })]);
-      await store.saveCorpusPages([]);
-      expect((await store.getCorpusPages({ ownerId: 'owner-1' })).map((found) => found.id).sort()).toEqual(['p1', 'p2', 'p3']);
-      expect((await store.getCorpusPages({ ownerId: 'owner-1', ingestId: 'ingest-1' })).map((found) => found.id).sort()).toEqual(['p1', 'p2']);
-      expect(await store.getCorpusPages({ ownerId: 'owner-1', projectId: 'project-1' })).toEqual([page('p2', { projectId: 'project-1' })]);
-      expect((await store.getCorpusPages({ ownerId: 'owner-1', ingestId: 'ingest-1' })).find((found) => found.id === 'p1')?.text).toBe('newer');
-    });
-
-    it('deletes an ingest\'s pages whoever owns them', async () => {
-      const store = await make();
-      await store.saveCorpusPages([page('p1'), page('p2', { ownerId: 'owner-2' }), page('p3', { ingestId: 'ingest-2' })]);
-      await store.deleteCorpus('ingest-1');
-      expect(await store.getCorpusPages({ ownerId: 'owner-2' })).toEqual([]);
-      expect((await store.getCorpusPages({ ownerId: 'owner-1' })).map((found) => found.id)).toEqual(['p3']);
-    });
-
-    it('queues each address once and counts only those it added', async () => {
-      const store = await make();
-      expect(await store.enqueueFrontier([frontierUrl('i1', 'https://a.example', 0, 0), frontierUrl('i1', 'https://b.example', 1, 0)])).toBe(2);
-      expect(await store.enqueueFrontier([frontierUrl('i1', 'https://b.example', 1, 0), frontierUrl('i1', 'https://c.example', 1, 0), frontierUrl('i1', 'https://c.example', 1, 0)])).toBe(1);
-      expect(await store.enqueueFrontier([frontierUrl('i1', 'https://a.example', 0, 0)])).toBe(0);
-      expect(await store.enqueueFrontier([])).toBe(0);
-      expect(await store.countFrontier('i1')).toBe(3);
-    });
-
-    it('hands out pending addresses shallowest first, best ranked first, then by address, without taking them', async () => {
-      const store = await make();
-      await store.enqueueFrontier([
-        frontierUrl('i1', 'https://deep.example', 2, 9),
-        frontierUrl('i1', 'https://b.example', 1, 1),
-        frontierUrl('i1', 'https://a.example', 1, 1),
-        frontierUrl('i1', 'https://ranked.example', 1, 5),
-        frontierUrl('i1', 'https://root.example', 0, 0),
-        frontierUrl('i2', 'https://other.example', 0, 0),
-      ]);
-      expect(await store.claimFrontier('i1', 4)).toEqual([
-        { url: 'https://root.example', depth: 0 },
-        { url: 'https://ranked.example', depth: 1 },
-        { url: 'https://a.example', depth: 1 },
-        { url: 'https://b.example', depth: 1 },
-      ]);
-      expect(await store.claimFrontier('i1', 0)).toEqual([]);
-      expect(await store.countFrontier('i1')).toBe(5);
-    });
-
-    it('stops handing out addresses once done, and forgets an ingest\'s frontier when deleted', async () => {
-      const store = await make();
-      await store.enqueueFrontier([frontierUrl('i1', 'https://a.example', 0, 0), frontierUrl('i1', 'https://b.example', 0, 0), frontierUrl('i2', 'https://a.example', 0, 0)]);
-      await store.completeFrontier('i1', ['https://a.example']);
-      await store.completeFrontier('i1', []);
-      expect(await store.claimFrontier('i1', 10)).toEqual([{ url: 'https://b.example', depth: 0 }]);
-      expect(await store.countFrontier('i2')).toBe(1);
-      await store.deleteFrontier('i1');
-      expect(await store.countFrontier('i1')).toBe(0);
-      expect(await store.enqueueFrontier([frontierUrl('i1', 'https://a.example', 0, 0)])).toBe(1);
-      expect(await store.countFrontier('i2')).toBe(1);
     });
   });
 

@@ -13,7 +13,3 @@ export async function executeSyncConfigWorkflow(): Promise<{ workload: string; w
 export async function executePipelineRunWorkflow(): Promise<{ imageTag: string }> {
   return { imageTag: 'reg/bo/shop:bbb' };
 }
-
-export async function executeIngestWorkflow(): Promise<{ pages: number }> {
-  return { pages: 1 };
-}

@@ -133,7 +133,6 @@ export class MemoryAccountsStore implements AccountsStore {
       buildWorkflowIds: keysWhere(this.collections, 'pipelineRuns', (row) => typeof row.projectId === 'string' && projectIds.includes(row.projectId) && (row.status === 'queued' || row.status === 'running'))
         .map((key) => (this.collections.get('pipelineRuns')?.get(key) as Record<string, unknown>).temporalWorkflowId)
         .filter((id): id is string => typeof id === 'string'),
-      ingestIds: this.distinct('corpus', ownerId, 'ingestId'),
     };
   }
 
@@ -154,7 +153,6 @@ export class MemoryAccountsStore implements AccountsStore {
     };
     const inList = (list: readonly string[], value: unknown): boolean => typeof value === 'string' && list.includes(value);
     if (related.watermarkKeys.length) count('memoryWatermarks', removeKeys(this.collections, 'memoryWatermarks', related.watermarkKeys));
-    if (related.ingestIds.length) count('crawl_frontier', removeWhere(this.collections, 'crawl_frontier', (row) => inList(related.ingestIds, row.ingestId)));
     if (related.projectIds.length) count('pipelineRuns', removeWhere(this.collections, 'pipelineRuns', (row) => inList(related.projectIds, row.projectId)));
     count('oidcArtifacts', removeWhere(this.collections, 'oidcArtifacts', (row) => row.accountId === ownerId));
     for (const name of ACCOUNT_DATA.byOwner) count(name, removeKeys(this.collections, name, this.ids(name, ownerId)));

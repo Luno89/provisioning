@@ -4,9 +4,9 @@ import type { Telemetry } from '@koala/engine-core/telemetry-sdk';
 import { Runtime, type Logger, type Worker } from '@temporalio/worker';
 import { resolve } from 'path';
 import { pathToFileURL } from 'url';
-import { SettingsError } from './platform/index.js';
-import { serveHealth } from './infrastructure/index.js';
-import { collectorEndpoint } from './monitoring/index.js';
+import { connectTemporalAs, createDatabase, deletingMarksIn, keepPayloadsIn, refuseWorkWith, SettingsError, temporalTlsProblem, type ClusterWorkerSettings, type Database, type HostWorkerSettings } from './platform/index.js';
+import { serveHealth, sharedClusterProxy, type ClusterAccess } from './infrastructure/index.js';
+import { collectorEndpoint, collectorSink } from './monitoring/index.js';
 import { collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 
 export async function watchedWorker(settings: Parameters<typeof workerDependencies>[0], telemetry: Telemetry, collector: Parameters<typeof collectorEndpoint>[0]): ReturnType<typeof workerDependencies> {
@@ -14,6 +14,21 @@ export async function watchedWorker(settings: Parameters<typeof workerDependenci
   reportCollectorTo(telemetry, dependencies);
   dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint(collector)));
   return dependencies;
+}
+
+export async function connectedWorker(settings: ClusterWorkerSettings | HostWorkerSettings, telemetry: Telemetry, access: ClusterAccess): Promise<{ dependencies: Awaited<ReturnType<typeof workerDependencies>>; db: Database }> {
+  const telemetryProxy = sharedClusterProxy(access);
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
+  const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => access.own().clusterId });
+  const plaintext = temporalTlsProblem(settings.temporal);
+  if (plaintext) throw new Error(plaintext);
+  connectTemporalAs(settings);
+  keepPayloadsIn(settings.mongo);
+  const db = createDatabase({ mongo: settings.mongo, dataKey: settings.keys.data });
+  db.reportReachTo(dependencies);
+  await db.init();
+  refuseWorkWith(deletingMarksIn(db));
+  return { dependencies, db };
 }
 
 interface ProgramSettings {

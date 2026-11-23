@@ -146,7 +146,6 @@ export interface EngineHostOptions {
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
   projects?: Omit<import('./tools/project-tools.js').ProjectToolStores, 'proposals'> | undefined;
   egressSecret?: string | undefined;
-  corpus?: import('./tools/corpus-tools.js').CorpusAccess | undefined;
   checks?: import('./tools/check-tools.js').CheckAccess | undefined;
   /** Everyone whose agents could run, so the image sweep asks what each of them wants. */
   owners?: (() => Promise<string[]>) | undefined;
@@ -446,7 +445,6 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.kube ? { kube: options.kube } : {}),
       ...(options.projects && stores.actions ? { projects: { ...options.projects, proposals: stores.actions } } : {}),
       ...(stores.egress ? { egress: stores.egress } : {}),
-      ...(options.corpus ? { corpus: options.corpus } : {}),
       ...(stores.runs ? { runs: stores.runs } : {}),
       memories: stores.memories,
       ...(stores.runReads ? { memorySources: memorySourcesFrom(stores.runReads) } : {}),

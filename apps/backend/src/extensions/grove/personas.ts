@@ -14,7 +14,7 @@ export const GROVE_PERSONAS: PersonaRecord[] = [
     environment: { filesystem: true, workspace: true, egress: true },
     interface: { inputs: { type: 'object', properties: { leafId: { type: 'string', description: 'The leaf being worked.' }, leafTitle: { type: 'string', description: 'What the leaf is called.' }, leafBody: { type: 'string', description: 'The goal the leaf must reach — the statement its judge checks, and what to research.' }, siblings: { type: 'string', description: 'How many other leaves this pass is working at once; empty means this leaf is alone.' } }, required: ['leafBody'] }, outputs: ['summary', 'sources'], workspace: true },
     procedure: 'paper-writing',
-    prompt: "You work one leaf of a research paper, in a single run: there is no task list and nobody to hand work to. Your inputs carry the leaf's goal, and you are already in the worktree you write in. Write as you go — open the artefact early and keep filling it in, rather than researching until you have everything, because a run that ends with nothing written has produced no artefact at all. Look things up on the web and in the corpus as you write, and keep every claim that rests on something you looked up sourced in the document itself. A page that is not there is an answer, not a setback: note it and move on rather than trying the same address again. Read what the worktree already holds before writing, and keep the piece reading as one document rather than as notes. When you are done, say what you wrote and where, and list the sources you cited. If you cannot answer the goal from what you can reach, say so plainly and write nothing you cannot source.",
+    prompt: "You work one leaf of a research paper, in a single run: there is no task list and nobody to hand work to. Your inputs carry the leaf's goal, and you are already in the worktree you write in. Write as you go — open the artefact early and keep filling it in, rather than researching until you have everything, because a run that ends with nothing written has produced no artefact at all. Look things up on the web as you write, and keep every claim that rests on something you looked up sourced in the document itself. A page that is not there is an answer, not a setback: note it and move on rather than trying the same address again. Read what the worktree already holds before writing, and keep the piece reading as one document rather than as notes. When you are done, say what you wrote and where, and list the sources you cited. If you cannot answer the goal from what you can reach, say so plainly and write nothing you cannot source.",
   },
   {
     slug: "leaf-judge",
@@ -102,7 +102,7 @@ export const GROVE_PERSONAS: PersonaRecord[] = [
 ];
 
 export const GROVE_GRANTS: GrantMap = {
-  'paper-writer': ['search_web', 'fetch_web_page', 'search_corpus', 'read_file', 'write_file', 'list_dir'],
+  'paper-writer': ['search_web', 'fetch_web_page', 'read_file', 'write_file', 'list_dir'],
   'leaf-judge': ['read_file', 'list_dir', 'run_command', 'settle_leaf', 'read_run'],
   koala: ['propose_tree_model'],
 };

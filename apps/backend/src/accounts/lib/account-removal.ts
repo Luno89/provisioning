@@ -109,7 +109,7 @@ export const ACCOUNT_DATA = {
     'scriptedRequests', 'storedFiles', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'memoryKeeping', 'notificationSettings'],
-  related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
+  related: { memoryWatermarks: 'the keys of its conversations', pipelineRuns: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
   shared: ['dependencyChecks', 'dependencyFindings', 'dependencyStates', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'signInAttempts', 'temporal_payload_chunks', 'toolCallParsers'],
 } as const;
@@ -125,11 +125,9 @@ export interface AccountIds {
   proposalIds: string[];
   projectIds: string[];
   buildWorkflowIds: string[];
-  ingestIds: string[];
 }
 
 export interface AccountRelated {
   watermarkKeys: readonly string[];
-  ingestIds: readonly string[];
   projectIds: readonly string[];
 }

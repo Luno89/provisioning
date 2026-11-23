@@ -83,7 +83,7 @@ const stringsIn = (value: unknown): string[] => {
   return [];
 };
 
-const OUTBOUND_URL_TOOLS = new Set(['fetch_web_page', 'start_ingest']);
+const OUTBOUND_URL_TOOLS = new Set(['fetch_web_page']);
 
 export function outboundOf(tool: string, args: Readonly<Record<string, unknown>>, mcp: boolean): { texts: string[]; host?: string | undefined } | undefined {
   if (OUTBOUND_URL_TOOLS.has(tool)) {

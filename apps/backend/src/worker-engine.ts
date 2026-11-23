@@ -8,7 +8,7 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import { koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE, treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars, TreeHomeService, webhookUrlAt, type GroveRunLauncher } from './projects/index.js';
-import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, principalOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, startedFor, carryingTrace, telemetrySettings, AccessRevocations, BrowserSessions, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
+import { cancelIfRunning, createDatabase, createWorkerLogger, temporalTlsProblem, principalOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, refuseWorkWith, deletingMarksIn, carryingTrace, telemetrySettings, AccessRevocations, BrowserSessions, publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, reopening, SettingsError, type EngineWorkerSettings, type DependencyStates } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -59,7 +59,6 @@ import { chatTemplatesOverHttp, ToolCallParsers, TreeModelsService, treeAgentsFr
 import { platformGroups } from './extensions/installed.js';
 import { ignore } from '@koala/engine-core/failures';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
-import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 import { watchedWorker } from './worker-program.js';
 import { backendWorker } from './worker-interceptors.js';
 import { temporalWorkflowStarter } from './engine-host/temporal/workflow-starter.js';
@@ -236,25 +235,6 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
     stores: { ...engineStores, grove: { ...engineStores.grove, growing: { start: (ownerId, treeId) => startOnceQuiet(groving(), ownerId, treeId), status: (treeId) => groving().groveRunStatus(treeId) } } },
     vault,
     egressSecret: keys.egress,
-    corpus: {
-      addressProblem: publicAddressProblem,
-      start: async (workflowId, args) => {
-        await (await getTemporalClient()).workflow.start(executeIngestWorkflow, { taskQueue: QUEUES.host, workflowId, args: [args], ...startedFor(args.ownerId) });
-      },
-      status: async (workflowId) => {
-        try {
-          const handle = (await getTemporalClient()).workflow.getHandle<typeof executeIngestWorkflow>(workflowId);
-          const name = (await handle.describe()).status.name;
-          if (name === 'RUNNING') return { state: 'running' };
-          if (name === 'COMPLETED') return { state: 'completed', receipt: await handle.result() };
-          const reason = await handle.result().then(() => name.toLowerCase(), (err: { cause?: { message?: string }; message?: string }) => err.cause?.message ?? err.message ?? name.toLowerCase());
-          return { state: 'failed', error: reason };
-        } catch (err) {
-          return { state: 'unknown', error: (err as Error).message };
-        }
-      },
-      pages: (filter) => db.engine.getCorpusPages({ ownerId: filter.ownerId, ...(filter.ingestId ? { ingestId: filter.ingestId } : {}) }),
-    },
     projects: {
       projects: { list: () => db.projects.getProjects() },
       trees: { list: () => db.projects.getTrees() },

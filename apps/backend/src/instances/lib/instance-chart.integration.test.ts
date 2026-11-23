@@ -455,7 +455,6 @@ describe('the instance chart', () => {
     const memoryIndex = { index: { base: 'http://quickwit.quickwit.svc.cluster.local:7280' }, vectors: { base: 'http://qdrant.qdrant.svc.cluster.local:6333', apiKey: fromSecrets.QDRANT_API_KEY }, embeddings: { base: 'http://tei.tei.svc.cluster.local:80' } };
     expect(engineWorkerSettingsFrom(envOf('worker-engine')).tenant.memoryIndex).toEqual(memoryIndex);
     expect(backendSettingsFrom(envOf('backend')).tenant?.memoryIndex).toEqual(memoryIndex);
-    expect(hostWorkerSettingsFrom(envOf('worker-host')).memoryIndex).toEqual(memoryIndex);
     expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined, pod: given.POD_NAME });
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;

@@ -1,6 +1,5 @@
 import { temporaryStatus } from '@koala/engine-core/failures';
 export { failureOf, GONE_STATUSES, NAME_NOT_FOUND, refusedByServer, statusFailure, stillDown, temporaryStatus, tokenAlreadyGone, type Failure } from '@koala/engine-core/failures';
-import { isOff } from './off.js';
 import type { BackendSettings, ClusterWorkerSettings, EngineWorkerSettings, HostWorkerSettings, KoalaProcess, MemoryIndex, WebToolSettings } from './settings.js';
 import { ownReach } from '../../infrastructure/lib/cluster-places.js';
 
@@ -152,7 +151,7 @@ export function dependenciesOf(settings: AnyProcessSettings): DependencyId[] {
     case 'worker-cluster':
       return [...always, 'gitea', 'infisical'];
     case 'worker-host':
-      return [...always, ...webDependencies(settings.webTools), ...(isOff(settings.memoryIndex) ? [] : MEMORY_INDEX_DEPENDENCIES)];
+      return always;
   }
 }
 

@@ -85,10 +85,10 @@ describe('seeded agents compose usable prompts', () => {
     expect(prompt).not.toContain('"initialStep"');
   });
 
-  it('offers research the web and corpus tools it is granted, and withholds nothing', () => {
+  it('offers research the web tools it is granted, and withholds nothing', () => {
     const { tools, withheld } = offered('research');
 
-    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page', 'search_corpus', 'read_file', 'write_file', 'list_dir', 'list_files', 'read_stored_file', 'store_file']);
+    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page', 'read_file', 'write_file', 'list_dir', 'list_files', 'read_stored_file', 'store_file']);
     expect(withheld).toEqual([]);
   });
 

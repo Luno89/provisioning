@@ -138,9 +138,6 @@ describe('settling the work the bridge itself starts', () => {
       expect(build).toMatchObject({ event: 'pipeline-run' });
       if (!('id' in build)) throw new Error('the build had nothing to build');
       await settled(build.id);
-      const { workflowId } = await bridge.startIngest({ ownerId: 'u1', url: 'https://example.com', projectId: 'p1' });
-      await bridge.client!.workflow.getHandle(workflowId).result();
-      expect(await bridge.ingestStatus(workflowId)).toEqual({ state: 'completed', receipt: { pages: 1 } });
       for (const { id } of started) await settled(id);
       await Promise.all(followings);
     }));

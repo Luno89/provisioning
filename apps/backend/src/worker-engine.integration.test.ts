@@ -58,7 +58,7 @@ describe('the engine worker, started the way its entry starts it', () => {
     await running;
   });
 
-  it('on an instance answers a person\'s tool calls with their own corpus and memory, as Mongo holds them', async () => {
+  it('on an instance answers a person\'s tool calls with their own memory, as Mongo holds them', async () => {
     const { worker, activities, dependencies, running } = await runningOnAnInstance();
     const tools = activities as unknown as { EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome> };
     const grantId = (await grantsOver(db.engine).issue({ ownerId: 'owner-tools', runId: 'run-tools', principal: asPerson('owner-tools'), startedBy: 'person' })).id;
@@ -69,9 +69,6 @@ describe('the engine worker, started the way its entry starts it', () => {
     const at = new Date().toISOString();
     await db.memory.saveMemory({ id: 'mem-dns', ownerId: 'owner-tools', category: 'environment_facts', scope: 'global', status: 'active', title: 'DNS lives at Cloudflare', text: 'The person manages DNS at Cloudflare.', createdAt: at, updatedAt: at });
 
-    expect(await call('koala', 'start_ingest', { url: 'https://93.184.215.14/' }), 'a crawl starts into the instance\'s own memory index').toMatchObject({
-      ok: true, digest: expect.stringMatching(/^crawl \S+ started$/) as unknown,
-    });
     expect(await call('memory-keeper', 'forget_memory', { id: 'mem-dns', why: 'they moved to Porkbun' }), 'a memory is retired and taken out of the memory index').toMatchObject({ ok: true, content: 'Retired mem-dns.' });
     expect((await db.memory.getMemories('owner-tools')).find((item) => item.id === 'mem-dns')).toMatchObject({ invalidAt: anyOf(String) });
     expect(dependencies.down().map((down) => down.dependency), 'the index that answered is not shown down').not.toEqual(expect.arrayContaining(['quickwit']));

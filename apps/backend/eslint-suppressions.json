@@ -112,16 +112,6 @@
       "count": 1
     }
   },
-  "src/engine/lib/corpus.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/engine/lib/crawl-client.ts": {
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
   "src/engine/lib/e2e.ts": {
     "no-restricted-syntax": {
       "count": 1

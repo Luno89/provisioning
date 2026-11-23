@@ -61,7 +61,6 @@ beforeEach(async () => {
   for (const id of ['bo-shop', 'bo-blog']) await db.projects.saveProject({ id, name: id, ownerId: 'bo', appType: 'gitapp', createdAt: at });
   await db.releases.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
   await db.releases.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: at } as never);
-  await db.engine.saveCorpusPages([{ id: 'page-1', ownerId: 'bo', ingestId: 'ing-1', url: 'https://example.com', host: 'example.com', text: 't', bytes: 1, fetchedAt: at }]);
   await db.memory.saveMemoryWatermark('conversation:bo-c1', '4');
   await db.memory.saveMemoryWatermark('conversation:ana-c1', '4');
 });
@@ -161,10 +160,10 @@ describe('the steps that remove an account', () => {
     expect(repositories.deleteUser).toHaveBeenCalledTimes(1);
   });
 
-  it('removes every record it owns, with the conversations\' watermarks, the ingests and the projects\' builds that go with them, and leaves everyone else\'s', async () => {
+  it('removes every record it owns, with the conversations\' watermarks and the projects\' builds that go with them, and leaves everyone else\'s', async () => {
     const removed = await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' });
 
-    expect(removed).toMatchObject({ users: 1, conversations: 1, trees: 1, planProposals: 1, projects: 2, giteaAccounts: 1, corpus: 1, memoryWatermarks: 1, pipelineRuns: 2 });
+    expect(removed).toMatchObject({ users: 1, conversations: 1, trees: 1, planProposals: 1, projects: 2, giteaAccounts: 1, memoryWatermarks: 1, pipelineRuns: 2 });
     expect(await db.accounts.getUserById('bo')).toBeUndefined();
     expect(await db.engine.getConversation('bo', 'bo-c1')).toBeUndefined();
     expect(await db.memory.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();

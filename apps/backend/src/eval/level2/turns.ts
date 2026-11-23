@@ -50,6 +50,5 @@ export const TURN_CHECKS: Scenario[] = [
   turn('turn-koala-proposes-a-catalogue-app', 'koala: proposes a catalogue app', 'koala', 'Deploy a MariaDB database for me, call it shop-db.', { tool: 'propose_deploy_app', args: [{ arg: 'appType', contains: 'mariadb' }, { arg: 'name', is: 'shop-db' }] }),
   turn('turn-koala-proposes-plain-configuration', 'koala: proposes plain configuration', 'koala', 'Set LOG_LEVEL to debug on my billing project.', { tool: 'propose_project_env' }),
   turn('turn-koala-proposes-a-new-app', 'koala: proposes a new app', 'koala', 'The catalogue has no whoami service. Add one to it from the image traefik/whoami, which listens on port 80.', { tool: 'propose_app_spec' }),
-  turn('turn-koala-crawls-a-docs-site', 'koala: crawls a docs site', 'koala', 'Crawl the whole documentation site at https://docs.example.com so we can search it later.', { tool: 'start_ingest', args: [{ arg: 'url', contains: 'docs.example.com' }] }),
   turn('turn-koala-explains-a-reference-without-a-tool', 'koala: explains a reference without a tool', 'koala', 'In one sentence: what is a secret:// reference?', { tool: null }),
 ];

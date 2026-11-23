@@ -63,10 +63,6 @@ export class MongoAccountsStore implements AccountsStore {
     return this.db().collection('conversations');
   }
 
-  private get corpus(): Collection {
-    return this.db().collection('corpus');
-  }
-
   private get invites(): Collection<KeyedDoc> {
     return this.db().collection<KeyedDoc>('invites');
   }
@@ -272,7 +268,6 @@ export class MongoAccountsStore implements AccountsStore {
       projectIds,
       buildWorkflowIds: (await this.pipelineRuns.find({ projectId: { $in: projectIds }, status: { $in: ['queued', 'running'] } }, { projection: { temporalWorkflowId: 1 } }).toArray())
         .map((doc): unknown => doc.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
-      ingestIds: ((await this.corpus.distinct('ingestId', { ownerId })) as unknown[]).filter((id): id is string => typeof id === 'string'),
     };
   }
 
@@ -294,7 +289,6 @@ export class MongoAccountsStore implements AccountsStore {
       if (deletedCount) removed[name] = (removed[name] ?? 0) + deletedCount;
     };
     if (related.watermarkKeys.length) await count('memoryWatermarks', { _id: { $in: [...related.watermarkKeys] } });
-    if (related.ingestIds.length) await count('crawl_frontier', { ingestId: { $in: [...related.ingestIds] } });
     if (related.projectIds.length) await count('pipelineRuns', { projectId: { $in: [...related.projectIds] } });
     await count('oidcArtifacts', { accountId: ownerId });
     for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });

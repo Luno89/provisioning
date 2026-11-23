@@ -116,7 +116,6 @@ export const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: Runnin
   executeDestroyAppWorkflow: (workflow) => ({ kind: 'deploy', title: 'Removing an app', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'an app being removed is removed to the end' } }),
   executeResizeDiskWorkflow: (workflow) => ({ kind: 'deploy', title: 'Resizing an app\'s disk', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'a disk being resized is resized to the end' } }),
   executeSyncConfigWorkflow: (workflow) => ({ kind: 'deploy', title: 'Updating an app\'s settings', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
-  executeIngestWorkflow: (workflow) => ({ kind: 'run', title: 'Reading sources into the corpus', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
   StoredFilesWorkflow: (workflow) => ({ kind: 'save', title: 'Saving files you uploaded', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
 };
 

@@ -12,19 +12,18 @@ import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activitie
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
-import { type ClusterWorkerSettings, createDatabase, refuseWorkWith, deletingMarksIn, createWorkerLogger, clusterWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
+import { type ClusterWorkerSettings, createWorkerLogger, clusterWorkerSettingsFrom, telemetrySettings } from './platform/index.js';
 import { hostname } from 'node:os';
-import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, sharedClusterProxy, StateLocks, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
+import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, StateLocks, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { nodeRunner } from './platform/index.js';
 import { GiteaService, ProjectRepoService } from './projects/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { Context } from '@temporalio/activity';
-import { collectorSink } from './monitoring/index.js';
 import { checkServices } from './platform/wiring/dependencies.js';
 import { backendWorkerOnceTemporalAnswers } from './worker-interceptors.js';
 import { QUEUES } from './platform/index.js';
 import { HUGGING_FACE } from './infrastructure/index.js';
-import { runAsProgram, watchedWorker } from './worker-program.js';
+import { connectedWorker, runAsProgram } from './worker-program.js';
 import { createFrozenWorkActivities, temporalProjectWork } from './activities/DeleteProjectActivities.js';
 import { KoalaPods, WorkerRestart } from './infrastructure/index.js';
 import { getTemporalClient } from './platform/index.js';
@@ -55,18 +54,8 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
   logger.keepIn(settings.dataDir);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  const telemetryProxy = sharedClusterProxy(access);
-  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
-  const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => access.own().clusterId });
-  const plaintext = temporalTlsProblem(settings.temporal);
-  if (plaintext) throw new Error(plaintext);
-  connectTemporalAs(settings);
-  keepPayloadsIn(settings.mongo);
+  const { dependencies, db } = await connectedWorker(settings, telemetry, access);
   const dataKey = settings.keys.data;
-  const db = createDatabase({ mongo: settings.mongo, dataKey });
-  db.reportReachTo(dependencies);
-  await db.init();
-  refuseWorkWith(deletingMarksIn(db));
   const steps: ClusterSteps = {
     access,
     infra: new InfrastructureService(terraformPlacesFor(settings.terraform, settings.dataDir, settings.clusters.chartSources), nodeRunner, new StateLocks({ access, target: () => access.own(), here: hostname() })),

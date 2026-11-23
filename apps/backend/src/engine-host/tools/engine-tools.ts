@@ -10,7 +10,6 @@ import type { McpServerRecord } from '../../engine/index.js';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import { createProjectTools, type ProjectToolStores } from './project-tools.js';
 import { createEgressTools, type EgressToolStores } from './egress-tools.js';
-import { createCorpusTools, type CorpusAccess } from './corpus-tools.js';
 import { createRunTools, type RunReader } from './run-tools.js';
 import { createMemoryTools, type KnownTools, type MemoryToolStore } from './memory-tools.js';
 import { createScenarioTools, type ScenarioProposalAccess } from './scenario-tools.js';
@@ -37,7 +36,6 @@ export interface EngineToolDeps {
   kube?: KubeAccess | undefined;
   projects?: ProjectToolStores | undefined;
   egress?: EgressToolStores | undefined;
-  corpus?: CorpusAccess | undefined;
   runs?: RunReader | undefined;
   memories?: MemoryToolStore | undefined;
   memorySources?: ((runId: string) => Promise<import('./memory-tools.js').MemorySourcesFound>) | undefined;
@@ -64,7 +62,6 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.kube ? createKubeTools({ access: deps.kube }) : {}),
     ...(deps.projects ? createProjectTools({ stores: deps.projects }) : {}),
     ...(deps.egress ? createEgressTools({ stores: deps.egress }) : {}),
-    ...(deps.corpus ? createCorpusTools({ access: deps.corpus }) : {}),
     ...(deps.runs ? createRunTools({ runs: deps.runs }) : {}),
     ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug), models: deps.models, tools: deps.knownTools, sourcesOf: deps.memorySources }) : {}),
     ...(deps.scenarios ? createScenarioTools(deps.scenarios) : {}),

@@ -16,7 +16,7 @@ describe('where work runs', () => {
 
   it('gives root\'s host worker root\'s removals and the dependency watch, and an instance\'s its server orders and the crawl, none of them both', () => {
     expect(HOST_ACTIVITIES.root).toEqual(expect.arrayContaining(['RootRemovalRecordsActivity', 'DependencyWatchActivity']));
-    expect(HOST_ACTIVITIES.instance).toEqual(expect.arrayContaining(['ServerOrderFollowActivity', 'CrawlBatchActivity', 'NewIngestIdActivity']));
+    expect(HOST_ACTIVITIES.instance).toEqual(expect.arrayContaining(['ServerOrderFollowActivity', 'ServerOrderFailedActivity']));
     expect(HOST_ACTIVITIES.root.filter((activity) => HOST_ACTIVITIES.instance.includes(activity))).toEqual([]);
   });
 });

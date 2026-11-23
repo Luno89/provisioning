@@ -6,16 +6,12 @@ import { RootRemovalInstanceActivity, RootRemovalMachinesActivity, RootRemovalMe
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity } from './activities/KoalaInstallActivities.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
-import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createDatabase, createWorkerLogger, connectTemporalAs, deletingMarksIn, refuseWorkWith, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, hostWorkerSettingsFrom, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
-import { sharedClusterProxy } from './infrastructure/index.js';
-import { collectorSink } from './monitoring/index.js';
-import { checkServices } from './platform/wiring/dependencies.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { backendWorkerOnceTemporalAnswers } from './worker-interceptors.js';
 import { HOST_ACTIVITIES, QUEUES, type HostWorkerSettings } from './platform/index.js';
-import { runAsProgram, watchedWorker } from './worker-program.js';
+import { connectedWorker, runAsProgram } from './worker-program.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +23,6 @@ export const HOST_WORKER_ACTIVITIES = {
   ServerOrderBootstrapActivity, ServerOrderReverseDnsActivity, ServerOrderMailCheckActivity, ServerOrderStoppedActivity, ServerOrderFailedActivity,
   RootRemovalInstanceActivity, RootRemovalMachinesActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity,
   KoalaInstallAskActivity, KoalaInstallStageActivity, KoalaInstallStoppedActivity,
-  CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, NewIngestIdActivity,
 };
 
 export function hostActivitiesFor(role: HostWorkerSettings['role']['role']): Partial<typeof HOST_WORKER_ACTIVITIES> {
@@ -39,18 +34,7 @@ export async function startHostWorker(settings: HostWorkerSettings) {
   logger.keepIn(settings.dataDir);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-host'));
   const access = hostClusterAccess(settings);
-  const telemetryProxy = sharedClusterProxy(access);
-  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
-  const dependencies = await watchedWorker(settings, telemetry, { proxy: telemetryProxy, koalasCluster: () => access.own().clusterId });
-  checkServices(dependencies, { webTools: settings.webTools, memoryIndex: settings.memoryIndex });
-  const plaintext = temporalTlsProblem(settings.temporal);
-  if (plaintext) throw new Error(plaintext);
-  connectTemporalAs(settings);
-  keepPayloadsIn(settings.mongo);
-  const db = createDatabase({ mongo: settings.mongo, dataKey: settings.keys.data });
-  db.reportReachTo(dependencies);
-  await db.init();
-  refuseWorkWith(deletingMarksIn(db));
+  const { dependencies } = await connectedWorker(settings, telemetry, access);
   giveHostActivities(settings, access, dependencies);
   void dependencies.start();
   const queue = QUEUES.host;

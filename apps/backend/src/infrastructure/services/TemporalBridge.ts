@@ -19,9 +19,8 @@ import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowEx
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
 import { at, isOff, listAt, textAt, type MemoryIndexReach, type Off } from '../../platform/index.js'
-import { appSettingsOf, definedFields, deployRequestOf } from '../lib/deploy-request.js'
+import { appSettingsOf, deployRequestOf } from '../lib/deploy-request.js'
 import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
-import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -875,40 +874,6 @@ export class TemporalBridge {
     if (this.io) this.io.emit('pipeline-run-updated')
 
     return { id: wfId, resourceId: runId, event: 'pipeline-run' }
-  }
-
-  async startIngest(args: {
-    ownerId: string;
-    url: string;
-    projectId?: string | undefined;
-    maxDepth?: number | undefined;
-    maxPages?: number | undefined;
-    domains?: string[] | undefined;
-    keywords?: string[] | undefined;
-  }): Promise<{ workflowId: string }> {
-    const workflowId = `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const { ownerId, url, ...limits } = args
-    await this.forProject(args.projectId, () => this.client!.workflow.start(executeIngestWorkflow, {
-      taskQueue: QUEUES.host,
-      workflowId,
-      args: [{ ownerId, url, ...definedFields(limits) }],
-      ...startedFor(args.ownerId),
-    }))
-    return { workflowId }
-  }
-
-  async ingestStatus(workflowId: string): Promise<{ state: string; receipt?: unknown; error?: string }> {
-    try {
-      const name = (await this.client.workflow.getHandle(workflowId).describe()).status.name
-      if (name === 'RUNNING') return { state: 'running' }
-      if (name === 'COMPLETED') {
-        const receipt: unknown = await this.client.workflow.getHandle<typeof executeIngestWorkflow>(workflowId).result()
-        return { state: 'completed', receipt }
-      }
-      return { state: (name ?? 'unknown').toLowerCase() }
-    } catch (err) {
-      return { state: 'unknown', error: (err as Error | undefined)?.message ?? String(err) }
-    }
   }
 
   async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<ResourceDeal> {
