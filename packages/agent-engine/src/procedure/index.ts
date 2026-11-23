@@ -79,6 +79,7 @@ export {
   type RunContext,
   type RunLaunch,
   type NodeRequest,
+  type BranchRuns,
   type StepResult,
   type ValueResult,
   type NodeExecutor,

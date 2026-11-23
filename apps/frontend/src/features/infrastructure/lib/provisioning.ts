@@ -23,7 +23,7 @@ const BECAUSE: Record<ProvisionReason, string> = {
 }
 
 function pieceWords(piece: ProvisionPieceView): string {
-  if (piece.state === 'waiting') return 'waiting its turn'
+  if (piece.state === 'waiting') return 'waiting to start'
   if (piece.state === 'working') return piece.line ?? 'under way'
   if (piece.state === 'up') return 'up'
   return piece.why ?? 'it gave no reason'
@@ -38,8 +38,8 @@ const heading = (setup: ProvisioningView): string =>
   setup.target.kind === 'koala' ? `Koala's own services and monitoring, revision ${setup.revision}` : `${setup.target.machine}'s collector`
 
 function stoppedLine(setup: ProvisioningView): string {
-  const piece = setup.pieces.find((entry) => entry.state === 'failed')
-  if (piece) return `Stopped at ${piece.title}: ${pieceWords(piece)}`
+  const failed = setup.pieces.filter((entry) => entry.state === 'failed')
+  if (failed.length > 0) return `Stopped at ${failed.map((piece) => `${piece.title}: ${pieceWords(piece)}`).join('; ')}`
   return `Stopped: ${setup.why ?? 'it gave no reason'}`
 }
 

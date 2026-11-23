@@ -544,6 +544,23 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       expect(await store.patchProvisioning('provision-nowhere~x', { state: 'up' })).toBeUndefined();
     });
 
+    it('writes each piece a patch names over that piece alone, so pieces working at once never write over each other', async () => {
+      const store = await make();
+      const opened = run('a');
+      await store.openProvisioning(opened);
+      const egress = pieceHeard(opened, { stage: 'egress', title: 'The egress proxy', state: 'done' }, '2026-11-18T10:01:00.000Z');
+      const gitea = pieceHeard(opened, { stage: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', why: 'the volume is full' }, '2026-11-18T10:01:00.000Z');
+      await store.patchProvisioning(opened.id, { pieces: egress.pieces.filter((piece) => piece.key === 'egress') }, true);
+      await store.patchProvisioning(opened.id, { pieces: gitea.pieces.filter((piece) => piece.key === 'gitea') }, true);
+
+      const now = await store.getProvisioningRun(opened.id);
+      expect(now?.pieces.map((piece) => piece.key)).toEqual(opened.pieces.map((piece) => piece.key));
+      expect(now?.pieces.filter((piece) => piece.state !== 'waiting')).toEqual([
+        { key: 'egress', title: 'The egress proxy', state: 'up', at: '2026-11-18T10:01:00.000Z' },
+        { key: 'gitea', title: 'Gitea, your repositories and images', state: 'failed', why: 'the volume is full', at: '2026-11-18T10:01:00.000Z' },
+      ]);
+    });
+
     it('keeps root\'s refusal on a run, ended or not, until it is patched away', async () => {
       const store = await make();
       const opened = run('a');

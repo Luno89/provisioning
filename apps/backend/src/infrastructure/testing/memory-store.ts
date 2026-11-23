@@ -13,7 +13,7 @@ import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { DeploymentHealth, InfrastructureStore, ProvisioningOpened, ProvisioningPatch } from '../store.js';
-import type { ProvisioningRecord } from '../lib/provisioning.js';
+import { withPatch, type ProvisioningRecord } from '../lib/provisioning.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
 
@@ -305,7 +305,7 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
   async patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning = false): Promise<ProvisioningRecord | undefined> {
     const changed = this.provisioning.change(id, (record) => {
       if (whileRunning && record.state !== 'running') return undefined;
-      return stored({ ...record, ...patch } as ProvisioningRecord);
+      return stored(withPatch(record, patch));
     });
     return changed ? this.provisioning.get(id) : undefined;
   }

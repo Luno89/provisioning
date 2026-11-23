@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
-import { openedRecord, type HeardPatch, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisioningRecords, type ProvisionRunInput } from '../../../infrastructure/lib/provisioning.js';
+import { openedRecord, withPatch, type HeardPatch, type ProvisionPieceInput, type ProvisionPieceResult, type ProvisioningRecord, type ProvisioningRecords, type ProvisionRunInput } from '../../../infrastructure/lib/provisioning.js';
 import { createProvisionOperations } from './handlers.js';
 
 const AT = '2026-11-18T12:00:00.000Z';
@@ -22,7 +22,7 @@ const kept = (): ProvisioningRecords & { patches: HeardPatch[] } => {
       patches.push(patch);
       const now = records.get(recordId);
       if (now?.state !== 'running') return undefined;
-      records.set(recordId, { ...now, ...patch });
+      records.set(recordId, withPatch(now, patch));
       return records.get(recordId);
     },
   };
@@ -121,12 +121,13 @@ describe('setting up a piece', () => {
     expect(signals).toEqual([stop.signal]);
   });
 
-  it('fails with the piece\'s own why when it can never come up, and the record says which piece and why', async () => {
+  it('fails with the piece\'s own why when it can never come up, the record saying which piece and why while the other pieces go on', async () => {
     answers.infisical = { ok: false, why: 'pod infisical-0 is CrashLoopBackOff: out of memory' };
     const result = await ops()['provision.service']!(request(input, { service: 'infisical' }));
     expect(result).toEqual({ exit: 'failed', outputs: { reason: 'pod infisical-0 is CrashLoopBackOff: out of memory' } });
     expect(pieceOf(input.recordId, 'infisical')).toMatchObject({ state: 'failed', why: 'pod infisical-0 is CrashLoopBackOff: out of memory' });
-    expect(records.get(input.recordId)).toMatchObject({ state: 'failed', why: 'Infisical, your secrets: pod infisical-0 is CrashLoopBackOff: out of memory' });
+    expect(records.get(input.recordId)!.state).toBe('running');
+    expect(await ops()['provision.service']!(request(input, { service: 'gitea' }))).toEqual({ exit: 'done', outputs: {} });
   });
 
   it('fails with why when the piece could not be followed at all', async () => {

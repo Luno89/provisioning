@@ -3,7 +3,7 @@ import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { mock } from 'vitest-mock-extended';
 import type { ProvisioningView, ProvisionPieceKey, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
-import { openedRecord, pieceHeard, provisionWorkflowId, setUpProgress, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
+import { openedRecord, pieceHeard, provisionWorkflowId, runEnded, setUpProgress, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
 import { ProvisionAsks, Provisioning, type ProvisionRoot, type ProvisionRuns } from './Provisioning.js';
 
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
@@ -203,12 +203,12 @@ describe('setting Koala up after its chart', () => {
     await provisioning.close();
   });
 
-  it('sets up again from the piece that failed, the pieces that came up kept, on the same revision', async () => {
+  it('sets up again the pieces that are not up, the pieces that came up kept, on the same revision', async () => {
     const { provisioning, store, started } = setUp();
     let stopped = earlier(KOALA, 4, 'a');
     stopped = pieceHeard(stopped, { stage: 'egress', title: 'The egress proxy', state: 'done' }, '2026-11-17T09:10:00.000Z');
     stopped = pieceHeard(stopped, { stage: 'searxng', title: 'SearXNG, web search', state: 'failed', why: 'no room' }, '2026-11-17T09:20:00.000Z');
-    await store.openProvisioning(stopped);
+    await store.openProvisioning(runEnded(stopped, 'SearXNG, web search: no room', '2026-11-17T09:30:00.000Z'));
 
     const again = await provisioning.again(KOALA.clusterId);
     expect(again).toMatchObject({ target: KOALA, revision: 4, reason: 'asked', state: 'running' });
@@ -483,7 +483,7 @@ describe('asking Koala to set a cluster up from a process that starts no runs', 
     const asks = new ProvisionAsks({ store, koala: { ownerId: 'owner-1', revision: 4 } });
     const opened = await asks.ensure(LAB, 'missing');
     const settled = asks.settled(opened.id);
-    const failed = pieceHeard(opened, { stage: 'monitoring', title: 'lab\'s collector', state: 'failed', why: 'helm said no' }, '2026-11-18T11:02:00.000Z');
+    const failed = runEnded(pieceHeard(opened, { stage: 'monitoring', title: 'lab\'s collector', state: 'failed', why: 'helm said no' }, '2026-11-18T11:02:00.000Z'), 'lab\'s collector: helm said no', '2026-11-18T11:02:00.000Z');
     await store.patchProvisioning(opened.id, { state: failed.state, pieces: failed.pieces, why: failed.why!, endedAt: failed.endedAt! });
     expect(await settled).toEqual({ state: 'failed', why: 'lab\'s collector: helm said no' });
   });

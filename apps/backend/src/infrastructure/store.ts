@@ -14,11 +14,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
 import { keepWrittenDocuments, watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
-import type { ProvisioningRecord } from './lib/provisioning.js';
+import type { ProvisioningPatch, ProvisioningRecord } from './lib/provisioning.js';
 
 export interface DeploymentHealth { status?: DeploymentMetadata['status']; healthReason?: string | undefined }
 
-export type ProvisioningPatch = Partial<Pick<ProvisioningRecord, 'state' | 'pieces' | 'why' | 'endedAt' | 'workflowId' | 'asked'>> & { root?: ProvisioningRecord['root'] | undefined };
+export type { ProvisioningPatch };
 
 export type ProvisioningOpened = { opened: true } | { opened: false; running: ProvisioningRecord };
 
@@ -327,8 +327,12 @@ export class MongoInfrastructureStore implements InfrastructureStore {
   }
 
   async patchProvisioning(id: string, patch: ProvisioningPatch, whileRunning = false): Promise<ProvisioningRecord | undefined> {
-    const changes = fieldChanges({ ...patch });
-    const doc = await this.provisioning.findOneAndUpdate({ _id: id, ...(whileRunning ? { state: 'running' } : {}) }, changes, { returnDocument: 'after' });
+    const { pieces = [], ...fields } = patch;
+    const changes = fieldChanges({ ...fields });
+    const piecesSet = Object.fromEntries(pieces.map((piece, at) => [`pieces.$[p${at}]`, Object.fromEntries(Object.entries(piece).filter(([, value]) => value !== undefined))]));
+    const update = pieces.length > 0 ? { ...changes, $set: { ...changes.$set, ...piecesSet } } : changes;
+    const arrayFilters = pieces.map((piece, at) => ({ [`p${at}.key`]: piece.key }));
+    const doc = await this.provisioning.findOneAndUpdate({ _id: id, ...(whileRunning ? { state: 'running' } : {}) }, update, { returnDocument: 'after', ...(arrayFilters.length > 0 ? { arrayFilters } : {}) });
     return doc ? fromDoc<ProvisioningRecord>(doc) : undefined;
   }
 

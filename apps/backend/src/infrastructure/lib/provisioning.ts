@@ -64,9 +64,6 @@ export function againPieces(last: ProvisioningRecord | undefined, target: Provis
   return last.pieces.map((piece) => (piece.state === 'up' ? piece : { key: piece.key, title: piece.title, state: 'waiting' }));
 }
 
-export const retryStartsAt = (pieces: readonly ProvisionPieceView[]): ProvisionPieceKey | undefined =>
-  pieces.find((piece) => piece.state !== 'up')?.key;
-
 export function openedRecord(given: { ownerId: string; target: ProvisionTarget; revision: number; reason: ProvisionReason; runId: string; at: string; pieces?: ProvisionPieceView[] | undefined; asked?: string | undefined }): ProvisioningRecord {
   return {
     id: given.runId,
@@ -124,15 +121,20 @@ export function pieceHeard(record: ProvisioningRecord, progress: MachineProgress
     return { ...record, state: 'up', endedAt: at };
   }
   const { key, title } = pieceOf(record, progress.stage);
-  if (progress.state === 'failed') {
-    const why = progress.why ?? 'it gave no reason';
-    return { ...record, state: 'failed', why: `${title}: ${why}`, endedAt: at, pieces: withPiece(record, { key, title, state: 'failed', why, at }) };
-  }
+  if (progress.state === 'failed') return { ...record, pieces: withPiece(record, { key, title, state: 'failed', why: progress.why ?? 'it gave no reason', at }) };
   if (progress.state === 'started') return { ...record, pieces: withPiece(record, { key, title, state: 'working', ...(progress.line ? { line: progress.line } : {}), at }) };
   return { ...record, pieces: withPiece(record, { key, title, state: 'up', at }) };
 }
 
 export type HeardPatch = Pick<ProvisioningRecord, 'state' | 'pieces'> & Partial<Pick<ProvisioningRecord, 'why' | 'endedAt'>>;
+
+export type ProvisioningPatch = Partial<Pick<ProvisioningRecord, 'state' | 'pieces' | 'why' | 'endedAt' | 'workflowId' | 'asked'>> & { root?: ProvisioningRecord['root'] | undefined };
+
+export function withPatch(record: ProvisioningRecord, patch: ProvisioningPatch): ProvisioningRecord {
+  const { pieces, ...fields } = patch;
+  const patched = { ...record, ...fields } as ProvisioningRecord;
+  return pieces ? { ...patched, pieces: record.pieces.map((piece) => pieces.find((given) => given.key === piece.key) ?? piece) } : patched;
+}
 
 export interface ProvisioningRecords {
   getProvisioningRun(id: string): Promise<ProvisioningRecord | undefined>;
@@ -141,9 +143,11 @@ export interface ProvisioningRecords {
 
 export type Recorded = { recorded: ProvisioningRecord } | { gone: true } | { ended: ProvisioningRecord };
 
-export const heardPatch = (record: ProvisioningRecord): HeardPatch => ({
+const samePieceView = (a: ProvisionPieceView | undefined, b: ProvisionPieceView): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+export const heardPatch = (before: ProvisioningRecord, record: ProvisioningRecord): HeardPatch => ({
   state: record.state,
-  pieces: record.pieces,
+  pieces: record.pieces.filter((piece) => !samePieceView(before.pieces.find((entry) => entry.key === piece.key), piece)),
   ...(record.why !== undefined ? { why: record.why } : {}),
   ...(record.endedAt !== undefined ? { endedAt: record.endedAt } : {}),
 });
@@ -152,7 +156,7 @@ export async function recordedOn(records: ProvisioningRecords, recordId: string,
   const record = await records.getProvisioningRun(recordId);
   if (!record) return { gone: true };
   if (record.state !== 'running') return { ended: record };
-  const written = await records.patchProvisioning(recordId, heardPatch(change(record)), true);
+  const written = await records.patchProvisioning(recordId, heardPatch(record, change(record)), true);
   if (written) return { recorded: written };
   const now = await records.getProvisioningRun(recordId);
   return now ? { ended: now } : { gone: true };
@@ -205,11 +209,11 @@ export function progressSince(before: ProvisioningRecord | undefined, after: Pro
   for (const piece of after.pieces) {
     if (samePiece(before?.pieces.find((entry) => entry.key === piece.key), piece)) continue;
     const change = changeOf(piece);
-    if (change) lines.push(pieceProgress(after, piece.key, change));
+    if (change && change.state !== 'failed') lines.push(pieceProgress(after, piece.key, change));
   }
   const newlyEnded = after.state !== 'running' && before?.state !== after.state;
   if (newlyEnded && after.state === 'up') lines.push(setUpProgress());
-  if (newlyEnded && after.state === 'failed' && !lines.some((line) => line.state === 'failed')) {
+  if (newlyEnded && after.state === 'failed') {
     const stopped = after.pieces.find((piece) => piece.state === 'failed') ?? after.pieces.find((piece) => piece.state !== 'up') ?? after.pieces.at(-1);
     if (stopped) lines.push(pieceProgress(after, stopped.key, { state: 'failed', why: after.why ?? stopped.why ?? 'it gave no reason' }));
   }
@@ -226,5 +230,5 @@ export function provisionedFor(records: readonly ProvisioningRecord[], clusterId
   if (last.state === 'up') return { state: 'up' };
   if (last.state === 'failed') return { state: 'failed', why: last.why ?? 'it gave no reason' };
   const working = last.pieces.find((piece) => piece.state === 'working') ?? last.pieces.find((piece) => piece.state === 'waiting');
-  return { state: 'waiting', line: working ? `${working.title}: ${working.line ?? (working.state === 'working' ? 'under way' : 'waiting its turn')}` : `setting up ${nameOf(last.target)}` };
+  return { state: 'waiting', line: working ? `${working.title}: ${working.line ?? (working.state === 'working' ? 'under way' : 'waiting to start')}` : `setting up ${nameOf(last.target)}` };
 }

@@ -35,7 +35,7 @@ describe('the "Setting Koala up" card on Infrastructure', () => {
     renderCard()
     expect(await screen.findByText('waiting for deployment/egress in egress: 0 of 1 ready')).toBeDefined()
     expect(screen.getByText('Setting Koala up')).toBeDefined()
-    expect(screen.getAllByText('waiting its turn')).toHaveLength(PROVISION_PIECES.length - 1)
+    expect(screen.getAllByText('waiting to start')).toHaveLength(PROVISION_PIECES.length - 1)
     expect(screen.queryByRole('button', { name: 'Set up again' })).toBeNull()
     answering({ setups: [setup({ pieces: pieces((piece, index) => (index === 0 ? { ...piece, state: 'up' } : index === 1 ? { ...piece, state: 'working', line: 'waiting for deployment/searxng in searxng: 0 of 1 ready' } : piece)) })], can: ['set-up-again'] })
     handlers.get(PROVISIONING_CHANGED)!()

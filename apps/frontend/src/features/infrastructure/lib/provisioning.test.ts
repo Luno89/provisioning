@@ -37,13 +37,13 @@ describe('the "Setting Koala up" card', () => {
           { key: 'egress', title: 'The egress proxy', state: 'up', words: 'up' },
           { key: 'searxng', title: 'SearXNG, web search', state: 'working', words: 'waiting for deployment/searxng in searxng: 0 of 1 ready' },
           { key: 'crawl4ai', title: 'Crawl4AI, page reading', state: 'working', words: 'under way' },
-          { key: 'quickwit', title: 'Quickwit, the memory index\'s words', state: 'waiting', words: 'waiting its turn' },
-          { key: 'qdrant', title: 'Qdrant, the memory index\'s meanings', state: 'waiting', words: 'waiting its turn' },
-          { key: 'tei', title: 'TEI, the memory index\'s embeddings', state: 'waiting', words: 'waiting its turn' },
-          { key: 'gitea', title: 'Gitea, your repositories and images', state: 'waiting', words: 'waiting its turn' },
-          { key: 'verdaccio', title: 'The npm registry mirror', state: 'waiting', words: 'waiting its turn' },
-          { key: 'infisical', title: 'Infisical, your secrets', state: 'waiting', words: 'waiting its turn' },
-          { key: 'monitoring', title: 'Monitoring', state: 'waiting', words: 'waiting its turn' },
+          { key: 'quickwit', title: 'Quickwit, the memory index\'s words', state: 'waiting', words: 'waiting to start' },
+          { key: 'qdrant', title: 'Qdrant, the memory index\'s meanings', state: 'waiting', words: 'waiting to start' },
+          { key: 'tei', title: 'TEI, the memory index\'s embeddings', state: 'waiting', words: 'waiting to start' },
+          { key: 'gitea', title: 'Gitea, your repositories and images', state: 'waiting', words: 'waiting to start' },
+          { key: 'verdaccio', title: 'The npm registry mirror', state: 'waiting', words: 'waiting to start' },
+          { key: 'infisical', title: 'Infisical, your secrets', state: 'waiting', words: 'waiting to start' },
+          { key: 'monitoring', title: 'Monitoring', state: 'waiting', words: 'waiting to start' },
         ],
         again: false,
       }],
@@ -62,6 +62,13 @@ describe('the "Setting Koala up" card', () => {
     expect(shown.setups[0].again).toBe(true)
     const someoneElse = provisioningShown([failed], false)
     expect(someoneElse.kind === 'setting-up' && someoneElse.setups[0]?.kind === 'open' && someoneElse.setups[0].again).toBe(false)
+  })
+
+  it('names every piece that did not come up, when several failed at once', () => {
+    const pieces = waiting().map((piece) => (piece.key === 'gitea' ? { ...piece, state: 'failed' as const, why: 'the volume is full' } : piece.key === 'tei' ? { ...piece, state: 'failed' as const, why: 'the model could not be downloaded' } : { ...piece, state: 'up' as const }))
+    const shown = provisioningShown([koala({ state: 'failed', why: 'two pieces failed', pieces, endedAt: '2026-11-18T10:09:00.000Z' })], true)
+    expect(shown.kind === 'setting-up' && shown.setups[0]?.kind === 'open' && shown.setups[0].failed)
+      .toBe('Stopped at TEI, the memory index\'s embeddings: the model could not be downloaded; Gitea, your repositories and images: the volume is full')
   })
 
   it('says why a run stopped when it ended with no piece failing', () => {
@@ -89,7 +96,7 @@ describe('the "Setting Koala up" card', () => {
     const shown = provisioningShown([collector(), koala({ state: 'up', pieces: allUp() })], true)
     if (shown.kind !== 'setting-up') throw new Error(`expected the card open, got ${JSON.stringify(shown)}`)
     expect(shown.setups[0]).toEqual({ kind: 'up', key: 'desk', line: 'Koala\'s services and monitoring are set up (revision 7).' })
-    expect(shown.setups[1]).toMatchObject({ kind: 'open', key: 'desk-2', heading: 'desk-2\'s collector', because: 'because a piece was found missing', pieces: [{ key: 'monitoring', title: 'desk-2\'s collector', state: 'waiting', words: 'waiting its turn' }] })
+    expect(shown.setups[1]).toMatchObject({ kind: 'open', key: 'desk-2', heading: 'desk-2\'s collector', because: 'because a piece was found missing', pieces: [{ key: 'monitoring', title: 'desk-2\'s collector', state: 'waiting', words: 'waiting to start' }] })
   })
 
   it('says root refused hearing the setup, with why, and stays open for it even once everything is up', () => {

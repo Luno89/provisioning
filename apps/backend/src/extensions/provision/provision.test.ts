@@ -15,9 +15,20 @@ const SECOND: ProvisionRunInput = { ownerId: 'bo', recordId: 'provision-machine-
 function world(answers: Partial<Record<string, ProvisionPieceResult>> = {}) {
   const store = new MemoryInfrastructureStore();
   const started: ProvisionPieceInput[] = [];
+  let working = 0;
+  let most = 0;
   const operations = createProvisionOperations({
     records: store,
-    pieces: { run: async (piece) => { started.push(piece); return answers[piece.piece] ?? { ok: true }; } },
+    pieces: {
+      run: async (piece) => {
+        started.push(piece);
+        working += 1;
+        most = Math.max(most, working);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        working -= 1;
+        return answers[piece.piece] ?? { ok: true };
+      },
+    },
     now: () => AT,
   });
   const open = (inputs: ProvisionRunInput, ownerId = inputs.ownerId, pieces?: ProvisionPieceView[]) => store.openProvisioning(openedRecord({ ownerId, target: inputs.target, revision: inputs.revision, reason: inputs.reason, runId: inputs.recordId, at: AT, pieces }));
@@ -26,7 +37,7 @@ function world(answers: Partial<Record<string, ProvisionPieceResult>> = {}) {
     return runOnHost({ procedure: PROVISION, operations, runId: inputs.recordId, agentId: PROVISION_AGENT, ownerId: inputs.ownerId, inputs });
   };
   const record = async (inputs: ProvisionRunInput) => (await store.getProvisioningRun(inputs.recordId))!;
-  return { run, open, started, record };
+  return { run, open, started, record, busiest: () => most };
 }
 
 describe('the provision procedure', () => {
@@ -37,30 +48,34 @@ describe('the provision procedure', () => {
     expect(extension.personas?.find((persona) => persona.slug === PROVISION_AGENT)?.procedure).toBe(PROVISION_PROCEDURE);
   });
 
-  it('sets up every piece of the Koala\'s own cluster in order, then marks the setup up', async () => {
-    const { run, started, record: recordOf } = world();
+  it('starts every piece of the Koala\'s own cluster at once, and marks the setup up once every piece is', async () => {
+    const { run, started, record: recordOf, busiest } = world();
     const result = await run(OWN);
     expect(result.outcome).toBe('ok');
-    expect(started.map((piece) => piece.piece)).toEqual(PROVISION_PIECES.map((piece) => piece.key));
+    expect(busiest()).toBe(PROVISION_PIECES.length);
+    expect(started.map((piece) => piece.piece).sort()).toEqual(PROVISION_PIECES.map((piece) => piece.key).sort());
     expect(started.every((piece) => piece.recordId === OWN.recordId && piece.revision === 7)).toBe(true);
     const record = await recordOf(OWN);
     expect(record.state).toBe('up');
     expect(record.pieces.every((piece) => piece.state === 'up')).toBe(true);
   });
 
-  it('stops at the first piece that can never come up, sets up nothing after it, and ends failed with its why', async () => {
-    const { run, started, record: recordOf } = world({ gitea: { ok: false, why: 'pod gitea-0 is Init:Error: the volume is full' } });
+  it('sets up every other piece when one can never come up, then ends failed naming every piece that did not and why', async () => {
+    const { run, started, record: recordOf } = world({
+      gitea: { ok: false, why: 'pod gitea-0 is Init:Error: the volume is full' },
+      tei: { ok: false, why: 'the model could not be downloaded' },
+    });
     const result = await run(OWN);
-    expect(result.outcome).toBe('failed');
-    expect(result.reason).toBe('pod gitea-0 is Init:Error: the volume is full');
-    expect(started.map((piece) => piece.piece)).toEqual(['egress', 'searxng', 'crawl4ai', 'quickwit', 'qdrant', 'tei', 'gitea']);
+    const why = 'TEI, the memory index\'s embeddings: the model could not be downloaded; Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full';
+    expect(result).toMatchObject({ outcome: 'failed', reason: why });
+    expect(started.map((piece) => piece.piece).sort()).toEqual(PROVISION_PIECES.map((piece) => piece.key).sort());
     const record = await recordOf(OWN);
-    expect(record).toMatchObject({ state: 'failed', why: 'Gitea, your repositories and images: pod gitea-0 is Init:Error: the volume is full' });
-    expect(record.pieces.filter((piece) => piece.state === 'waiting').map((piece) => piece.key)).toEqual(['verdaccio', 'infisical', 'monitoring']);
+    expect(record).toMatchObject({ state: 'failed', why });
+    expect(record.pieces.filter((piece) => piece.state !== 'up').map((piece) => [piece.key, piece.state])).toEqual([['tei', 'failed'], ['gitea', 'failed']]);
   });
 
-  it('set up again, starts at the piece that failed and leaves the finished ones as they are', async () => {
-    const first = world({ gitea: { ok: false, why: 'the volume is full' } });
+  it('set up again, sets up only the pieces that are not up and leaves the finished ones as they are', async () => {
+    const first = world({ gitea: { ok: false, why: 'the volume is full' }, monitoring: { ok: false, why: 'the CRDs never came up' } });
     await first.run(OWN);
     const stopped = await first.record(OWN);
     const again: ProvisionRunInput = { ...OWN, recordId: 'provision-machine-desk~2', reason: 'asked' };
@@ -68,17 +83,11 @@ describe('the provision procedure', () => {
     await open(again, again.ownerId, againPieces(stopped, again.target, again.revision));
     const result = await run(again, false);
     expect(result.outcome).toBe('ok');
-    expect(started.map((piece) => piece.piece)).toEqual(['gitea', 'verdaccio', 'infisical', 'monitoring']);
+    expect(started.map((piece) => piece.piece).sort()).toEqual(['gitea', 'monitoring']);
     const record = await recordOf(again);
     expect(record.state).toBe('up');
-    expect(record.pieces.slice(0, 6)).toEqual(stopped.pieces.slice(0, 6));
-  });
-
-  it('ends failed with monitoring\'s why when the last piece cannot come up', async () => {
-    const { run, record } = world({ monitoring: { ok: false, why: 'the CRDs never came up' } });
-    const result = await run(OWN);
-    expect(result).toMatchObject({ outcome: 'failed', reason: 'the CRDs never came up' });
-    expect(await record(OWN)).toMatchObject({ state: 'failed', why: 'Monitoring: the CRDs never came up' });
+    const finished = (pieces: readonly ProvisionPieceView[]) => pieces.filter((piece) => piece.key !== 'gitea' && piece.key !== 'monitoring');
+    expect(finished(record.pieces)).toEqual(finished(stopped.pieces));
   });
 
   it('sets up only the collector on another of the person\'s machines', async () => {
