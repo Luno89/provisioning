@@ -52,7 +52,7 @@ import { chatTemplatesOverHttp, modelsRouter, ModelService, servedWindowsOverHtt
 import {
   InfrastructureService, StateLocks, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, MEMORY_INDEX_APPS_MIGRATION, removeMemoryIndexApps, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, vpsCatalogAdapters,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, MEMORY_INDEX_APPS_MIGRATION, removeMemoryIndexApps, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, koalaPlace, koalasClusterId, NO_CLUSTER_OF_ITS_OWN, SetUpPieces, vpsCatalogAdapters,
   savedHuggingFaceTokenOf,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
@@ -154,6 +154,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(settings.mail.kind === 'smtp' ? settings.mail.from : undefined, PUBLIC_URL)), log: (message) => console.warn(message) });
   const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenants = servesTenants(role);
+  const koalaClusterId = koalasClusterId(settings.clusters.here);
+  const setUp = new SetUpPieces(koalaClusterId ? { store: db.infrastructure, clusterId: koalaClusterId } : { off: NO_CLUSTER_OF_ITS_OWN }, (line) => console.warn(line));
+  await setUp.follow();
   const engineTaskQueue = QUEUES.engine;
   const tenantServices = settings.tenant;
   const instanceFiles = tenantServices ? storedFilesFor({ db, holdOpen: (tx, projectId) => db.projects.holdOpenIn(tx, projectId), minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: settings.dataDir, dependencies }) : undefined;
@@ -420,7 +423,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
   if (tenants) void odooReleases.start().then(() => db.accounts.getUsers()).then((users) => odooReleases.recover(users.map((user) => user.id))).catch((err: Error) => console.warn(`[releases] the releases that were running when the backend stopped could not be followed again: ${err.message}`));
-  if (tenants) void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`));
+  if (tenants) setUp.whenUp('gitea', 'giving release namespaces their registry login', () => { void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`)); });
 
   const payloadStorage = new PayloadStorageService(sharedPayloadBlobs(), () => getTemporalClient());
   const sweepPayloads = async (): Promise<void> => {
@@ -440,7 +443,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const { treeModels, groveRuns } = wireProjects({
-    tenant, db, io, role, dataKey: keys.data, core, gitea: giteaService, refusals: dependencies, infra: infraService, clusters: clusterService, apps: appService,
+    tenant, db, io, role, dataKey: keys.data, core, gitea: giteaService, refusals: dependencies, setUp, infra: infraService, clusters: clusterService, apps: appService,
     temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
     workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, getOwnedProject,
   });
@@ -457,29 +460,31 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   if (role.role === 'instance' && role.instance && settings.instance) {
     if (!instanceReporter) throw new Error('this instance has its client settings but no sign-in through root to get a service token with');
-    const clusterId = koalasClusterId(settings.clusters.here);
+    const clusterId = koalaClusterId;
     wireOwnerRemoval(instanceSide, new OwnerRemoval({ ownerId: role.instance.ownerId, root: instanceReporter, workflows: temporalRemovalWorkflows(getTemporalClient, QUEUES.engine) }));
     const provisioning = wireProvisioning({
       tenant, db, io, runs: engineRuns,
       client: () => (temporalBridge.isReady() ? temporalBridge.client.workflow : undefined),
       connected: () => temporalBridge.connected(),
       root: instanceReporter,
-      up: (piece) => { if (piece === 'egress') void egress.keepSynced(); },
       koala: clusterId
         ? { ownerId: role.instance.ownerId, clusterId, revision: settings.instance.revision }
-        : { off: 'this Koala names no machine and is on no pool, so it has no cluster of its own to set up' },
+        : { off: NO_CLUSTER_OF_ITS_OWN },
     });
     if (!isOff(provisioning)) wireSetupAgain(instanceSide, provisioning);
+    setUp.whenUp('egress', 'keeping the egress proxy in step with the grants', () => { void egress.keepSynced(); });
   }
   if (!settings.underTest && gitea && tenants) {
-    runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
-      (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${gitea.reachesKoalaAt}`); },
-      (err: Error) => console.warn(`[webhooks] the projects' build webhooks are moved at the next start: ${err.message}`),
-    );
+    setUp.whenUp('gitea', 'moving the projects\' build webhooks to reach this Koala', () => {
+      runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
+        (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${gitea.reachesKoalaAt}`); },
+        (err: Error) => console.warn(`[webhooks] the projects' build webhooks are moved at the next start: ${err.message}`),
+      );
+    });
   }
 
   if (!settings.underTest && tenants) {
-    runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
+    setUp.whenUp('gitea', 'cleaning up the old build tokens', () => { void runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
       deployments: () => db.infrastructure.getDeployments(),
       writePullSecret: pullSecretWriter(clusterAccess, { host: () => giteaService.getRegistryHost(), login: () => giteaService.registryLogin() }),
       runningBuilds: async () => {
@@ -491,7 +496,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     })).then(
       (result) => { if (Object.keys(result).length) console.log(`[tokens] old build tokens: ${Object.entries(result).map(([key, n]) => `${key}=${n}`).join(' ')}`); },
       (err: Error) => console.warn(`[tokens] the old build tokens wait for the next start: ${err.message}`),
-    );
+    ); });
     appExposureService.syncExposedApps().catch((e) => {
       const err = e instanceof Error ? e.message : String(e);
       console.error(`[edge] ${err}`);

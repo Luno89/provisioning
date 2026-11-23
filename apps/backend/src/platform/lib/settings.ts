@@ -362,21 +362,26 @@ function memoryIndexFrom(read: Reading): MemoryIndex | undefined {
   return { index: { base: index }, vectors: { base: vectors, apiKey }, embeddings: { base: embeddings } };
 }
 
+function temporalSettingsOf(read: Reading): TemporalSettings | undefined {
+  const address = hostPortSetting(read, 'TEMPORAL_CONNECTION_ADDRESS', 'it is where Temporal answers this process');
+  const namespace = required(read, 'TEMPORAL_NAMESPACE', 'it is the Temporal namespace this install works in');
+  const caPath = required(read, 'TEMPORAL_TLS_CA', 'it is the file holding the certificate authority Temporal\'s certificate is signed by');
+  return address && namespace && caPath ? { address, namespace, caPath } : undefined;
+}
+
 function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | undefined): CommonSettings | undefined {
   const { env } = read;
   const production = env.NODE_ENV === 'production';
   const keys = read.take(() => loadKeys(env));
   const mongo = read.take(() => mongoTarget(env));
-  const address = hostPortSetting(read, 'TEMPORAL_CONNECTION_ADDRESS', 'it is where Temporal answers this process');
-  const namespace = required(read, 'TEMPORAL_NAMESPACE', 'it is the Temporal namespace this install works in');
-  const caPath = required(read, 'TEMPORAL_TLS_CA', 'it is the file holding the certificate authority Temporal\'s certificate is signed by');
+  const temporal = temporalSettingsOf(read);
   const dataDir = dataDirFrom(read);
   const pool = env.POOL?.trim();
   if (pool !== undefined && pool !== '' && pool !== 'true') read.problems.push(`POOL is "${pool}"; it is "true" on a trial instance on Koala's servers and unset anywhere else`);
   const here = hereFrom(env, role?.role === 'root');
   if (role?.role === 'instance' && pool === 'true' && !here.poolName) read.problems.push('INSTANCE_NAME is not set: a trial instance on Koala\'s servers is named by it');
   const rootKubeconfig = role?.role === 'root' ? settingIn(read.env, 'POOL_KUBECONFIG') : undefined;
-  if (!role || !keys || !mongo || !address || !namespace || !caPath || !dataDir) return undefined;
+  if (!role || !keys || !mongo || !temporal || !dataDir) return undefined;
   return {
     koalaProcess,
     role,
@@ -387,7 +392,7 @@ function common(read: Reading, koalaProcess: KoalaProcess, role: RoleConfig | un
     lab: labFrom(env),
     keys,
     mongo,
-    temporal: { address, namespace, caPath },
+    temporal,
     telemetry: {
       version: settingIn(read.env, 'KOALA_VERSION'),
       instanceId: settingIn(read.env, 'INSTANCE_ID'),
@@ -726,6 +731,18 @@ export function setupWaitsSettingsFrom(env: Env, serviceAccountDir = SERVICE_ACC
   return finish(read, 'the setup step\'s waits', step && name && podNamespace && afterText !== undefined && mongo
     ? { ...step, step: name, after: afterText.split(' ').filter((job) => job !== ''), podNamespace, mongo }
     : undefined);
+}
+
+export interface TemporalSetupSettings {
+  temporal: TemporalSettings;
+  keys: Pick<PlatformKeys, 'temporal'>;
+}
+
+export function temporalSetupSettingsFrom(env: Env): TemporalSetupSettings {
+  const read = new Reading(env);
+  const temporal = temporalSettingsOf(read);
+  const key = read.take(() => loadKey(env, 'temporal'));
+  return finish(read, 'Temporal\'s setup', temporal && key ? { temporal, keys: { temporal: key } } : undefined);
 }
 
 export function operatorCredentialsFrom(env: Env): OperatorCredentials {

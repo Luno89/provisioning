@@ -64,6 +64,8 @@ export { MEMORY_INDEX_APPS_MIGRATION, removeMemoryIndexApps } from './services/m
 export { PodLogTails, podLogRoom } from './services/PodLogTails.js';
 export { ProvisionAsks, Provisioning } from './services/Provisioning.js';
 export type { ProvisionAsksDeps, ProvisioningDeps, ProvisionRoot, ProvisionRuns, RootAnswer } from './services/Provisioning.js';
+export { NO_CLUSTER_OF_ITS_OWN, SetUpPieces } from './services/SetUpPieces.js';
+export type { SetUpPiecesOf, WhenPieceUp } from './services/SetUpPieces.js';
 export type { PodLogTailsDeps, PodToTail } from './services/PodLogTails.js';
 export { CLUSTER_TOOL_PATHS, ClusterAccess, ClusterCommandFailed, ClusterUnreachable, clusterAccessFrom, clusterAccessOfKubeconfig, runnersByRecord } from './services/ClusterAccess.js';
 export type { ClusterAccessDeps, ClusterAccessFrom, RecordRunners, Target } from './services/ClusterAccess.js';

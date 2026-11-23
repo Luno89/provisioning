@@ -14,7 +14,7 @@ import type { ClusterSteps } from './activities/cluster-steps.js';
 import { ProvisionPieceActivity, recordedLines, type ProvisionLines, type ProvisionPieceRun, type ProvisionPlace } from './activities/ProvisionPieceActivity.js';
 import { type ClusterWorkerSettings, createWorkerLogger, clusterWorkerSettingsFrom, telemetrySettings } from './platform/index.js';
 import { hostname } from 'node:os';
-import { clusterAccessFrom, InfisicalService, InfrastructureService, ProvisionAsks, StateLocks, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
+import { clusterAccessFrom, InfisicalService, InfrastructureService, koalasClusterId, NO_CLUSTER_OF_ITS_OWN, ProvisionAsks, SetUpPieces, StateLocks, terraformPlacesFor, type Provisioner } from './infrastructure/index.js';
 import { nodeRunner } from './platform/index.js';
 import { GiteaService, ProjectRepoService } from './projects/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -67,7 +67,12 @@ export async function startClusterWorker(settings: ClusterWorkerSettings) {
 
   checkServices(dependencies, { gitea: settings.gitea.url, infisical: settings.infisical.url });
   void dependencies.start();
-  void new ProjectRepoService(db, steps.gitea, dataKey, undefined, { refusals: dependencies }).keepRevokingLeftovers(new KoalaPods({ access, target: () => access.own(), namespace: settings.podNamespace }));
+  const koalaClusterId = koalasClusterId(settings.clusters.here);
+  const setUp = new SetUpPieces(koalaClusterId ? { store: db.infrastructure, clusterId: koalaClusterId } : { off: NO_CLUSTER_OF_ITS_OWN }, (line) => console.warn(line));
+  await setUp.follow();
+  setUp.whenUp('gitea', 'revoking the Gitea tokens gone pods left', () => {
+    void new ProjectRepoService(db, steps.gitea, dataKey, undefined, { refusals: dependencies }).keepRevokingLeftovers(new KoalaPods({ access, target: () => access.own(), namespace: settings.podNamespace }));
+  });
   const queue = QUEUES.cluster;
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);

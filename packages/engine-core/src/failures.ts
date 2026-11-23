@@ -47,6 +47,17 @@ const messageOf = (error: unknown): string => {
   return typeof message === 'string' && message ? message : String(error);
 };
 
+const messagesDown = (error: unknown): string => {
+  const seen = new Set<unknown>([error]);
+  let said = messageOf(error);
+  for (let cause = field(error, 'cause'); cause !== undefined && cause !== null && !seen.has(cause); cause = field(cause, 'cause')) {
+    seen.add(cause);
+    const message = messageOf(cause);
+    if (!said.includes(message)) said = `${said}: ${message}`;
+  }
+  return said;
+};
+
 const nameOf = (error: unknown): string | undefined => {
   const name = field(error, 'name');
   return typeof name === 'string' ? name : undefined;
@@ -126,7 +137,7 @@ export function failureOf(error: unknown): Failure {
   if (error instanceof TypeError && FETCH_NETWORK_FAILED.has(error.message)) return temporary(`the connection to it failed (${error.message})`);
   const cluster = clusterUnreachable(error);
   if (cluster) return temporary(`the cluster cannot be reached: ${cluster}`);
-  return final(messageOf(error));
+  return final(messagesDown(error));
 }
 
 const TOKEN_NOT_KNOWN: ReadonlySet<unknown> = new Set(['invalid_token', 'invalid_grant']);

@@ -8,7 +8,7 @@ import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, basicSecretOf, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
   logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
-  machineClientMetadata, metricsClientMetadata, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
+  machineClientMetadata, metricsClientMetadata, refusedClientOf, tokenRefusalLine, type TokenRefusal, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
 import { MACHINE_SCOPE, machineKeyEnds, machineOfMetricsClient, METRICS_CLIENT_FIELDS, METRICS_SCOPE, metricsClientIdOf, type KeyReplacement } from '@koala/engine-core/root-client';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
@@ -86,6 +86,9 @@ export class RootProvider {
   ) {
     this.provider = new Provider(settings.issuer, this.configuration());
     this.provider.proxy = true;
+    this.provider.on('grant.error', (ctx: KoaContextWithOIDC, refusal: TokenRefusal) => {
+      console.warn(tokenRefusalLine(refusedClientOf({ clientId: ctx.oidc?.client?.clientId, params: ctx.oidc?.params as Record<string, unknown> | undefined, authorization: ctx.get('authorization') }), refusal));
+    });
     this.provider.registerGrantType(TOKEN_EXCHANGE, (ctx) => this.exchange(ctx), ['subject_token', 'subject_token_type', 'resource', 'koala_run', 'koala_space']);
   }
 

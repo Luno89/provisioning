@@ -42,8 +42,8 @@ describe('root\'s services, as steps', () => {
 
   it('are the steps of the services named, in the order named, Temporal\'s keys before Temporal and each step once', () => {
     const services = rootServicesAt(rootServicesIn('/repo'), ['docker', 'compose'], () => KEY);
-    expect(rootServiceSteps(services, ['temporal', 'mongo', 'headscale', 'registry']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal', 'mongo', 'headscale', 'registry']);
-    expect(rootServiceSteps(services, ['temporal-keys', 'temporal']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal']);
+    expect(rootServiceSteps(services, ['temporal', 'mongo', 'headscale', 'registry']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal', 'temporal-setup', 'mongo', 'headscale', 'registry']);
+    expect(rootServiceSteps(services, ['temporal-keys', 'temporal']).map((step) => step.id)).toEqual(['temporal-tls', 'temporal-jwks', 'temporal', 'temporal-setup']);
     expect(rootServiceSteps(services, ['registry']).map((step) => step.id)).toEqual(['registry']);
     expect(rootServiceSteps(services, ['caddy']).map((step) => step.id)).toEqual(['caddy']);
     expect(ROOT_SERVICE_NAMES).toEqual(['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry', 'caddy']);

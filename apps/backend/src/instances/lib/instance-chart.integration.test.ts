@@ -251,9 +251,9 @@ describe('the instance chart', () => {
   it('owns the cluster it is installed in, and seeds its records with a Job of its own on every install and upgrade, leaving its services to its setup, with nothing for helm to wait on', () => {
     const docs = render();
     expect(find(docs, 'ClusterRoleBinding', 'luno-nowrinkles-owns-cluster').roleRef?.name).toBe('cluster-admin');
-    expect(docs.filter((doc) => doc.kind === 'Job').map((doc) => doc.metadata.name)).toEqual(['luno-seed-1']);
+    expect(docs.filter((doc) => doc.kind === 'Job').map((doc) => doc.metadata.name)).toEqual(['luno-seed-1', 'luno-temporal-setup-1']);
     const after: string[] = [];
-    for (const step of ['seed']) {
+    for (const step of ['seed', 'temporal-setup']) {
       const job = find(docs, 'Job', `luno-${step}-1`);
       expect(job.metadata.annotations?.['helm.sh/hook']).toBeUndefined();
       expect(job.metadata.labels?.['koala.app/setup']).toBe(step);

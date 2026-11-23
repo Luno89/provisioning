@@ -1,7 +1,7 @@
 import { bindChatWithItsFiles } from '../../files/index.js';
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, servesTenants, type Principal, type RoleConfig } from '../../platform/index.js';
-import { keepUsersPrivate } from '../services/gitea-start.js';
+import { usersPrivateOnceGiteaIsUp } from '../services/gitea-start.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -21,7 +21,7 @@ import { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 import { PlanService } from '../services/PlanService.js';
 import { koalasClusterFor, webhookUrlAt } from '../lib/project-shipping.js';
 import type { GiteaService } from '../services/GiteaService.js';
-import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge, Here } from '../../infrastructure/index.js';
+import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge, Here, WhenPieceUp } from '../../infrastructure/index.js';
 import type { MachineService } from '../../machines/index.js';
 import type { WorkspaceConclusionService } from '../../memory/index.js';
 import { previewPush, type PushMessage } from '../../monitoring/index.js';
@@ -136,6 +136,7 @@ export interface ProjectsWiringDeps {
   core: ProjectsCore;
   gitea: GiteaService;
   refusals: DependencyRefusals;
+  setUp: WhenPieceUp;
   infra: InfrastructureService;
   clusters: ClusterService;
   apps: AppService;
@@ -167,7 +168,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
   const engineQueue = DEFAULT_ENGINE_TASK_QUEUE;
 
   if (servesTenants(deps.role)) {
-    void keepUsersPrivate(gitea, deps.refusals);
+    usersPrivateOnceGiteaIsUp(gitea, deps.refusals, deps.setUp);
   }
 
   const projectRemoval = new ProjectRemovalService({

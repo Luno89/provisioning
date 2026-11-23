@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { mock } from 'vitest-mock-extended';
-import type { ProvisioningView, ProvisionPieceKey, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { ProvisioningView, ProvisionReport, ProvisionTarget } from '@koala/engine-core/koala-install';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
 import { openedRecord, pieceHeard, provisionWorkflowId, runEnded, setUpProgress, type ProvisioningRecord, type ProvisionRunInput } from '../lib/provisioning.js';
 import { ProvisionAsks, Provisioning, type ProvisionRoot, type ProvisionRuns } from './Provisioning.js';
@@ -9,7 +9,7 @@ import { ProvisionAsks, Provisioning, type ProvisionRoot, type ProvisionRuns } f
 const KOALA: ProvisionTarget = { kind: 'koala', clusterId: 'machine-desk' };
 const LAB: ProvisionTarget = { kind: 'machine', clusterId: 'machine-lab', machine: 'lab', deviceId: 'device-lab' };
 
-function setUp(given: { revision?: number; tellAgain?: Reopening; up?: (piece: ProvisionPieceKey) => void } = {}) {
+function setUp(given: { revision?: number; tellAgain?: Reopening } = {}) {
   const store = new MemoryInfrastructureStore();
   const started: ProvisionRunInput[] = [];
   const endings = new Map<string, (why: string) => void>();
@@ -44,7 +44,6 @@ function setUp(given: { revision?: number; tellAgain?: Reopening; up?: (piece: P
     log: (line) => { logged.push(line); },
     now: () => new Date(clock += 1000),
     ...(given.tellAgain ? { tellAgain: given.tellAgain } : {}),
-    ...(given.up ? { up: given.up } : {}),
   });
   const end = (workflowId: string, why: string) => {
     const ending = endings.get(workflowId);
@@ -286,41 +285,6 @@ describe('setting Koala up after its chart', () => {
 
     expect(told.map(({ ownerId, view }) => `${ownerId} ${view.state} ${'workflowId' in view ? 'with ids' : 'without ids'}`)).toEqual(['owner-1 running without ids', 'owner-1 running without ids', 'owner-1 failed without ids']);
     await provisioning.close();
-  });
-
-  it('tells what waits on a piece of its own cluster once that piece is up, once a run, and nothing of another machine\'s collector', async () => {
-    const up: ProvisionPieceKey[] = [];
-    const { provisioning, store, toldWhen } = setUp({ up: (piece) => { up.push(piece); } });
-    await provisioning.start();
-    const [opened] = await store.getProvisioning(KOALA.clusterId);
-    const working = pieceHeard(opened!, { stage: 'egress', title: 'The egress proxy', state: 'started', line: 'deployment/egress-proxy: 0 of 1 ready' }, '2026-11-18T10:00:30.000Z');
-    await store.patchProvisioning(opened!.id, { pieces: working.pieces });
-    await toldWhen((view) => view.pieces[0]?.state === 'working');
-    expect(up).toEqual([]);
-
-    const egressUp = pieceHeard(working, { stage: 'egress', title: 'The egress proxy', state: 'done' }, '2026-11-18T10:01:00.000Z');
-    await store.patchProvisioning(opened!.id, { pieces: egressUp.pieces });
-    await toldWhen((view) => view.pieces[0]?.state === 'up');
-    const searxngUp = pieceHeard(egressUp, { stage: 'searxng', title: 'SearXNG, web search', state: 'done' }, '2026-11-18T10:02:00.000Z');
-    await store.patchProvisioning(opened!.id, { pieces: searxngUp.pieces });
-    await toldWhen((view) => view.pieces[1]?.state === 'up');
-    const lab = earlier(LAB, 4, 'l');
-    await store.openProvisioning({ ...lab, pieces: upPieces(lab) });
-    await toldWhen((view) => view.target.clusterId === LAB.clusterId);
-    await provisioning.close();
-
-    expect(up).toEqual(['egress', 'searxng']);
-  });
-
-  it('tells what waits on a piece at a restart that the revision\'s setup already brought it up', async () => {
-    const up: ProvisionPieceKey[] = [];
-    const { provisioning, store } = setUp({ revision: 4, up: (piece) => { up.push(piece); } });
-    const before = earlier(KOALA, 4, 'a', { workflowId: 'provision-machine-desk' });
-    await store.openProvisioning({ ...before, state: 'up', pieces: upPieces(before), endedAt: '2026-11-17T09:30:00.000Z' });
-    await provisioning.start();
-    await provisioning.close();
-
-    expect(up).toEqual(before.pieces.map((piece) => piece.key));
   });
 
   it('knows no run it does not have when asked to wait for one', async () => {

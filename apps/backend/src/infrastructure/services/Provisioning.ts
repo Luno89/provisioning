@@ -1,9 +1,9 @@
-import type { ProvisioningView, ProvisionPieceKey, ProvisionReason, ProvisionReport, ProvisionRootRefusal, ProvisionTarget } from '@koala/engine-core/koala-install';
+import type { ProvisioningView, ProvisionReason, ProvisionReport, ProvisionRootRefusal, ProvisionTarget } from '@koala/engine-core/koala-install';
 import type { MachineProgress } from '@koala/engine-core/machine-progress';
 import { reopening, type Reopening } from '@koala/engine-core/reopening';
 import { runStamp, type Watching } from '../../platform/index.js';
 import {
-  againPieces, askAnswered, heardPatch, openedRecord, piecesUp, progressSince, provisionedFor, provisioningView, provisionRunId, rootRefusal, rootReportOf, runEnded, startDecision,
+  againPieces, askAnswered, heardPatch, openedRecord, progressSince, provisionedFor, provisioningView, provisionRunId, rootRefusal, rootReportOf, runEnded, startDecision,
   type Provisioned, type Provisioner, type ProvisioningRecord, type ProvisionRunInput,
 } from '../lib/provisioning.js';
 import type { InfrastructureStore } from '../store.js';
@@ -27,7 +27,6 @@ export interface ProvisioningDeps {
   koala: { ownerId: string; clusterId: string; revision: number };
   changed(ownerId: string, view: ProvisioningView): void;
   log(line: string): void;
-  up?: (piece: ProvisionPieceKey) => void;
   now?: () => Date;
   tellAgain?: Reopening;
 }
@@ -97,7 +96,6 @@ export class Provisioning implements Provisioner {
   private readonly toldRoot = new Map<string, ProvisioningRecord>();
   private readonly untold = new Map<string, MachineProgress[]>();
   private readonly unread = new Set<string>();
-  private readonly upHeard = new Set<string>();
   private readonly tellAgain: Reopening;
   private telling: Promise<void> = Promise.resolve();
   private closed = false;
@@ -123,7 +121,6 @@ export class Provisioning implements Provisioner {
       if (record.state === 'running') await this.resume(record);
     }
     const current = await this.startRun(this.koalaTarget, 'revision');
-    this.noticeUp(current);
     this.tellRoot(current);
   }
 
@@ -165,20 +162,9 @@ export class Provisioning implements Provisioner {
 
   private heard(record: ProvisioningRecord): void {
     this.deps.changed(record.ownerId, provisioningView(record));
-    this.noticeUp(record);
     if (record.target.kind === 'koala') this.tellRoot(record);
     if (record.state === 'running' && record.workflowId) this.follow(record.id, record.workflowId);
     if (record.state === 'running' && !record.workflowId && !this.closed) void this.startAsked(record.id);
-  }
-
-  private noticeUp(record: ProvisioningRecord): void {
-    if (record.target.kind !== 'koala' || record.target.clusterId !== this.deps.koala.clusterId) return;
-    for (const piece of piecesUp(record)) {
-      const key = `${record.id}/${piece}`;
-      if (this.upHeard.has(key)) continue;
-      this.upHeard.add(key);
-      this.deps.up?.(piece);
-    }
   }
 
   private async startAsked(recordId: string): Promise<void> {
