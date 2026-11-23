@@ -42,7 +42,10 @@ export function keptSudo(runner: CommandRunner, options: KeptSudoOptions): KeptS
       () => {
         if (!ended) refreshing = every(refresh, SUDO_REFRESH_MS);
       },
-      (err: unknown) => { throw new Error(`sudo did not let this run as root: ${messageOf(err)}`, { cause: err }); },
+      (err: unknown) => {
+        asked = undefined;
+        throw new Error(`sudo did not let this run as root: ${messageOf(err)}`, { cause: err });
+      },
     );
     return asked;
   };
