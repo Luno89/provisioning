@@ -29,12 +29,12 @@ describe('root\'s page when the owner\'s Koala stopped setting itself up', () =>
       const told = await root!.places.report(koala.instanceId, koala.token, { provision })
       if (!told.ok) throw new Error(told.error)
     }
-    await report({ revision: 2, progress: { ...gitea, state: 'started', line: 'waiting for gitea-0' } })
+    await report({ revision: 2, run: 'run-1', progress: { ...gitea, state: 'started', line: 'waiting for gitea-0' } })
     const { on } = openPage(<NoInstance hasInstance={false} onLogout={() => undefined} />, { followsSocket: true })
     await on(() => screen.queryByText('Koala on desk is setting itself up: Gitea, your repositories and images, waiting for gitea-0'))
     expect(screen.queryByRole('button', { name: /Set up again/ })).toBeNull()
 
-    await report({ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is full' } })
+    await report({ revision: 2, run: 'run-1', progress: { ...gitea, state: 'failed', why: 'the volume is full' } })
     const again = await on(() => screen.queryByRole('button', { name: /Set up again/ }))
     expect(screen.getByRole('alert').textContent).toContain('Koala on desk stopped setting itself up at Gitea, your repositories and images: the volume is full')
 
@@ -42,10 +42,10 @@ describe('root\'s page when the owner\'s Koala stopped setting itself up', () =>
     await on(() => screen.queryByText('Koala on desk sets itself up again from Gitea, your repositories and images once it connects to root'))
     expect(screen.queryByRole('button', { name: /Set up again/ })).toBeNull()
 
-    await report({ revision: 2, progress: { ...gitea, state: 'started', line: 'waiting for gitea-0 again' } })
+    await report({ revision: 2, run: 'run-2', progress: { ...gitea, state: 'started', line: 'waiting for gitea-0 again' } })
     await on(() => screen.queryByText('Koala on desk is setting itself up: Gitea, your repositories and images, waiting for gitea-0 again'))
 
-    await report({ revision: 2, progress: { ...gitea, state: 'failed', why: 'the volume is still full' } })
+    await report({ revision: 2, run: 'run-2', progress: { ...gitea, state: 'failed', why: 'the volume is still full' } })
     await on(() => screen.queryByText(/the volume is still full/))
     expect(screen.getByRole('button', { name: /Set up again/ })).toBeTruthy()
   })
