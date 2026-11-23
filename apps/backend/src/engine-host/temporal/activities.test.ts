@@ -6,7 +6,7 @@ import { CANCEL_POLL_MS, createEngineActivities, createNodeRunner, createStreamA
 import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
-import type { RunTicket } from './contracts.js';
+import type { RunTicket, ToolCallArgs, ToolCallOutcome } from './contracts.js';
 import { grantHeld, grantsHeldInMemory } from '../../engine/testing/run-grants.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 
@@ -49,7 +49,7 @@ function services(over: Partial<EngineServices> = {}): { services: EngineService
         forRun: vi.fn(async () => undefined),
         release: vi.fn(async () => undefined),
       },
-      tools: { run: vi.fn(async () => ({ ok: true, digest: 'tool digest', content: 'tool content' })) },
+      tools: { run: vi.fn(async () => ({ ok: true, digest: 'tool digest', content: 'tool content' })), check: vi.fn(async () => undefined), shown: vi.fn(async (_args: ToolCallArgs, outcome: ToolCallOutcome) => outcome) },
       merges: { run: vi.fn(async () => ({ merged: 2 })) },
       grants: grantsHeldInMemory(),
       bus,
@@ -91,6 +91,19 @@ describe('the remaining engine activities', () => {
 
     expect(outcome).toMatchObject({ ok: true, digest: 'tool digest' });
     expect(svc.tools.run).toHaveBeenCalledWith(objectWith({ name: 'read_file' }), 1, anyOf(AbortSignal));
+  });
+
+  it('checks a call for a machine and shows the model its result through the same tool runtime', async () => {
+    const { services: svc } = services();
+    const refusal = { ok: false, digest: 'This run\'s access was revoked, so it may not use read_file.' };
+    svc.tools.check = vi.fn(async () => refusal);
+    svc.tools.shown = vi.fn(async () => ({ ok: true, digest: 'the notes' }));
+    const activities = createEngineActivities(svc);
+    const call = { ticket: ticket(), nodeId: 'work', name: 'read_file', arguments: '{"path":"notes.md"}' };
+
+    expect(await activities.EngineToolCheckActivity(call)).toEqual(refusal);
+    expect(await activities.EngineToolShownActivity({ args: call, outcome: { ok: true, digest: 'the notes\u{E0041}' } })).toEqual({ ok: true, digest: 'the notes' });
+    expect(svc.tools.shown).toHaveBeenCalledWith(call, { ok: true, digest: 'the notes\u{E0041}' });
   });
 
   it('keeps a long tool call alive with heartbeats, and hands it the stop when the run is stopped', async () => {

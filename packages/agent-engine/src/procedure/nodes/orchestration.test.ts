@@ -370,6 +370,21 @@ describe('call tool, delegate, fan out and wait', () => {
     expect(outcome).toMatchObject({ exit: 'ok', outputs: { text: 'dropped' } });
   });
 
+  it('asks before a Call Tool step runs anything on a person\'s machine, and runs nothing they refuse', async () => {
+    const machine = { kind: 'machine', deviceId: 'd', deviceName: 'desk', egressMode: 'declared' };
+    const refusing = ports({ approve: vi.fn(async () => false) });
+    const refused = await invoke(createOrchestrationNodes(refusing), callTool, { settings: { tool: 'read_file', args: '{"path":"notes.md"}' }, inputs: { persona: persona(), environment: machine } });
+    expect(refusing.approve).toHaveBeenCalledTimes(1);
+    expect(refusing.runTool).not.toHaveBeenCalled();
+    expect(refused).toMatchObject({ exit: 'failed', outputs: { text: REFUSED_CALL } });
+
+    const allowing = ports({ approve: vi.fn(async () => true) });
+    const ran = await invoke(createOrchestrationNodes(allowing), callTool, { settings: { tool: 'read_file', args: '{"path":"notes.md"}' }, inputs: { persona: persona(), environment: machine } });
+    expect(allowing.approve).toHaveBeenCalledTimes(1);
+    expect(allowing.runTool).toHaveBeenCalledWith(expect.objectContaining({ approved: true }));
+    expect(ran).toMatchObject({ exit: 'ok' });
+  });
+
   it('runs nothing a person refused when the tool asked', async () => {
     const runTool = vi.fn<OrchestrationPorts['runTool']>(async () => ({ ok: false, digest: 'asks', asks: true }));
     const p = ports({ runTool, approve: vi.fn(async () => false) });

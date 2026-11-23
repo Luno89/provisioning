@@ -37,6 +37,7 @@ import type {
   ToolCallArgs,
   ToolCallOutcome,
   ToolRuntime,
+  ToolShownArgs,
   SettleClaimsArgs,
   ToolAllowedArgs, AutoModeArgs,
   ProcedureRunInput,
@@ -244,6 +245,8 @@ export interface EngineActivities extends StreamActivities {
   EngineReleaseEnvironmentActivity(args: ReleaseEnvironmentArgs): Promise<void>;
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
+  EngineToolCheckActivity(args: ToolCallArgs): Promise<ToolCallOutcome | undefined>;
+  EngineToolShownActivity(args: ToolShownArgs): Promise<ToolCallOutcome>;
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
   GroveRunInputActivity(args: GroveRunArgs): Promise<ProcedureRunInput>;
   GroveRunNeverStartedActivity(args: { runId: string }): Promise<void>;
@@ -329,6 +332,14 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         if (beating) clearInterval(beating);
         if (watching) clearInterval(watching);
       }
+    },
+
+    async EngineToolCheckActivity(args: ToolCallArgs): Promise<ToolCallOutcome | undefined> {
+      return services.tools.check(args);
+    },
+
+    async EngineToolShownActivity({ args, outcome }: ToolShownArgs): Promise<ToolCallOutcome> {
+      return services.tools.shown(args, outcome);
     },
 
     async EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>> {
