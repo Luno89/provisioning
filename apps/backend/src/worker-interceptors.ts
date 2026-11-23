@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import type { Logger, Worker } from '@temporalio/worker';
 import { createWorker } from '@koala/engine-core/temporal';
-import { connectTemporalWorker, failureOf, givenDeletingMarks, isOff, reopening, servesTenants, sharedPayloadBlobs, type Off, type DependencyStates, type PlatformKeys, type RoleConfig, type TemporalSettings } from './platform/index.js';
+import { connectTemporalWorker, failureOf, givenDeletingMarks, isOff, reopening, servesTenants, sharedPayloadBlobs, untilTemporalSetUp, type Off, type DependencyStates, type PlatformKeys, type RoleConfig, type TemporalSettings } from './platform/index.js';
 
 export function workflowInterceptorModules(role: RoleConfig): string[] {
   const modules = [resolve(import.meta.dirname, 'workflows/telemetry-interceptors.ts')];
@@ -24,6 +24,7 @@ export interface BackendWorker {
 
 export async function backendWorker(settings: BackendWorkerSettings, { subject, taskQueue, activities }: BackendWorker): Promise<Worker> {
   const connection = await connectTemporalWorker(subject, settings);
+  await untilTemporalSetUp(connection, settings.temporal.namespace, (line) => console.warn(`[${subject}] ${line}`));
   return createWorker({
     connection,
     namespace: settings.temporal.namespace,

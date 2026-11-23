@@ -12,6 +12,8 @@ import { answerFailure, failureOf, stillDown } from '../lib/dependencies.js';
 import { replicaSetProblem } from '../lib/replica-set.js';
 import { temporalJwks, temporalToken } from '../lib/temporal-auth.js';
 import { temporalDial } from '../lib/temporal-connection.js';
+import { setUpTemporal } from '../lib/temporal-client.js';
+import { TEMPORAL_SYSTEM_NAMESPACE, temporalSetUpState } from '../lib/temporal-setup.js';
 import { answersHttp } from './dependencies.js';
 
 export const ROOT_SERVICE_NAMES = ['temporal-keys', 'temporal', 'mongo', 'headscale', 'registry', 'caddy'] as const;
@@ -175,12 +177,13 @@ async function whyNotConnected(address: string, ca: Buffer, err: unknown): Promi
   return stillDown(`its TLS handshake completes, but its gRPC connection did not open yet: ${connecting.reason}`);
 }
 
-export const TEMPORAL_SYSTEM_NAMESPACE = 'temporal-system';
 export const TEMPORAL_SYSTEM_QUEUE = 'temporal-sys-tq-scanner-taskqueue-0';
+
+const temporalPlace = (temporal: RootServices['temporal']) => ({ temporal: { address: temporal.address, namespace: temporal.namespace, caPath: join(temporal.tlsDir, 'ca.crt') }, keys: { temporal: temporal.key() } });
 
 export function temporalAnswers(temporal: RootServices['temporal']): () => Promise<StepState> {
   return async () => {
-    const dial = temporalDial('koala-root-services', { temporal: { address: temporal.address, namespace: temporal.namespace, caPath: join(temporal.tlsDir, 'ca.crt') }, keys: { temporal: temporal.key() } }, 'read');
+    const dial = temporalDial('koala-root-services', temporalPlace(temporal), 'read');
     let connection: Connection;
     try {
       connection = await connectTemporal(dial, 'client');
@@ -199,6 +202,28 @@ export function temporalAnswers(temporal: RootServices['temporal']): () => Promi
     } finally {
       await connection.close();
     }
+  };
+}
+
+
+async function onTemporal<T>(temporal: RootServices['temporal'], ask: (connection: Connection) => Promise<T>): Promise<T> {
+  const connection = await connectTemporal(temporalDial('koala-root-services', temporalPlace(temporal)), 'client');
+  try {
+    return await ask(connection);
+  } finally {
+    await connection.close();
+  }
+}
+
+export function temporalSetUpStep(temporal: RootServices['temporal']): Step<ComposeContext> {
+  return {
+    id: 'temporal-setup',
+    title: `Temporal's namespace ${temporal.namespace} and the search attributes Koala uses`,
+    check: () => onTemporal(temporal, async (connection) => {
+      const state = await temporalSetUpState(connection, temporal.namespace);
+      return state.done ? { done: true } : { done: false, why: state.missing };
+    }),
+    apply: (_ctx, progress) => onTemporal(temporal, (connection) => setUpTemporal(connection, temporal.namespace, temporal.key(), 'koala-root-services', (line) => progress.line(line))),
   };
 }
 
@@ -257,7 +282,7 @@ function stepsOf(services: RootServices, name: RootServiceName): Step<ComposeCon
     case 'temporal-keys':
       return keys;
     case 'temporal':
-      return [...keys, composeStep({ id: 'temporal', title: 'Temporal, answering over TLS', compose: project(services, services.temporal.files), answers: temporalAnswers(services.temporal) })];
+      return [...keys, composeStep({ id: 'temporal', title: 'Temporal, answering over TLS', compose: project(services, services.temporal.files), answers: temporalAnswers(services.temporal) }), temporalSetUpStep(services.temporal)];
     case 'mongo':
       return [mongoStep(composeProvider(MONGO_TITLE, project(services, services.mongo.files)), () => services.mongo.address)];
     case 'headscale':

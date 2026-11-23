@@ -1,4 +1,4 @@
-{{- $steps := list "seed" }}
+{{- $steps := list "seed" "temporal-setup" }}
 {{- $name := include "instance.name" . }}
 {{- range $index, $step := $steps }}
 {{- $after := list }}
@@ -90,6 +90,9 @@ spec:
             {{- end }}
             - name: data
               mountPath: /app/apps/backend/data
+            - name: temporal-ca
+              mountPath: /etc/koala/temporal-tls
+              readOnly: true
       volumes:
         {{- if $.Values.dev.source }}
         - name: source
@@ -100,4 +103,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ $name }}-data
+        - name: temporal-ca
+          secret:
+            secretName: {{ $name }}-temporal-tls
+            items:
+              - key: ca.crt
+                path: ca.crt
 {{- end }}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { WORK_HEADER, WorkStopped, unnamedWork, withWorkFor, workFromHeaders, workHeader } from '@koala/engine-core/work-for';
-import { namesItsWork, onceOwnerMapped, ownerNotYetMapped, requireOwner, resolveOwnersWith } from './temporal-client.js';
+import { namesItsWork, requireOwner, resolveOwnersWith } from './temporal-client.js';
 import { UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js';
 
 const open = async () => ({ owner: false, project: false });
@@ -98,21 +98,3 @@ describe('every workflow the platform starts says whose work it is, so a removal
     expect(await headersOf(() => unnamedWork(() => namesItsWork.start!(input(true), next as never)), next)).toBeUndefined();
   });
 });
-
-describe('a start made before Temporal has mapped the owner attribute', () => {
-  it('is made again until Temporal takes it, and any other refusal is passed on at once', async () => {
-    let tries = 0
-    const started = await onceOwnerMapped(async () => {
-      tries += 1
-      if (tries < 3) throw new Error('Namespace default has no mapping defined for search attribute KoalaOwner')
-      return 'started'
-    }, 1)
-    expect(started).toBe('started')
-    expect(tries).toBe(3)
-    let other = 0
-    await expect(onceOwnerMapped(async () => { other += 1; throw new Error('Workflow execution already started') }, 1)).rejects.toThrow(/already started/)
-    expect(other).toBe(1)
-    expect(ownerNotYetMapped(new Error('no mapping defined for search attribute KoalaOwner'))).toBe(true)
-    expect(ownerNotYetMapped(new Error('no mapping defined for search attribute Other'))).toBe(false)
-  })
-})

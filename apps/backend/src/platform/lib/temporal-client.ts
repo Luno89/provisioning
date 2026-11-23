@@ -6,12 +6,13 @@ import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { withProjectAttribute } from '@koala/engine-core/workflow-owner'
 import { WORK_HEADER, refuseWhileDeleting, workFor, workFromHeaders, workHeader, workIsUnnamed, type ReadDeletingMarks } from '@koala/engine-core/work-for'
 import type { Payload } from '@temporalio/common'
-import { OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
+import { UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
 import type { PlatformKeys } from './keys.js'
-import { temporalToken } from './temporal-auth.js'
 import { temporalDial, type TemporalPlace } from './temporal-connection.js'
 import { thrownFor, type DependencyReporter } from './dependencies.js'
+import { KOALA_SEARCH_ATTRIBUTES, TEMPORAL_SYSTEM_NAMESPACE, untilTemporalSetUp } from './temporal-setup.js'
+import { temporalToken } from './temporal-auth.js'
 
 export interface TemporalClientSettings {
   temporal: TemporalPlace
@@ -45,20 +46,6 @@ async function owned<T extends { workflowType: string; options: { workflowId: st
   return resolved === owner ? input : { ...input, options: { ...input.options, ...startedFor(resolved) } }
 }
 
-export const ownerNotYetMapped = (err: unknown): boolean =>
-  new RegExp(`no mapping defined for search attribute ${OWNER_ATTRIBUTE.name}`, 'i').test(String((err as Error)?.message ?? err))
-
-export async function onceOwnerMapped<T>(start: () => Promise<T>, waitMs = 1_000): Promise<T> {
-  for (;;) {
-    try {
-      return await start()
-    } catch (err) {
-      if (!ownerNotYetMapped(err)) throw err
-      await new Promise((resolve) => setTimeout(resolve, waitMs))
-    }
-  }
-}
-
 let deletingMarks: ReadDeletingMarks | undefined
 
 export const refuseWorkWith = (marks: ReadDeletingMarks): void => {
@@ -78,16 +65,13 @@ async function startable<T extends Parameters<typeof owned>[0] & { headers: Reco
 
 export const requireOwner = (marks: ReadDeletingMarks): WorkflowClientInterceptor => ({
   async start(input, next) {
-    const ready = await startable(input, marks)
-    return onceOwnerMapped(() => next(ready))
+    return next(await startable(input, marks))
   },
   async startWithDetails(input, next) {
-    const ready = await startable(input, marks)
-    return onceOwnerMapped(() => next(ready))
+    return next(await startable(input, marks))
   },
   async signalWithStart(input, next) {
-    const ready = await startable(input, marks)
-    return onceOwnerMapped(() => next(ready))
+    return next(await startable(input, marks))
   },
 })
 
@@ -120,7 +104,7 @@ async function madeOrThere(make: () => Promise<unknown>): Promise<void> {
 }
 
 export async function registerOwnerAttribute(connection: Connection, namespace: string, adminKey?: string): Promise<void> {
-  for (const attribute of [OWNER_ATTRIBUTE, PROJECT_ATTRIBUTE]) {
+  for (const attribute of KOALA_SEARCH_ATTRIBUTES) {
     const add = () => connection.operatorService.addSearchAttributes({
       namespace,
       searchAttributes: { [attribute.name]: protos.temporal.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD },
@@ -145,6 +129,14 @@ export async function readyNamespace(connection: Connection, namespace: string, 
   await registerOwnerAttribute(connection, namespace, keys?.namespace)
 }
 
+export async function setUpTemporal(connection: Connection, namespace: string, key: string, subject: string, say: (line: string) => void): Promise<void> {
+  await readyNamespace(connection, namespace, {
+    system: temporalToken(key, { subject, namespace: TEMPORAL_SYSTEM_NAMESPACE, role: 'admin' }),
+    namespace: temporalToken(key, { subject, namespace, role: 'admin' }),
+  })
+  await untilTemporalSetUp(connection, namespace, say)
+}
+
 export async function getTemporalClient(): Promise<Client> {
   if (shared) return shared
   if (!given) throw new Error('this process was not given Temporal\'s settings: its entry point calls connectTemporalAs with them first')
@@ -153,10 +145,7 @@ export async function getTemporalClient(): Promise<Client> {
   const connection = await connectTemporal(temporalDial('koala-backend', given), 'client').catch((err: unknown) => {
     throw thrownFor(reporter, 'temporal', err)
   })
-  await readyNamespace(connection, temporal.namespace, {
-    system: temporalToken(keys.temporal, { subject: 'koala-backend', namespace: 'temporal-system', role: 'admin' }),
-    namespace: temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }),
-  }).catch(async (err: unknown) => {
+  await untilTemporalSetUp(connection, temporal.namespace, (line) => console.warn(`[temporal] ${line}`)).catch(async (err: unknown) => {
     await connection.close()
     throw thrownFor(reporter, 'temporal', err)
   })
