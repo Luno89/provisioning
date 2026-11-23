@@ -155,6 +155,30 @@ project invite limits, kept with their admin page, limit nothing until project i
 (`instances/services/InstanceGroups.ts`) has no caller, so no instance claims or releases a group at root until sharing returns,
 while root still serves `/instances/groups`, its Caddy routes and the edge's group scope for groups already claimed.
 
+## Ingest and crawl (archived 2026-11-23)
+
+Owner, 2026-11-23: "yep archive ingest, accept the migration for now" (decision `audit-fix-approach` in
+`tests/alignment/decisions.ts`; plan `~/.claude/plans/plan.md` §7a). The corpus existed only as what a crawl stored, so it went with
+the crawl.
+
+Kept: Crawl4AI itself (its app type, `CRAWL4AI_URL` and `CRAWL4AI_API_TOKEN`, its dependency description and check, its token in
+the cluster worker), because `fetch_web_page` reads pages through it; Quickwit, Qdrant and TEI with the index, collection and
+embedding helpers (`engine/lib/corpus-client.ts`: `ensureIndex`, `ensureCollection`, `embed`; `corpus-backend.ts`: `pointId`,
+`collectionConfig`; `corpus-stores.ts`) and the stand-in for them (`engine/testing/corpus-stand-in.ts`, less its `/crawl`), because the
+memory index uses them; `ensureIndex` and `ensureCollection` now take the index and collection by name.
+
+**Records left in databases:** an instance's `corpus` pages, still removed with their account (by owner) and their project, and
+its `crawl_frontier` rows of any crawl that failed before it finished, which hold an ingest id and the addresses it was walking and
+no owner. Quickwit's `koala-corpus` index and Qdrant's `koala-corpus` collection are left as they are. A one-time removal is needed
+only if a hosted instance ever crawled.
+
+| Capability | What it did for a person | Served | Why it went | Files | Removed in |
+| --- | --- | --- | --- | --- | --- |
+| Crawling a site into the corpus | Koala's `start_ingest` crawled a site from an address the person named (depth, page count, domains, keywords), refusing one off the open internet or with no Crawl4AI running; `ingest_status` said whether it had finished and what it fetched | the corpus (`docs/grove-on-the-new-engine.md` row 1.8) | owner, 2026-11-23: "yep archive ingest, accept the migration for now" | `apps/backend/src/workflows/IngestWorkflow.ts`, `activities/CrawlActivity.ts` and its tests, `engine/lib/crawl-client.ts`, `platform/lib/frontier.ts` and its test, `engine-host/tools/corpus-tools.ts`, `corpus-tools-catalogue.ts` and its test, `TemporalBridge.startIngest`/`ingestStatus`, the engine worker's `corpus` access, the host worker's crawl activities, `executeIngestWorkflow` in `work-places.ts`, `workflows/index.ts` and `running.ts` ("Reading sources into the corpus"), the host worker's web tools and memory index settings and dependencies | 8118347f1 |
+| Searching the corpus | `search_corpus` found phrases in the pages a person's crawls stored in Mongo (each crawl also wrote its pages into Quickwit and Qdrant, which nothing searched); Koala, the planner, research and the grove paper writer held it | the corpus | as above | `engine/lib/corpus.ts` and its test, `indexPages`, `embedPages`, `purgeCorpus`, `indexConfig`, `chunksFor` and the chunking in `corpus-client.ts`/`corpus-backend.ts`, the engine store's corpus and frontier methods and their contract, the tool rows in `tool-access.ts` and `poisoning.ts`, the personas' grants | 8118347f1 |
+| Removing a crawl's frontier with its account | Account removal found a person's ingests from their pages and removed those crawls' frontier rows | account removal | as above | `AccountIds.ingestIds`, `AccountRelated.ingestIds`, `ACCOUNT_DATA.related.crawl_frontier` | 8118347f1 |
+| `turn-koala-crawls-a-docs-site` | The level 2 turn check that Koala asked to crawl a docs site calls `start_ingest` | checks | as above | `eval/level2/turns.ts` | 8118347f1 |
+
 ## The old coupling audit (replaced 2026-11-20)
 
 Coupler v2 (`packages/coupling`, `npm run coupling`, ship's `test:coupling`) judges the same job by confidence across layers and a list of untested functions that only shrinks. Owner, 2026-11-20: "Remove it now".
