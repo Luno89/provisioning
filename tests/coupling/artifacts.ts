@@ -67,6 +67,12 @@ export function record(out: string, gathered: Gathered): void {
   writeFileSync(gatheredFile(out, gathered.artifact), `${JSON.stringify(gathered, null, 1)}\n`);
 }
 
+export function judgedGather(artifact: Artifact, held: { runs: boolean; gathered: Gathered | undefined }): Gathered | undefined {
+  if (held.runs && !held.gathered) throw new Error(`${artifact} holds coverage runs with no record of their gather, so that gather stopped before it finished (the code changed while it ran, or it was stopped) and its runs belong to no commit: run npm run test:integration:coupled again`);
+  if (!held.runs && held.gathered) throw new Error(`${artifact} has a record of its gather from ${held.gathered.commit} but no runs: gather it again`);
+  return held.gathered;
+}
+
 export interface Usable { artifacts: Set<Artifact>; problems: string[] }
 
 export function usableIn(gathered: Partial<Record<Artifact, Gathered>>, sources: Record<SourceScope, string>): Usable {
