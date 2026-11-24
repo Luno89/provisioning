@@ -19,7 +19,6 @@ const ENTRY = path.join(import.meta.dirname, 'index.ts');
 
 let server: TestTemporalServer;
 let env: TestTemporal;
-let home: string;
 let certificates: TestCertificates;
 let front: { address: string };
 const servers: HttpServer[] = [];
@@ -29,13 +28,11 @@ beforeAll(async () => {
   server = await startTestTemporal(certificates);
   env = server.env;
   front = { address: server.tlsAddress };
-  home = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-agent-program-'));
 });
 
 afterAll(async () => {
   for (const server of servers) server.close();
   await server.close();
-  await fs.rm(home, { recursive: true, force: true });
 });
 
 const listening = async (handler?: RequestListener): Promise<{ io: Server; url: string }> => {
@@ -96,72 +93,7 @@ const rootPlacingKoala = async (installId: string, answers: (req: IncomingMessag
   return { rootUrl, reports, toRoot };
 };
 
-describe('the machine agent\'s own program, on a computer that is only a throwaway home', () => {
-  it('reads its machine.json, connects to root, works for the Koala root names, and stops on SIGTERM', async () => {
-    const koala = await listening();
-    let rootUrl = '';
-    const root = await listening(answeredBy(registeredDesk(), () => rootUrl, (_req, res) => { res.writeHead(404).end('not here'); }));
-    rootUrl = root.url;
-    const heard: Record<string, unknown> = {};
-    const toRoot: Array<{ emit(event: string, payload: unknown): void }> = [];
-    root.io.of('/machine-account').on('connection', (socket) => {
-      toRoot.push(socket);
-      heard.rootToken = (socket.handshake.auth as { token?: string }).token;
-      socket.emit('machine:koala', { url: koala.url, resource: 'urn:koala:instance:program-koala' });
-    });
-    koala.io.of('/agent').on('connection', (socket) => {
-      heard.koalaToken = (socket.handshake.auth as { token?: string }).token;
-      socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => ack({ agents: [] }));
-      socket.on('agents:found', (found: unknown) => { heard.agents = found; });
-      socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
-        ack({ ring: { current: 'agent-program-payload-key-0123456789ab' }, temporal: { address: front.address, namespace: 'default', ca: certificates.ca, serverName: certificates.serverName } });
-      });
-    });
-    const rootDir = path.join(home, 'koala');
-    await fs.mkdir(path.join(home, '.config', 'koala'), { recursive: true });
-    await fs.writeFile(path.join(home, '.config', 'koala', 'machine.json'), JSON.stringify({ rootUrl: root.url, token: 'program-device-token', rootDir, deviceId: 'program-desk', key: MACHINE_KEY }), { mode: 0o600 });
-
-    const bin = path.join(home, 'bin');
-    await fs.mkdir(bin);
-    await fs.symlink(process.execPath, path.join(bin, 'node'));
-    await fs.writeFile(path.join(bin, 'systemctl'), '#!/bin/sh\necho inactive\n', { mode: 0o755 });
-
-    const said: string[] = [];
-    const child = spawn(process.execPath, ['--import', 'tsx', ENTRY], {
-      cwd: AGENT,
-      env: {
-        HOME: home,
-        PATH: bin,
-        TMPDIR: os.tmpdir(),
-        ...(process.env.NODE_V8_COVERAGE ? { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE } : {}),
-        ...(process.env.NODE_OPTIONS ? { NODE_OPTIONS: process.env.NODE_OPTIONS } : {}),
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    child.stdout?.on('data', (chunk: Buffer) => said.push(chunk.toString()));
-    child.stderr?.on('data', (chunk: Buffer) => said.push(chunk.toString()));
-    const ended = exited(child);
-
-    const pollers = async () => (await env.client.workflowService.describeTaskQueue({
-      namespace: 'default', taskQueue: { name: deviceQueue('program-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
-    })).pollers ?? [];
-    while (child.exitCode === null && !said.join('').includes('could not start') && ((await pollers()).length === 0 || heard.agents === undefined)) await new Promise((done) => setTimeout(done, 100));
-    expect(child.exitCode, said.join('')).toBeNull();
-    expect(said.join('')).not.toContain('could not start');
-    expect(heard).toMatchObject({ rootToken: 'token-for-program-desk', koalaToken: 'token-for-program-desk-at-urn:koala:instance:program-koala', agents: { agents: [] } });
-
-    heard.koalaToken = undefined;
-    for (const socket of koala.io.of('/agent').sockets.values()) socket.conn.close();
-    while (child.exitCode === null && heard.koalaToken === undefined) await new Promise((done) => setTimeout(done, 100));
-    expect(child.exitCode, said.join('')).toBeNull();
-    expect(heard.koalaToken).toBe('token-for-program-desk-at-urn:koala:instance:program-koala');
-
-    child.kill('SIGTERM');
-    expect(await ended).toBe(0);
-  });
-});
-
-const program = async (args: string[], extra: Record<string, string> = {}) => {
+const program =async (args: string[], extra: Record<string, string> = {}) => {
   const place = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-agent-place-'));
   const machineRoot = path.join(place, 'machine');
   const bin = path.join(place, 'bin');
@@ -205,6 +137,51 @@ const program = async (args: string[], extra: Record<string, string> = {}) => {
   const there = (file: string) => fs.access(file).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; });
   return { start, said, bin, onMachine, machineFile, serviceFile, joined, k3sInstalled, there };
 };
+
+describe('the machine agent\'s own program, on a throwaway home and machine', () => {
+  it('reads its machine.json, connects to root, works for the Koala root names, tells it the machine it is on, and stops on SIGTERM', async () => {
+    const koala = await listening();
+    let rootUrl = '';
+    const root = await listening(answeredBy(registeredDesk(), () => rootUrl, (_req, res) => { res.writeHead(404).end('not here'); }));
+    rootUrl = root.url;
+    const heard: Record<string, unknown> = {};
+    root.io.of('/machine-account').on('connection', (socket) => {
+      heard.rootToken = (socket.handshake.auth as { token?: string }).token;
+      socket.emit('machine:koala', { url: koala.url, resource: 'urn:koala:instance:program-koala' });
+    });
+    koala.io.of('/agent').on('connection', (socket) => {
+      heard.koalaToken = (socket.handshake.auth as { token?: string }).token;
+      socket.on('agents:manual', (_payload: unknown, ack: (answer: unknown) => void) => ack({ agents: [] }));
+      socket.on('agents:found', (found: unknown) => { heard.agents = found; });
+      socket.on('machine:cluster', (cluster: unknown) => { heard.cluster = cluster; });
+      socket.on('machine:payloads', (_payload: unknown, ack: (answer: unknown) => void) => {
+        ack({ ring: { current: 'agent-program-payload-key-0123456789ab' }, temporal: { address: front.address, namespace: 'default', ca: certificates.ca, serverName: certificates.serverName } });
+      });
+    });
+    const here = await program([]);
+    await here.joined(root.url);
+    const { said } = here;
+    const child = here.start();
+    const ended = exited(child);
+
+    const pollers = async () => (await env.client.workflowService.describeTaskQueue({
+      namespace: 'default', taskQueue: { name: deviceQueue('program-desk') }, taskQueueType: temporal.api.enums.v1.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
+    })).pollers ?? [];
+    while (child.exitCode === null && !said.join('').includes('could not start') && ((await pollers()).length === 0 || heard.agents === undefined || heard.cluster === undefined)) await new Promise((done) => setTimeout(done, 100));
+    expect(child.exitCode, said.join('')).toBeNull();
+    expect(said.join('')).not.toContain('could not start');
+    expect(heard).toMatchObject({ rootToken: 'token-for-program-desk', koalaToken: 'token-for-program-desk-at-urn:koala:instance:program-koala', agents: { agents: [] }, cluster: { state: 'absent', gpus: [] } });
+
+    heard.koalaToken = undefined;
+    for (const socket of koala.io.of('/agent').sockets.values()) socket.conn.close();
+    while (child.exitCode === null && heard.koalaToken === undefined) await new Promise((done) => setTimeout(done, 100));
+    expect(child.exitCode, said.join('')).toBeNull();
+    expect(heard.koalaToken).toBe('token-for-program-desk-at-urn:koala:instance:program-koala');
+
+    child.kill('SIGTERM');
+    expect(await ended, said.join('')).toBe(0);
+  });
+});
 
 describe('removing this machine, as the agent\'s own program does it, on a throwaway home and machine', () => {
   it('uninstalls Koala\'s k3s, deletes its token and service file, and says so', async () => {

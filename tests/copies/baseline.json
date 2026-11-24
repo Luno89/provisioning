@@ -537,7 +537,6 @@
  "tests apps/frontend/src/features/projects/components/Workspace/BuildsDeploysPanel.test.tsx <-> apps/frontend/src/features/projects/components/Workspace/BuildsDeploysPanel.test.tsx #f17a82ce091d": 1,
  "tests apps/frontend/src/shell/App.test.tsx <-> apps/frontend/src/shell/RootLayout.test.tsx #752ff9b3e4c9": 1,
  "tests apps/frontend/src/shell/Sidebar.test.tsx <-> apps/frontend/src/shell/Sidebar.test.tsx #fde8391e52c2": 1,
- "tests apps/local-agent/src/agent-program.integration.test.ts <-> apps/local-agent/src/agent-program.integration.test.ts #31103a160793": 1,
  "tests apps/local-agent/src/device-worker-host.test.ts <-> apps/local-agent/src/device-worker-host.test.ts #cd8aedf6dcc9": 1,
  "tests apps/local-agent/src/external-agents.integration.test.ts <-> apps/local-agent/src/external-agents.integration.test.ts #3e276ff7fb61": 1,
  "tests apps/local-agent/src/external-agents.integration.test.ts <-> apps/local-agent/src/external-agents.integration.test.ts #f6aa310618a6": 1,
