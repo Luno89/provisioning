@@ -334,35 +334,5 @@
   {
    "at": "2026-11-22T03:24:15.000Z"
   }
- ],
- "tests/tiers/fixture-guards/spawns-kubectl.component.fixture.ts": [
-  {
-   "at": "2026-11-24T06:09:14.821Z",
-   "why": "this file reached outside its layer (started a process (spawnSync kubectl)); it belongs in the container layer: name the file *.container.test.ts\nasks kubectl for its version: a component test started a process (spawnSync kubectl); it belongs in the container layer: name the file *.container.test.ts"
-  },
-  {
-   "at": "2026-11-24T06:55:01.778Z",
-   "why": "this file reached outside its layer (started a process (spawnSync kubectl)); it belongs in the container layer: name the file *.container.test.ts\nasks kubectl for its version: a component test started a process (spawnSync kubectl); it belongs in the container layer: name the file *.container.test.ts"
-  }
- ],
- "tests/tiers/fixture-guards/someone-elses-port.component.fixture.ts": [
-  {
-   "at": "2026-11-24T06:09:17.254Z",
-   "why": "this file reached outside its layer (opened a connection to 127.0.0.1:9); it belongs in the container layer: name the file *.container.test.ts\nconnects to a port nobody of its own listens on: a component test opened a connection to 127.0.0.1:9; it belongs in the container layer: name the file *.container.test.ts"
-  },
-  {
-   "at": "2026-11-24T06:55:04.674Z",
-   "why": "this file reached outside its layer (opened a connection to 127.0.0.1:9); it belongs in the container layer: name the file *.container.test.ts\nconnects to a port nobody of its own listens on: a component test opened a connection to 127.0.0.1:9; it belongs in the container layer: name the file *.container.test.ts"
-  }
- ],
- "tests/tiers/fixture-guards/spawns-temporal.container.fixture.ts": [
-  {
-   "at": "2026-11-24T06:09:18.480Z",
-   "why": "this file reached outside its layer (started a process (spawnSync temporal)); only the layer's global setup starts k3s, k3d, docker or temporal, so the real things start once\nstarts a temporal server itself: a container test started a process (spawnSync temporal); only the layer's global setup starts k3s, k3d, docker or temporal, so the real things start once"
-  },
-  {
-   "at": "2026-11-24T06:55:05.891Z",
-   "why": "this file reached outside its layer (started a process (spawnSync temporal)); only the layer's global setup starts k3s, k3d, docker or temporal, so the real things start once\nstarts a temporal server itself: a container test started a process (spawnSync temporal); only the layer's global setup starts k3s, k3d, docker or temporal, so the real things start once"
-  }
  ]
 }

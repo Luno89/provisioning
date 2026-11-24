@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { here } from '../lib/processes.js';
 
 const run = (project: string, file: string) =>
-  here.run({ command: resolve(import.meta.dirname, '../../node_modules/.bin/vitest'), args: ['run', '--project', project, file], cwd: resolve(import.meta.dirname, 'fixture-guards') });
+  here.run({ command: resolve(import.meta.dirname, '../../node_modules/.bin/vitest'), args: ['run', '--project', project, file], cwd: resolve(import.meta.dirname, 'fixture-guards'), env: { KOALA_GATE_FAILURES: '' } });
 
 describe('the guard of each layer', () => {
   it('refuses a component test that starts kubectl, sending it to the container layer', async () => {
