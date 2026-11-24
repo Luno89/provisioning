@@ -1,12 +1,12 @@
 import { fileURLToPath } from 'node:url';
 import { connectTemporal } from '@koala/engine-core/temporal';
-import { setUpTemporal, temporalDial, temporalSetupSettingsFrom } from '../platform/index.js';
+import { setUpTemporal, temporalDial, temporalSetupSettingsFrom, untilConnected } from '../platform/index.js';
 
 const SUBJECT = 'koala-temporal-setup';
 
 export async function temporalSetupStep(env: Readonly<Record<string, string | undefined>>, say: (line: string) => void): Promise<void> {
   const settings = temporalSetupSettingsFrom(env);
-  const connection = await connectTemporal(temporalDial(SUBJECT, settings), 'client');
+  const connection = await untilConnected(() => connectTemporal(temporalDial(SUBJECT, settings), 'client'), (line) => say(`[setup] ${line}`));
   try {
     await setUpTemporal(connection, settings.temporal.namespace, settings.keys.temporal, SUBJECT, say);
   } finally {

@@ -42,6 +42,19 @@ export async function onceNamespaceKnown(add: () => Promise<void>, namespace: st
   }
 }
 
+export async function untilConnected<T>(connect: () => Promise<T>, say: (line: string) => void, again: Reopening = reopening()): Promise<T> {
+  for (;;) {
+    try {
+      return await connect();
+    } catch (err) {
+      const failure = failureOf(err);
+      if (failure.kind === 'final') throw new Error(`Temporal cannot be reached: ${failure.reason}`, { cause: err });
+      say(`waiting for Temporal to answer: ${failure.reason}`);
+    }
+    await again.after();
+  }
+}
+
 export async function untilTemporalSetUp(asks: TemporalSetUpAsks, namespace: string, say: (line: string) => void, again: Reopening = reopening()): Promise<void> {
   for (;;) {
     let missing: string;

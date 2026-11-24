@@ -83,7 +83,7 @@ export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks } from './lib/temporal
 export { connectTemporalAs, getTemporalClient, setUpTemporal, givenDeletingMarks, refuseWorkWith, resolveOwnersWith } from './lib/temporal-client.js';
 export { buildDataConverter } from './lib/temporal-codec.js';
 export { connectTemporalWorker, temporalDial } from './lib/temporal-connection.js';
-export { KOALA_SEARCH_ATTRIBUTES, TEMPORAL_SYSTEM_NAMESPACE, temporalSetUpState, untilTemporalSetUp, type TemporalSetUp, type TemporalSetUpAsks } from './lib/temporal-setup.js';
+export { KOALA_SEARCH_ATTRIBUTES, TEMPORAL_SYSTEM_NAMESPACE, temporalSetUpState, untilConnected, untilTemporalSetUp, type TemporalSetUp, type TemporalSetUpAsks } from './lib/temporal-setup.js';
 export { temporalTls, temporalTlsProblem } from './lib/temporal-tls.js';
 export { failureReason } from './lib/temporal-failure.js';
 export { innermostMessage } from './lib/innermost-message.js';

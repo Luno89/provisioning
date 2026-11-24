@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Reopening } from '@koala/engine-core/reopening';
-import { onceNamespaceKnown, untilTemporalSetUp, type TemporalSetUpAsks } from './temporal-setup.js';
+import { onceNamespaceKnown, untilConnected, untilTemporalSetUp, type TemporalSetUpAsks } from './temporal-setup.js';
 
 const grpc = (code: number, message: string): Error => Object.assign(new Error(message), { code, details: message, metadata: {} });
 
@@ -87,6 +87,30 @@ describe('waiting for Temporal\'s namespace to be set up', () => {
 
     await expect(untilTemporalSetUp(asks, 'default', () => undefined, again)).rejects.toThrow('Temporal\'s namespace default cannot be set up: 7 PERMISSION_DENIED: Request unauthorized.');
     expect(asked.namespace).toBe(1);
+    expect(times()).toBe(0);
+  });
+});
+
+describe('connecting to a Temporal that is still starting', () => {
+  it('asks again while Temporal does not answer yet, saying why, and hands on the connection once it does', async () => {
+    const { again, times } = askedAgain();
+    const said: string[] = [];
+    let tries = 0;
+    const connection = await untilConnected(async () => {
+      tries += 1;
+      if (tries < 3) throw new Error('Failed to connect before the deadline');
+      return 'connected';
+    }, (line) => said.push(line), again);
+
+    expect(connection).toBe('connected');
+    expect(times()).toBe(2);
+    expect(said[0]).toContain('waiting for Temporal to answer: its connection did not open yet');
+  });
+
+  it('ends at once with the reason when the connection is refused for good', async () => {
+    const { again, times } = askedAgain();
+    await expect(untilConnected(async () => { throw new Error('the certificate Temporal shows is not signed by this install\'s CA'); }, () => undefined, again))
+      .rejects.toThrow('Temporal cannot be reached: the certificate Temporal shows is not signed by this install\'s CA');
     expect(times()).toBe(0);
   });
 });
