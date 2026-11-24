@@ -134,11 +134,15 @@ describe('signing out of a Koala', () => {
     stood.restore();
   });
 
-  it('goes only to root to end the sign-in there, and never starts a new sign-in on the way', async () => {
+  it('goes only to root to end the sign-in there, closing its live connection, and never starts a new sign-in on the way', async () => {
+    const socket = { connected: true, connect: vi.fn(), on: vi.fn(), off: vi.fn(), emit: vi.fn(), disconnect: vi.fn(), io: { on: vi.fn(), off: vi.fn() } };
+    disconnectShared();
+    vi.mocked(io).mockReturnValue(socket as never);
     show();
     (await screen.findByRole('button', { name: 'Log Out' })).click();
     expect(await screen.findByText('Signing you out of Koala…')).toBeInTheDocument();
     expect(assign.mock.calls).toEqual([[END]]);
+    expect(socket.disconnect).toHaveBeenCalled();
     expect(authApi.signInPlace).not.toHaveBeenCalled();
   });
 });

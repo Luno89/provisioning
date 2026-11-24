@@ -306,5 +306,11 @@ export function asIssuerRequest(issuer: string, headers: RequestHeaders, proxied
   };
 }
 
+export const LOGOUT_SCRIPT_FILE = '/logout.js';
+
+export const LOGOUT_SCRIPT_PATH = `${OIDC_PATH}${LOGOUT_SCRIPT_FILE}`;
+
+export const LOGOUT_SCRIPT = "document.forms['op.logoutForm'].submit();\n";
+
 export const logoutPage = (form: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>Signing out of Koala</title><body onload="document.forms['op.logoutForm'].submit()" style="font-family:system-ui;padding:2rem">${form.replace('</form>', '<input type="hidden" name="logout" value="yes"/></form>')}<p>Signing this browser out of Koala…</p></body>`;
+  `<!doctype html><meta charset="utf-8"><title>Signing out of Koala</title><body style="font-family:system-ui;padding:2rem">${form.replace('</form>', '<input type="hidden" name="logout" value="yes"/></form>')}<p>Signing this browser out of Koala…</p><script src="${LOGOUT_SCRIPT_PATH}"></script></body>`;

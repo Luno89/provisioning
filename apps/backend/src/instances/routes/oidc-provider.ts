@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
-import { asIssuerRequest } from '../lib/oidc.js';
+import { asIssuerRequest, LOGOUT_SCRIPT, LOGOUT_SCRIPT_FILE } from '../lib/oidc.js';
 import type { RootProvider } from '../services/RootProvider.js';
 
 export function oidcProviderRouter(deps: {
@@ -13,6 +13,10 @@ export function oidcProviderRouter(deps: {
   router.use((req, _res, next) => {
     Object.assign(req.headers, asIssuerRequest(deps.provider.issuer, req.headers, deps.provider.proxied, req.socket.remoteAddress));
     next();
+  });
+
+  router.get(LOGOUT_SCRIPT_FILE, (_req, res) => {
+    res.type('application/javascript').send(LOGOUT_SCRIPT);
   });
 
   router.get('/interaction/:uid', asyncRoute(async (req: Request, res: Response) => {

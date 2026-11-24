@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
   asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, clientAt, claimsShaped, clientMetadata, instanceClient,
-  logoutClaims, LOGOUT_EVENT, logoutPage, publicJwkOf, publicJwkShaped, refusedClientOf, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor, tokenRefusalLine,
+  logoutClaims, LOGOUT_EVENT, logoutPage, LOGOUT_SCRIPT, LOGOUT_SCRIPT_PATH, publicJwkOf, publicJwkShaped, refusedClientOf, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor, tokenRefusalLine,
 } from './oidc.js';
 
 const keys = identityKeysFrom(generateIdentityKey());
@@ -144,7 +144,14 @@ describe('root\'s page for a browser logging out', () => {
   it('ends root\'s sign-in in this browser at once, whichever Koala the person logged out of, and asks nothing', () => {
     const page = logoutPage(form);
     expect(page).toContain('<input type="hidden" name="logout" value="yes"/></form>');
-    expect(page).toContain('onload="document.forms[\'op.logoutForm\'].submit()"');
+    expect(page).toContain(`<script src="${LOGOUT_SCRIPT_PATH}"></script>`);
+    expect(page.indexOf('</form>')).toBeLessThan(page.indexOf('<script'));
+    expect(page).not.toMatch(/ on[a-z]+=/);
     expect(page).not.toContain('<button');
+  });
+
+  it('submits through a script root serves itself, since root\'s policy runs no inline script', () => {
+    expect(LOGOUT_SCRIPT).toBe("document.forms['op.logoutForm'].submit();\n");
+    expect(LOGOUT_SCRIPT_PATH).toBe('/oidc/logout.js');
   });
 });
