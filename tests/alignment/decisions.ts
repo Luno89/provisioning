@@ -708,7 +708,10 @@ export const DECISIONS: Decision[] = [
     terms: ['hosted', 'hosting', 'trip', 'remotely', 'integration run'],
     words: [
       { at: '2026-11-23T20:30', text: 'yep go with 1 and 3 and sure you can run an integration run, root on the server and able to add my box and work on stuff remotely, I\'m going on a trip' },
+      { at: '2026-11-24T00:00', text: 'yes to the plaintext exception and the hotfix' },
+      { at: '2026-11-24T00:02', text: 'I bought a server through it before, so it\'s passed' },
+      { at: '2026-11-24T00:03', text: 'the old server is gone, buy a new one' },
     ],
-    reading: 'The first hosting is root on its real server, the owner\'s own computer joined to it as their machine, and the owner working on their Koala from anywhere while away; no one else is invited yet. One full integration run is allowed now, while waits remain, to learn its real failures.',
+    reading: 'The first hosting is root on its real server, the owner\'s own computer joined to it as their machine, and the owner working on their Koala from anywhere while away; no one else is invited yet. One full integration run is allowed now, while waits remain, to learn its real failures. Root\'s server is a new one bought through Koala\'s Host Koala on a server page (OVHcloud; the account passed its identity check). Root moves onto a hotfix release once ship passes: its tag says the release gates were skipped and names them, and they run after.',
   },
 ];
