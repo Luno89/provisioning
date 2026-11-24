@@ -16,7 +16,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |
 | `mesh-live` | 2026-11-05 19:41 | 2026-11-05 18:44 |
 | `odoo-customizations-live` | 2026-11-02 06:53 | 2026-10-29 15:22 |
-| `odoo-release-live` | 2026-11-17 16:10 | 2026-11-13 12:33 |
+| `odoo-release-live` | 2026-11-24 18:30 | 2026-11-13 12:33 |
 | `release-live` | 2026-11-02 06:54 | 2026-11-01 23:08 |
 | `restore-live` | 2026-11-02 06:20 | 2026-10-31 01:51 |
 | `root-metrics-live` | 2026-11-06 00:36 | 2026-11-06 00:33 |
