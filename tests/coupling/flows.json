@@ -99,7 +99,7 @@
       {
         "title": "Every request after it is signed in as the person: the guard reads the session cookie sign-in set, and the app reads who it is",
         "entries": [
-          "apps/backend/src/platform/middleware/auth.ts#requireAuth",
+          "apps/backend/src/platform/middleware/auth.ts#signedInBy",
           "apps/frontend/src/features/platform/api.ts#getMe"
         ]
       }
