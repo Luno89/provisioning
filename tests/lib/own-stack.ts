@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
 import { devFile, devGatewayTls, devTemporalCa } from './dev-temporal.js';
-import { answers, envArgs, minioReady, minioRun, temporal, temporalContainer } from './split-stack.js';
+import { answers, envArgs, minioReady, minioRun, temporal, temporalCli } from './split-stack.js';
 import { DEV_TEMPORAL_ADDRESS, dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
@@ -88,7 +88,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
         if (process === 'backend') await backendAnswers();
       },
       terminate: async (workflowId, reason) => {
-        await hostContainers.exec(await temporalContainer(), ['temporal', 'workflow', 'terminate', '--namespace', namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']);
+        await temporalCli(['workflow', 'terminate', '--namespace', namespace, '--workflow-id', workflowId, '--reason', reason]);
       },
       logs,
       stop,

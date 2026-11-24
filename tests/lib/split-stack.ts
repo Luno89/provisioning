@@ -12,7 +12,7 @@ import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
-import { DEV_TEMPORAL_ADDRESS, firstAdmin, temporal, temporalContainer, withDatabase, type FirstAdmin } from './suite-root.js';
+import { DEV_TEMPORAL_ADDRESS, firstAdmin, temporal, temporalCli, temporalContainer, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 import { until, waiting } from './until.js';
@@ -82,7 +82,7 @@ export interface SplitStack {
   stop: () => Promise<void>;
 }
 
-export { temporal, temporalContainer } from './suite-root.js';
+export { temporal, temporalCli, temporalContainer } from './suite-root.js';
 
 export const answers = async (url: string): Promise<true | Waiting> => {
   const response = await fetch(url, { redirect: 'manual' }).catch((err: unknown) => err instanceof Error ? err.message : String(err));
@@ -209,7 +209,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
         const url = process === 'root' ? place.rootUrl : process === 'instance' ? place.instanceUrl : undefined;
         if (url) await until(`${process} answering again`, () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(names.containers[process]));
       },
-      terminate: async (workflowId, reason) => { await hostContainers.exec(await temporalContainer(), ['temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
+      terminate: async (workflowId, reason) => { await temporalCli(['workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason]); },
       names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl,
       mailpitApi: `http://127.0.0.1:${ports.mailApi}`, owner, instanceId: plan.instance.id,
       instanceDb, logs, stop,

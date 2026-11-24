@@ -95,8 +95,10 @@ export async function temporalContainer(): Promise<string> {
   return name;
 }
 
-export const temporal = async (args: string[]): Promise<string> =>
-  hostContainers.runToEnd(['--network', `container:${await temporalContainer()}`, pinnedImage('temporalio/admin-tools'), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
+export const temporalCli = async (args: string[]): Promise<string> =>
+  hostContainers.runToEnd(['--network', `container:${await temporalContainer()}`, pinnedImage('temporalio/admin-tools'), 'temporal', ...args, '--address', '127.0.0.1:7236']);
+
+export const temporal = (args: string[]): Promise<string> => temporalCli(['operator', ...args]);
 
 export async function makeSuiteNamespace(root: SuiteRoot): Promise<void> {
   await temporal(['namespace', 'create', '--namespace', root.namespace, '--retention', '24h']);
