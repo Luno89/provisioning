@@ -24,6 +24,7 @@ export interface Containers {
   addressOf(name: string): Promise<string>;
   idOf(name: string): Promise<string>;
   run(name: string, args: readonly string[]): Promise<void>;
+  runToEnd(args: readonly string[]): Promise<string>;
   start(name: string): Promise<void>;
   stop(name: string): Promise<void>;
   restart(name: string): Promise<void>;
@@ -72,6 +73,7 @@ export function containersOn(commands: CommandRunner, progress: Progress = quiet
     addressOf: (name) => said(['inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', name]),
     idOf: (name) => said(['inspect', '-f', '{{.Id}}', name]),
     async run(name, args) { await docker(['run', '-d', '--name', name, ...args]); },
+    runToEnd: (args) => said(['run', '--rm', ...throwawayLabel(), ...args]),
     async start(name) { await docker(['start', name]); },
     async stop(name) { await docker(['stop', name]); },
     async restart(name) { await docker(['restart', name]); },

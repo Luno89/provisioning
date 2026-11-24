@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { hostContainers } from './dead-states.js';
+import { pinnedImage } from './pinned-image.js';
 import { randomBytes } from 'node:crypto';
 import { leaseMongo } from '../../apps/backend/src/platform/lib/mongo-lease.js';
 import { signInWithPassword } from '../../apps/backend/src/accounts/services/sign-in/password-at-root.js';
@@ -94,7 +95,8 @@ export async function temporalContainer(): Promise<string> {
   return name;
 }
 
-export const temporal = async (args: string[]): Promise<string> => hostContainers.exec(await temporalContainer(), ['temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
+export const temporal = async (args: string[]): Promise<string> =>
+  hostContainers.runToEnd(['--network', `container:${await temporalContainer()}`, pinnedImage('temporalio/admin-tools'), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
 
 export async function makeSuiteNamespace(root: SuiteRoot): Promise<void> {
   await temporal(['namespace', 'create', '--namespace', root.namespace, '--retention', '24h']);

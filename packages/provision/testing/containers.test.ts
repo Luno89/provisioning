@@ -65,6 +65,12 @@ describe('the containers a test world runs', () => {
     expect(await containersOn(commands).exec('db', ['mongosh', '--quiet'], { user: '0', input: 'db.ping()' })).toBe('db.ping() read');
   });
 
+  it('run a command in a throwaway one to its end, removed once it exits, and give what it printed', async () => {
+    const label = throwawayLabel().join(' ');
+    const commands = dockerAnswering({ [`docker run --rm ${label} --network container:temporal tools temporal operator namespace list`]: { stdout: 'default\n' } });
+    expect(await containersOn(commands).runToEnd(['--network', 'container:temporal', 'tools', 'temporal', 'operator', 'namespace', 'list'])).toBe('default');
+  });
+
   it('left by a test run that is gone are found by the checkout they were made from, and those whose maker still runs are kept', async () => {
     const gone = NEVER_A_PROCESS;
     const commands = dockerAnswering({
