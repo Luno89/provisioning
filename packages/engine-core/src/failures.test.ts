@@ -49,6 +49,19 @@ describe('a fetch that never got an answer', () => {
   });
 });
 
+describe('an answer an OpenID client could not read as one', () => {
+  const unreadable = (status: number) => Object.assign(new Error('unexpected HTTP response status code', { cause: new Response('', { status }) }), { name: 'ClientError', code: 'OAUTH_RESPONSE_IS_NOT_CONFORM' });
+
+  it('is not answering yet when the server or the proxy in front of it answered a server error', () => {
+    expect(failureOf(unreadable(502))).toEqual({ kind: 'temporary', reason: 'it answered 502' });
+    expect(failureOf(unreadable(503))).toEqual({ kind: 'temporary', reason: 'it answered 503' });
+  });
+
+  it('is final when the answer refused the request', () => {
+    expect(failureOf(unreadable(403))).toEqual({ kind: 'final', reason: 'it refused the request (403)' });
+  });
+});
+
 describe('a token asked to be revoked', () => {
   it('is already revoked when what holds it says it is gone or not a token it knows', () => {
     expect(tokenAlreadyGone(Object.assign(new Error('not found'), { status: 404 }))).toBe(true);

@@ -26,6 +26,12 @@ class FakeSocket extends EventEmitter {
     for (const listener of this.any) listener(event);
     this.emit(event);
   }
+  dropped = 0;
+  disconnect(): this {
+    this.dropped += 1;
+    this.active = false;
+    return this;
+  }
   close(): this {
     this.closed = true;
     this.connected = false;
@@ -109,7 +115,7 @@ describe('an instance keeping a connection to root', () => {
     presence.stop();
   });
 
-  it('presents no token, saying why once, when it cannot get one', async () => {
+  it('drops the attempt rather than present a token it does not have, saying why once, and dials again later', async () => {
     tokens = async () => { throw new Error('no credential yet'); };
     const presence = rootPresence();
     presence.start();
@@ -118,8 +124,12 @@ describe('an instance keeping a connection to root', () => {
     auth(sent);
     auth(sent);
     await pass(0);
-    expect(sent).toHaveBeenCalledWith({ instanceId: 'inst-1', token: '' });
+    expect(sent).not.toHaveBeenCalled();
+    expect(socket.dropped).toBe(2);
     expect(said).toEqual(['[root-presence] a token for root could not be had: no credential yet']);
+    expect(presence.downReason()).toBe('a token for root could not be had: no credential yet');
+    await pass(1000);
+    expect(socket.connects).toBe(1);
     presence.stop();
   });
 

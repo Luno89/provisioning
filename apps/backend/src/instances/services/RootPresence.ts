@@ -47,7 +47,11 @@ export class RootPresence {
       auth: (send) => {
         this.deps.token().then(
           (token) => send({ instanceId: this.deps.instanceId, token }),
-          (err: Error) => { this.say(`a token for root could not be had: ${err.message}`); send({ instanceId: this.deps.instanceId, token: '' }); },
+          (err: Error) => {
+            this.say(`a token for root could not be had: ${err.message}`);
+            socket.disconnect();
+            this.again();
+          },
         );
       },
     });
