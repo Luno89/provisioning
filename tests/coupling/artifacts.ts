@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { Ran } from './collect.js';
+import { readRan } from './ran-record.js';
 import { join, resolve } from 'node:path';
 
 export const ROOT = resolve(import.meta.dirname, '..', '..');
@@ -93,5 +94,5 @@ export function usableIn(gathered: Partial<Record<Artifact, Gathered>>, sources:
 }
 
 export function runsIn(dir: string): Ran[] {
-  return readdirSync(dir).filter((file) => file.endsWith('.json')).map((file) => JSON.parse(readFileSync(join(dir, file), 'utf8')) as Ran);
+  return readdirSync(dir).filter((file) => file.endsWith('.json')).map((file) => readRan(join(dir, file)));
 }
