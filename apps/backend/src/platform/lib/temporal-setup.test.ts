@@ -4,11 +4,11 @@ import { onceNamespaceKnown, untilConnected, untilTemporalSetUp, type TemporalSe
 
 const grpc = (code: number, message: string): Error => Object.assign(new Error(message), { code, details: message, metadata: {} });
 
-function temporalAnswering(answers: { namespace: (() => unknown)[]; attributes: (() => Record<string, number>)[] }) {
-  const asked = { namespace: 0, attributes: 0 };
+function temporalAnswering(answers: { namespace: (() => unknown)[]; attributes: (() => Record<string, number>)[]; query?: (() => unknown)[] }) {
+  const asked = { namespace: 0, attributes: 0, query: 0 };
   const next = <T>(list: (() => T)[], at: number): T => (list[Math.min(at, list.length - 1)]!)();
   const asks: TemporalSetUpAsks = {
-    workflowService: { describeNamespace: async () => next(answers.namespace, asked.namespace++) },
+    workflowService: { describeNamespace: async () => next(answers.namespace, asked.namespace++), listWorkflowExecutions: async () => next(answers.query ?? [() => ({ executions: [] })], asked.query++) },
     operatorService: { listSearchAttributes: async () => ({ customAttributes: next(answers.attributes, asked.attributes++) }) },
   };
   return { asks, asked };
@@ -44,6 +44,22 @@ describe('waiting for Temporal\'s namespace to be set up', () => {
       'waiting for Temporal\'s namespace default to be set up: KoalaProject is not registered yet',
     ]);
     expect(times()).toBe(2);
+  });
+
+  it('waits while Temporal lists the attributes but cannot yet use them in a query, and ends once a query by them is answered', async () => {
+    const { asks, asked } = temporalAnswering({
+      namespace: [there],
+      attributes: [() => ({ KoalaOwner: 2, KoalaProject: 2 })],
+      query: [() => { throw grpc(3, '3 INVALID_ARGUMENT: Namespace default has no mapping defined for search attribute KoalaOwner'); }, () => ({ executions: [] })],
+    });
+    const { again, times } = askedAgain();
+    const said: string[] = [];
+
+    await untilTemporalSetUp(asks, 'default', (line) => said.push(line), again);
+
+    expect(said).toEqual(['waiting for Temporal\'s namespace default to be set up: Temporal lists KoalaOwner and KoalaProject but cannot use them in a query yet']);
+    expect(asked.query).toBe(2);
+    expect(times()).toBe(1);
   });
 
   it('keeps waiting while Temporal is unavailable, with its reason', async () => {
