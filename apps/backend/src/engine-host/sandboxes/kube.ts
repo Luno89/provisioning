@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from 'fs';
 import { WORKSPACE_STAMP } from '../../engine/lib/published-workspace.js';
-import { assessWorkload } from '@koala/provision';
+import { assessWorkload, kubectlFailure } from '@koala/provision';
 import type { Followed, Io } from '../../platform/index.js';
 
 export interface KubeResult {
@@ -133,6 +133,10 @@ export async function applyWorkspace(run: KubeRunner, request: ApplyRequest): Pr
 
   for (;;) {
     const read = await run(['get', 'pod', request.pod, '-n', request.namespace, '-o', 'json'], undefined, undefined, { outputChars: Infinity });
+    if (read.exitCode !== 0) {
+      const said = read.stderr.trim() || read.stdout.trim() || `kubectl ended with ${read.exitCode} and said nothing`;
+      if (kubectlFailure(said).kind === 'final') throw new WorkspaceUnavailableError(`The workspace's pod could not be read: ${said}`);
+    }
     const pod = read.exitCode === 0 ? podOf(read.stdout) : undefined;
     if (pod) {
       if (pod.status?.phase === 'Failed' || pod.status?.phase === 'Succeeded') {

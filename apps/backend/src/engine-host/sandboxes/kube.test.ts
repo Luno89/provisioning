@@ -5,7 +5,7 @@ import path from 'path';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { Followed, ProcessResult } from '../../platform/index.js';
-import { createKubeRunner, createKubeStreamer, MAX_OUTPUT_CHARS, onKoalasCluster, type ClusterStarter, type KoalasCluster } from './kube.js';
+import { applyWorkspace, createKubeRunner, createKubeStreamer, MAX_OUTPUT_CHARS, onKoalasCluster, type ClusterStarter, type KoalasCluster, type KubeRunner } from './kube.js';
 
 interface Held extends Followed {
   stop: Mock<() => void>;
@@ -193,5 +193,28 @@ describe('streaming files through Koala\'s own cluster', () => {
     expect(io?.input).toBeInstanceOf(ReadStream);
     expect((io?.input as ReadStream).path).toBe(path.join(folder, 'bundle'));
     (io?.input as ReadStream).destroy();
+  });
+});
+
+describe('waiting for a workspace pod just applied', () => {
+  const ready = JSON.stringify({ status: { phase: 'Running', conditions: [{ type: 'Ready', status: 'True' }], containerStatuses: [{ name: 'workspace', ready: true, state: { running: {} } }] } });
+  const answering = (reads: { stdout?: string; stderr?: string; exitCode: number }[]): KubeRunner => {
+    const left = [...reads];
+    return async (args) => {
+      if (args[0] === 'apply') return { stdout: '', stderr: '', exitCode: 0 };
+      const next = left.shift();
+      if (!next) throw new Error('the workspace was read again after an answer it should have ended on');
+      return { stdout: '', stderr: '', ...next };
+    };
+  };
+  const applying = (run: KubeRunner) => applyWorkspace(run, { manifests: [], namespace: 'koala-run-tree-t1', pod: 'workspace', pollMs: 1 });
+
+  it('waits while the cluster does not answer for now, and ends once the pod is ready', async () => {
+    await expect(applying(answering([{ stderr: 'The connection to the server 127.0.0.1:6443 was refused - did you specify the right host or port?', exitCode: 1 }, { stdout: ready, exitCode: 0 }]))).resolves.toBeUndefined();
+  });
+
+  it('ends at once with why when the pod it applied is gone, or its pod could not be read at all, as when its run was stopped', async () => {
+    await expect(applying(answering([{ stderr: 'Error from server (NotFound): pods "workspace" not found', exitCode: 1 }]))).rejects.toThrow('The workspace\'s pod could not be read: Error from server (NotFound): pods "workspace" not found');
+    await expect(applying(answering([{ stderr: '', exitCode: 137 }]))).rejects.toThrow('The workspace\'s pod could not be read: kubectl ended with 137 and said nothing');
   });
 });
