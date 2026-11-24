@@ -118,6 +118,18 @@ describe('Koala\'s code as the coupler sees it', () => {
     expect(versionsIn(lock, ['mongodb', '@temporalio/client', 'node:child_process', 'minio'])).toEqual({ mongodb: '6.12.0', '@temporalio/client': '1.13.1' });
   });
 
+  it('says which function each function is written inside, the nearest one and never the module', () => {
+    const nested: Graph = { ...graph, units: {
+      module: unit('module', STORE, '(module)', { start: 0, end: 900 }),
+      store: unit('store', STORE, 'store', { start: 10, end: 400 }),
+      read: unit('read', STORE, '(anonymous)', { start: 50, end: 300 }),
+      mapped: unit('mapped', STORE, '(anonymous)', { start: 100, end: 120 }),
+      help: unit('help', HELP, 'help', { start: 100, end: 120 }),
+    } };
+
+    expect(Object.fromEntries(codebaseOf(nested, [], { changed: [] }).units.map((one) => [one.id, one.within]))).toEqual({ store: undefined, read: 'store', mapped: 'read', help: undefined });
+  });
+
   it('gives two calls at the same spot of a line ids of their own', () => {
     const twice: Graph = { ...graph, edges: [
       { from: 'save', site: site(SAVE, 2), to: ['help'], through: 'call' },

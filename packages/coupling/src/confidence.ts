@@ -3,7 +3,7 @@ export const LAYERS: readonly Layer[] = ['unit', 'component', 'contract', 'conta
 
 export type Kind = 'logic' | 'composition' | 'dependency';
 
-export interface CodeUnit { id: string; file: string; name: string; line: number }
+export interface CodeUnit { id: string; file: string; name: string; line: number; within?: string }
 
 export interface Link { id: string; from: string; to: string[]; kind: Kind; path?: string[]; realFrom?: Layer }
 
@@ -92,6 +92,22 @@ function lent(link: Link, proven: readonly JudgedLink[], sharing: SharingByKind)
   return best;
 }
 
+function adaptersOf(units: readonly CodeUnit[], links: readonly Link[], calling: ReadonlySet<string>): Set<string> {
+  const fileOf = new Map(units.map((unit) => [unit.id, unit.file]));
+  const callers = new Map<string, string[]>();
+  for (const link of links) {
+    if (link.kind !== 'logic') continue;
+    for (const to of link.to) if (to !== link.from && fileOf.get(to) === fileOf.get(link.from)) callers.set(to, [...(callers.get(to) ?? []), link.from]);
+  }
+  const reaching = new Set(calling);
+  const waiting = [...calling];
+  for (let next = waiting.pop(); next !== undefined; next = waiting.pop()) {
+    for (const caller of callers.get(next) ?? []) if (!reaching.has(caller)) { reaching.add(caller); waiting.push(caller); }
+  }
+  for (const unit of units) if (unit.within !== undefined && calling.has(unit.within)) reaching.add(unit.id);
+  return reaching;
+}
+
 const riskiestFirst = <T extends { risk: number }>(list: readonly T[]): T[] =>
   list.map((item, index) => ({ item, index })).sort((a, b) => b.item.risk - a.item.risk || a.index - b.index).map(({ item }) => item);
 
@@ -125,6 +141,7 @@ export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKi
     const weakest = calls.reduce((low, call) => (call.confidence < low.confidence ? call : low));
     return { confidence: weakest.confidence, from: weakest.sharedFrom! };
   };
+  const reaching = adaptersOf(codebase.units, links, new Set(outward.keys()));
   const functions = codebase.units.map((unit): JudgedUnit => {
     const runAt = LAYERS.filter((layer) => ranAt.get(unit.id)?.has(layer));
     const borrowed = runAt.length === 0 ? borrowedBy(unit.id) : undefined;
@@ -138,7 +155,7 @@ export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKi
   const reasonOf = (unit: CodeUnit): string | undefined => {
     const layers = ranAt.get(unit.id);
     if (layers === undefined) return 'no test runs it';
-    if (layers.has('unit') || outward.has(unit.id)) return undefined;
+    if (layers.has('unit') || reaching.has(unit.id)) return undefined;
     return `runs only at ${LAYERS.filter((layer) => layers.has(layer)).join(', ')}; its logic needs a unit test`;
   };
   const blocking = codebase.units.filter((unit) => changed.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id))

@@ -86,9 +86,24 @@ function linkIds(edges: readonly Edge[]): string[] {
 const handlerRan = (ranges: readonly RanRange[] | undefined, handler: { line: number; endLine: number }): boolean =>
   (ranges ?? []).some((range) => range.count > 0 && range.start.line >= handler.line && range.end.line <= handler.endLine);
 
+function enclosingOf(units: readonly Unit[]): Map<string, string> {
+  const byFile = new Map<string, Unit[]>();
+  for (const unit of units) if (unit.name !== '(module)') byFile.set(unit.file, [...(byFile.get(unit.file) ?? []), unit]);
+  const within = new Map<string, string>();
+  for (const inFile of byFile.values()) {
+    for (const unit of inFile) {
+      const around = inFile.filter((other) => other !== unit && other.start <= unit.start && other.end >= unit.end && other.end - other.start > unit.end - unit.start);
+      const nearest = around.reduce<Unit | undefined>((best, other) => (best === undefined || other.end - other.start < best.end - best.start ? other : best), undefined);
+      if (nearest) within.set(unit.id, nearest.id);
+    }
+  }
+  return within;
+}
+
 export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context): Codebase {
   const units = Object.values(graph.units).filter(judged);
   const kept = new Set(units.map((unit) => unit.id));
+  const within = enclosingOf(Object.values(graph.units));
   const ids = linkIds(graph.edges);
   const links: Link[] = graph.edges.map((edge, index): Link => {
     if (edge.through !== 'dependency') return { id: ids[index]!, from: edge.from, to: edge.to.filter((id) => kept.has(id)), kind: kindOf(edge, graph) };
@@ -134,7 +149,7 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context):
     if (failed > 0) for (const unit of run.units) failures[unit] = (failures[unit] ?? 0) + failed;
   }
   return {
-    units: units.map((unit) => ({ id: unit.id, file: unit.file, name: unit.name, line: unit.line })),
+    units: units.map((unit) => { const around = within.get(unit.id); return { id: unit.id, file: unit.file, name: unit.name, line: unit.line, ...(around ? { within: around } : {}) }; }),
     links,
     runs,
     changed: unitsIn(context.changed),

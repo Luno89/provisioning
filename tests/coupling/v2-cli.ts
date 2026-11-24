@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { heldTo, judge, learnedWeights, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
 import { ARTIFACTS, gatheredIn, judgedGather, OUT, ROOT, runsIn, runsOf } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
+import { WORKSPACES } from './workspaces.js';
 import { changedBase, codebaseOf, DEPENDENCIES, JUDGED_FROM, SHARING, versionsIn, type Since } from './v2.js';
 import { AREAS, evidenceFrom, scoresIn, survivorsIn, type KeptRun, type MutationReport, type Unchecked } from './mutation.js';
 import { backtest, faultEvidence, type KnownFault } from './faults.js';
@@ -42,7 +43,7 @@ for (const file of lines(git(['log', `--since=${CHURN_SINCE}`, '--name-only', '-
 const failedAt = JSON.parse(readFileSync(join(ROOT, 'tests', 'test-failures.json'), 'utf8')) as Record<string, string[]>;
 const failures = Object.fromEntries(Object.entries(failedAt).map(([test, times]) => [test, times.length]));
 
-const graph = builtGraph(ROOT).graph;
+const graph = builtGraph(ROOT, WORKSPACES, { withinFiles: true }).graph;
 const unchecked: Record<string, Unchecked> = {};
 const scores: Record<string, { caught: number; missed: number }> = {};
 for (const { workspace, report } of Object.values(AREAS)) {
