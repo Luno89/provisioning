@@ -156,6 +156,31 @@ describe('the token an instance holds its connection with', () => {
     expect(client.connected()).toBe(true);
   });
 
+  it('never dials root without a token, saying why once, and connects as soon as it has one', async () => {
+    let held: string | undefined;
+    const said: string[] = [];
+    const client = new RootPresence({
+      rootUrl: `http://127.0.0.1:${port}`,
+      instanceId: own.id,
+      ownerId: own.ownerId,
+      token: async () => {
+        if (!held) throw new Error('root has not registered this instance yet');
+        return held;
+      },
+      tell: async () => undefined,
+      afterMs: GRACE,
+      retryMs: 50,
+      log: (message) => { said.push(message); },
+    });
+    clients.push(client);
+    client.start();
+    await until(() => (said.length > 0 ? true : undefined));
+    held = `good-${own.id}`;
+    await until(() => client.connected());
+    expect(said).toEqual(['[root-presence] a token for root could not be had: root has not registered this instance yet']);
+    expect(checked).toEqual([`good-${own.id}`]);
+  });
+
   it('cuts the connection of an instance whose fresh token root refuses, and tells it nothing more', async () => {
     runsOutAt.set(`good-${own.id}`, clock + 1000);
     const said: string[] = [];
