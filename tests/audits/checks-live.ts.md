@@ -30,3 +30,36 @@ Not flakiness: step 3 B (one kind of cluster, the combined role gone, 2026-11-08
 - `mechanics-member-asks` and `mechanics-run-revoked` are left out of ship by name, each with its reason, in
   `NOT_ON_AN_INSTANCE` (`tests/lib/e2e-env.ts`, tested), on the owner's word ("if its slow and isn't telling us anything then either
   way"); the plan's deferred list says how each comes back.
+
+# Audit: checks-live.ts (2026-11-24)
+
+## What failed
+The day's runs (one recorded in the ledger at 21:08Z; the earlier ones were stopped by hand once they hung, and recorded nothing)
+showed four faults, each a real bug in the code, each found by a check that had passed on 2026-11-17:
+- mechanics-tree-model failed, and mechanics-project-deletion, -item-chats and -story-drop hung for good.
+- mechanics-item-chats hung again, alone, once the first fault was fixed.
+- mechanics-odoo-module and mechanics-odoo-browser-failure failed every run.
+
+## What I found
+- Deleting a project whose trees had workspaces never ended. Its workspace step counted every workspace the trees could have,
+  which `kubectl delete --ignore-not-found` "deleted" again on every pass, and the sweep, which ends only on a pass that removed
+  nothing, ran 4260 passes until Temporal ended it at its 51200-event history limit (four deletions, read from Temporal). The
+  tests' fake cluster said yes to everything and held the wrong count (`1771f98e7`).
+- A leaf getting its workspace when its run was stopped never stopped: the stop killed each kubectl the pod wait started, and the
+  wait read every killed read as "no pod yet" and asked again for good, so the deletion waiting on the leaf never ended. Traced on
+  the dev stack by tracing each step of the leaf's claim and moving a pause until the deletion landed inside it (`bc72e38bb`).
+- The Odoo 20 image now carries PostgreSQL 19's client tools beside an older server. Both Odoo scripts took the newest
+  `/usr/lib/postgresql/*/bin`, which has no initdb, so Odoo's database never started; that exit, 127, was read as "this image has
+  no koala-e2e", and the person was told to add a dependency they had (`d9f70b4e4`).
+
+## The cause
+None of these is a race in the suite: each is the code assuming something of a program outside it (what kubectl does with a name
+that is gone, what a killed kubectl returns, what an image installs, what 127 means), with nothing holding that assumption.
+
+## The fix
+- The deletion removes and counts only the workspaces that are there, asking the cluster first (checked against real kubectl).
+- The pod wait goes on only while the cluster does not answer for now, by the one rule for kubectl failures; a pod that is gone or
+  a killed read ends it with why.
+- One shared step picks the newest PostgreSQL with its server and refuses with why when there is none; a browser test run checks
+  for its runner and says it is missing by an exit code of its own.
+Each watched failing first; each failing check passed alone on the dev stack after its fix.
