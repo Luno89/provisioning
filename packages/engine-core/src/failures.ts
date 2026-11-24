@@ -66,7 +66,8 @@ const nameOf = (error: unknown): string | undefined => {
 export const refusedByServer = (error: unknown): boolean => nameOf(error) === 'ResponseBodyError';
 
 const httpStatusOf = (error: unknown): number | undefined => {
-  const candidates = [field(error, 'status'), field(field(error, 'response'), 'status'), field(error, 'statusCode')];
+  const answer = field(error, 'cause');
+  const candidates = [field(error, 'status'), field(field(error, 'response'), 'status'), field(error, 'statusCode'), answer instanceof Response ? answer.status : undefined];
   return candidates.find((value): value is number => typeof value === 'number' && value >= 100 && value <= 599);
 };
 
