@@ -1,6 +1,6 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { localCommands } from '@koala/provision';
-import { containersOn } from '@koala/provision/testing';
+import { containersOn } from '@koala/provision/testing/containers';
 import { here } from './processes.js';
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';

@@ -1,5 +1,5 @@
 import { localCommands } from '@koala/provision';
-import { containersOn } from '@koala/provision/testing';
+import { containersOn } from '@koala/provision/testing/containers';
 
 export const hostContainers = containersOn(localCommands(process.env));
 
