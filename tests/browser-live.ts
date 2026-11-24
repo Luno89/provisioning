@@ -1,63 +1,67 @@
 import assert from 'node:assert/strict';
-import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
+import { chromium } from '@playwright/test';
 import { startModelStandIn, type ModelStandIn } from './lib/model-stand-in.js';
-import { nothingWentWrong, watched, type Watched } from './lib/watched-page.js';
+import { nothingWentWrong, reached, seen, watched, type Ended, type Watched } from './lib/watched-page.js';
+import { containerNotRunning } from './lib/dead-states.js';
 import { startSplitStack, type SplitStack } from './lib/split-stack.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
+const stackDown = (stack: SplitStack): Ended => async () =>
+  (await containerNotRunning(stack.names.containers.root)) || (await containerNotRunning(stack.names.containers.instance)) || undefined;
 
 async function signsIn(stack: SplitStack, watching: Watched): Promise<void> {
   step('the owner signs in on root\'s page with their password and lands on their instance, signed in');
   const { page } = watching;
+  const down = stackDown(stack);
+  const refused: Ended = async () => (await down()) ?? ((await page.getByText(/^Koala could not sign you in/).first().isVisible()) ? (await page.getByText(/^Koala could not sign you in/).first().innerText()) : undefined);
   await page.goto(stack.rootUrl);
-  await page.getByLabel('Email Address').fill(stack.owner.email);
+  await (await seen(watching, 'root\'s sign-in form', page.getByLabel('Email Address'), down)).fill(stack.owner.email);
   await page.getByLabel('Password').fill(stack.owner.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
-  await page.waitForURL((url) => url.origin === new URL(stack.instanceUrl).origin);
-  await expect(page.getByRole('heading', { name: 'Give Koala a model to think with' })).toBeVisible();
+  await reached(watching, 'the instance', (url) => url.origin === new URL(stack.instanceUrl).origin, refused);
+  await seen(watching, 'the instance asking first for a model', page.getByRole('heading', { name: 'Give Koala a model to think with' }), refused);
   console.log(`  on ${new URL(page.url()).origin}, asked first for a model to think with`);
   nothingWentWrong(watching, 'signing in');
 }
 
 const ANSWER = 'The stand-in heard you and answers through the engine.';
 
-async function chats(watching: Watched, model: ModelStandIn): Promise<void> {
+async function chats(stack: SplitStack, watching: Watched, model: ModelStandIn): Promise<void> {
   step('the owner gives Koala a model through Studio → Models, makes it the default, and Koala answers in a chat');
   const { page } = watching;
-  await page.getByRole('link', { name: 'Or paste a key for any OpenAI-compatible provider' }).click();
+  const down = stackDown(stack);
+  await (await seen(watching, 'the way to paste a key', page.getByRole('link', { name: 'Or paste a key for any OpenAI-compatible provider' }), down)).click();
   const custom = page.getByTestId('model-provider').filter({ hasText: 'Custom Endpoint' });
-  await custom.getByRole('button', { name: 'Connect' }).click();
-  await custom.getByLabel('Base URL').fill(model.baseUrl);
+  await (await seen(watching, 'the custom endpoint\'s Connect', custom.getByRole('button', { name: 'Connect' }), down)).click();
+  await (await seen(watching, 'the custom endpoint\'s Base URL', custom.getByLabel('Base URL'), down)).fill(model.baseUrl);
   await custom.getByLabel('Model Name').fill(model.model);
-  const saved = page.waitForResponse((response) => response.url().endsWith('/api/credentials/llm') && response.request().method() === 'POST');
   await custom.getByRole('button', { name: 'Connect and fetch models' }).click();
-  const answer = await saved;
-  console.log(`  saving the endpoint answered ${answer.status()}: ${(await answer.text()).slice(0, 300)}`);
-  await page.getByLabel('Filter models').first().fill(model.model);
-  await page.getByRole('button', { name: new RegExp(model.model) }).first().click();
-  await expect(page.getByText(/^Currently:/)).toContainText(model.model);
+  await (await seen(watching, 'the fetched models\' filter', page.getByLabel('Filter models').first(), down)).fill(model.model);
+  await (await seen(watching, `${model.model} among the models`, page.getByRole('button', { name: new RegExp(model.model) }), down)).click();
+  await seen(watching, `${model.model} as the default`, page.getByText(/^Currently:/).filter({ hasText: model.model }), down);
   console.log(`  ${model.model} at ${model.baseUrl} is the default`);
 
   await page.goto(`${new URL(page.url()).origin}/#/chat`);
-  await page.getByPlaceholder(/^Message/).fill('Are you there, Koala?');
+  await (await seen(watching, 'the chat\'s message box', page.getByPlaceholder(/^Message/), down)).fill('Are you there, Koala?');
   await page.getByRole('button', { name: 'Send message' }).click();
-  await expect(page.getByText(ANSWER)).toBeVisible({ timeout: 60_000 });
+  await seen(watching, 'Koala\'s answer', page.getByText(ANSWER), down);
   assert.ok(model.asked.some((text) => text.includes('Are you there, Koala?')), `the model was asked ${JSON.stringify(model.asked)}`);
   console.log('  the answer streamed back from the model through the engine');
   nothingWentWrong(watching, 'chatting');
 }
 
-async function seesInfrastructure(watching: Watched): Promise<void> {
+async function seesInfrastructure(stack: SplitStack, watching: Watched): Promise<void> {
   step('Infrastructure shows every section and what needs attention, asking nothing that fails');
   const { page } = watching;
-  await page.getByRole('button', { name: 'Infrastructure' }).first().click();
-  await expect(page.getByTestId('infrastructure-overview')).toBeVisible();
-  await expect(page.getByText(/^checked /).first()).toBeVisible({ timeout: 60_000 });
+  const down = stackDown(stack);
+  await (await seen(watching, 'Infrastructure in the sidebar', page.getByRole('button', { name: 'Infrastructure' }), down)).click();
+  await seen(watching, 'the Infrastructure overview', page.getByTestId('infrastructure-overview'), down);
+  await seen(watching, 'the dependencies checked', page.getByText(/^checked /), down);
   for (const title of ['Needs attention', 'Model traffic', 'Alerts set', 'Alert history']) {
-    await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+    await seen(watching, `the ${title} section`, page.getByText(title, { exact: true }), down);
   }
-  await expect(page.getByText('Your own hardware', { exact: true })).toHaveCount(0);
+  assert.equal(await page.getByText('Your own hardware', { exact: true }).count(), 0, 'the instance shows the mesh only root has');
   console.log('  every section rendered, and none of the mesh that only root has');
   nothingWentWrong(watching, 'Infrastructure');
 }
@@ -65,25 +69,27 @@ async function seesInfrastructure(watching: Watched): Promise<void> {
 async function settingsThenSignsOut(stack: SplitStack, watching: Watched): Promise<void> {
   step('Settings shows the account and the instance\'s own settings, and logging out ends the session');
   const { page } = watching;
+  const down = stackDown(stack);
   const instance = new URL(stack.instanceUrl).origin;
-  await page.getByRole('button', { name: 'Settings' }).first().click();
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  await expect(page.getByText(stack.owner.email).first()).toBeVisible();
-  for (const section of ['Updates', 'Notifications']) await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
+  const root = new URL(stack.rootUrl).origin;
+  await (await seen(watching, 'Settings in the sidebar', page.getByRole('button', { name: 'Settings' }), down)).click();
+  await seen(watching, 'the Settings page', page.getByRole('heading', { name: 'Settings' }), down);
+  await seen(watching, 'the account\'s email', page.getByText(stack.owner.email), down);
+  for (const section of ['Updates', 'Notifications']) await seen(watching, `the ${section} section`, page.getByText(section, { exact: true }), down);
   console.log('  the account, its updates and notifications');
   nothingWentWrong(watching, 'Settings');
 
-  const [loggedOut] = await Promise.all([
-    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/auth/logout', { timeout: 0 }),
-    page.getByRole('button', { name: 'Log Out' }).click(),
-  ]);
-  const answered = await loggedOut.json() as { endSession?: string };
-  const root = new URL(stack.rootUrl).origin;
-  assert.ok(answered.endSession !== undefined && new URL(answered.endSession).origin === root, `the instance's logout named no place on root to end the sign-in there: it answered ${loggedOut.status()} ${JSON.stringify(answered)}`);
-  await page.waitForURL((url) => url.origin === root, { timeout: 0 });
+  const before = watching.navigations ?? 0;
+  const signedBackIn: Ended = async () => (await down()) ?? (
+    (watching.navigations ?? 0) > before && new URL(page.url()).origin === instance && await page.getByRole('button', { name: 'Log Out' }).isVisible()
+      ? `the browser is back on the instance at ${page.url()}, signed in again without a password`
+      : undefined);
+  await page.getByRole('button', { name: 'Log Out' }).click();
+  await seen(watching, 'root asking for the password again, or saying this browser is signed out', page.getByLabel('Password').or(page.getByText('This browser is signed out of Koala.')), signedBackIn);
+  assert.equal(new URL(page.url()).origin, root, `the browser ended at ${page.url()}, not on root`);
   const me = await page.request.get(`${instance}/api/auth/me`);
   assert.equal(me.status(), 401, 'the instance still took the browser\'s session after logging out');
-  console.log(`  signed out: the instance answers 401, the page is at ${page.url()}`);
+  console.log(`  signed out: the instance answers 401, and the browser is on root at ${page.url()}, signed out`);
 }
 
 async function main(): Promise<void> {
@@ -97,8 +103,8 @@ async function main(): Promise<void> {
     const context = await browser.newContext();
     watching = await watched(context);
     await signsIn(stack, watching);
-    await chats(watching, model);
-    await seesInfrastructure(watching);
+    await chats(stack, watching, model);
+    await seesInfrastructure(stack, watching);
     await settingsThenSignsOut(stack, watching);
   } catch (err) {
     if (watching) {
