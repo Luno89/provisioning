@@ -6,6 +6,7 @@ import type { RootProvider } from '../services/RootProvider.js';
 export function oidcProviderRouter(deps: {
   provider: Pick<RootProvider, 'provider' | 'continueInteraction' | 'issuer' | 'proxied'>;
   signedIn: (req: Request) => Promise<{ id: string } | undefined>;
+  endBrowserSession: (req: Request, res: Response) => Promise<void>;
   interactions: Router;
 }): Router {
   const router = Router();
@@ -14,6 +15,11 @@ export function oidcProviderRouter(deps: {
     Object.assign(req.headers, asIssuerRequest(deps.provider.issuer, req.headers, deps.provider.proxied, req.socket.remoteAddress));
     next();
   });
+
+  router.post('/session/end/confirm', asyncRoute(async (req: Request, res: Response, next) => {
+    await deps.endBrowserSession(req, res);
+    next();
+  }));
 
   router.get(LOGOUT_SCRIPT_FILE, (_req, res) => {
     res.type('application/javascript').send(LOGOUT_SCRIPT);

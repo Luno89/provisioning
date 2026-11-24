@@ -63,7 +63,7 @@ export function rootAuthOver(db: Database, deps: Pick<AuthDeps, 'open'> & Partia
       interactions: provider,
     });
     if (mounted) throw new Error('the root world is mounted once');
-    const oidc = oidcProviderRouter({ provider, signedIn: (req) => auth.userOf(req), interactions });
+    const oidc = oidcProviderRouter({ provider, signedIn: (req) => auth.userOf(req), endBrowserSession: async (req, res) => { await auth.endSession(req); auth.clearSession(res); }, interactions });
     const client = rootClientRouter({ signIn, sessions, publicUrl, landing: '/' });
     for (const served of [app, own]) {
       served.use(INTERACTION_PATH, express.json());

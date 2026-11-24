@@ -110,7 +110,7 @@ export interface InstancesWiringDeps {
   db: Database;
   mail: MailService;
   identity: IdentityService;
-  auth: Pick<ReturnType<typeof createAuth>, 'requireOperator' | 'userOf'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'requireOperator' | 'userOf' | 'endSession' | 'clearSession'>;
   sessionKey: SecretKey;
   publicUrl: string;
   repoRoot: string;
@@ -150,7 +150,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   if (deps.provider) {
     const provider = deps.provider;
     if (!deps.interactions || !deps.signIn || !deps.browserSessions) throw new Error('root\'s provider is mounted with the forms that sign people in and root\'s own web app as its client');
-    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userOf(req), interactions: deps.interactions }));
+    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userOf(req), endBrowserSession: async (req, res) => { await deps.auth.endSession(req); deps.auth.clearSession(res); }, interactions: deps.interactions }));
     app.use('/api/auth', rootClientRouter({ signIn: deps.signIn, sessions: deps.browserSessions, publicUrl, landing: '/' }));
     provider.keepDelivering();
   }
