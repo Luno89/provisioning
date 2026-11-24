@@ -5,6 +5,7 @@ import { TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
 import { commitOf, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import type { Position, Ran, RanRange } from './collect.js';
 import { mappedFunctions, type V8Function } from './mapped.js';
+import { writeRan } from './ran-record.js';
 
 export const LIVE = join(OUT, 'live');
 export const POD_SOURCE = '/app';
@@ -172,7 +173,7 @@ export function convert(dir = LIVE, root = ROOT): number {
       }
     }
     const ran: Ran = { testFile: label, files };
-    writeFileSync(join(runs, `${name}.json`), JSON.stringify(ran));
+    writeRan(join(runs, `${name}.json`), ran);
     written += 1;
   }
   return written;

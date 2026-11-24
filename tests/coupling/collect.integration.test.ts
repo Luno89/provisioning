@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ROOT } from './artifacts.js';
+import { ROOT, runsIn } from './artifacts.js';
 import { startCollecting, type Ran } from './collect.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'koala-collect-'));
@@ -19,7 +19,7 @@ describe('what a test runs, gathered', () => {
     });
     expect(said.trim()).toBe('host-ops-queue');
     await collector.take(join(ROOT, 'tests/coupling/collect.integration.test.ts'));
-    const records = readdirSync(dir).filter((name) => name.endsWith('.json')).map((name) => JSON.parse(readFileSync(join(dir, name), 'utf8')) as Ran);
+    const records = runsIn(dir);
     expect(records.map((record) => record.testFile)).toEqual(['tests/coupling/collect.integration.test.ts', 'tests/coupling/collect.integration.test.ts']);
     const queueOfIn = (record: Ran | undefined) => record?.files['apps/backend/src/platform/lib/work-places.ts']?.find((range) => range.fn !== undefined && range.start.line === 12)?.count;
     const child = records.find((record) => queueOfIn(record) === 1);
@@ -27,5 +27,24 @@ describe('what a test runs, gathered', () => {
     const queueOf = places.find((range) => range.fn !== undefined && range.start.line === 12);
     expect(queueOf?.count).toBe(1);
     expect(places.find((range) => range.fn !== undefined && range.start.line === 20)?.count ?? 0).toBe(0);
+  });
+
+  it('keeps what ran before each part was taken, so a test file whose coverage is too large to take at once is still one record', async () => {
+    const parts = mkdtempSync(join(tmpdir(), 'koala-collect-parts-'));
+    try {
+      const collector = await startCollecting({ dir: parts, root: ROOT, keep: (file) => file === 'apps/backend/src/platform/lib/work-places.ts' });
+      const places = await import('../../apps/backend/src/platform/lib/work-places.js');
+      expect(places.queueOf('host')).toBe('host-ops-queue');
+      await collector.part();
+      expect(places.placesOf('root')).toEqual(['host']);
+      await collector.take(join(ROOT, 'tests/coupling/collect-parts.integration.test.ts'));
+      const records = runsIn(parts);
+      expect(records.map((record) => record.testFile)).toEqual(['tests/coupling/collect-parts.integration.test.ts']);
+      const ranges = records[0]?.files['apps/backend/src/platform/lib/work-places.ts'] ?? [];
+      const ranOn = (line: number): boolean => ranges.some((range) => range.fn !== undefined && range.start.line === line && range.count > 0);
+      expect([ranOn(12), ranOn(19)]).toEqual([true, true]);
+    } finally {
+      rmSync(parts, { recursive: true, force: true });
+    }
   });
 });

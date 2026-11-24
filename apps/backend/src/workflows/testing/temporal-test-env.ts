@@ -17,7 +17,7 @@ export interface FreshNamespace {
 export async function freshNamespace(address: string = inject('temporalAddress')): Promise<FreshNamespace> {
   const connection = await Connection.connect({ address });
   const namespace = `koala-test-${randomUUID()}`;
-  await readyNamespace(connection, namespace);
+  await readyNamespace(connection, namespace, () => undefined);
   return {
     namespace,
     drop: async () => {

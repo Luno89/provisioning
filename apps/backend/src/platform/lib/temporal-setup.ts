@@ -30,6 +30,18 @@ export async function temporalSetUpState(asks: TemporalSetUpAsks, namespace: str
   return { done: true };
 }
 
+export async function onceNamespaceKnown(add: () => Promise<void>, namespace: string, say: (line: string) => void, again: Reopening = reopening()): Promise<void> {
+  for (;;) {
+    try {
+      return await add();
+    } catch (err) {
+      if (!notFound(err)) throw err;
+    }
+    say(`waiting for Temporal's frontend to know the namespace ${namespace} it registered, to add the search attributes Koala uses`);
+    await again.after();
+  }
+}
+
 export async function untilTemporalSetUp(asks: TemporalSetUpAsks, namespace: string, say: (line: string) => void, again: Reopening = reopening()): Promise<void> {
   for (;;) {
     let missing: string;
