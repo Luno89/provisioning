@@ -52,6 +52,13 @@ export function sourceOf(root = ROOT, scope: SourceScope = 'all', within: readon
 export const SCOPE_OF: Record<Artifact, SourceScope> = { 'in-process': 'all', live: 'production' };
 
 export const runsOf = (out: string, artifact: Artifact): string => join(out, artifact, 'runs');
+
+export function gatherEnv(base: NodeJS.ProcessEnv, coverage: string | undefined): NodeJS.ProcessEnv {
+  const env = { ...base };
+  delete env.COUPLING_COVERAGE;
+  delete env.TEMPORAL_DEBUG;
+  return coverage ? { ...env, COUPLING_COVERAGE: coverage } : env;
+}
 const gatheredFile = (out: string, artifact: Artifact): string => join(out, artifact, 'gathered.json');
 
 export function gatheredIn(out: string): Partial<Record<Artifact, Gathered>> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgedGather, type Gathered } from './artifacts.js';
+import { gatherEnv, judgedGather, type Gathered } from './artifacts.js';
 
 const gathered: Gathered = { artifact: 'in-process', source: 'abc', commit: '698bc7368c21', at: '2026-11-23T12:31:00.000Z', workspaces: ['backend'], complete: true, timings: {} };
 
@@ -15,5 +15,15 @@ describe('which gathered runs the coupler judges', () => {
   it('judges the runs of a recorded gather, and nothing for an artifact never gathered', () => {
     expect(judgedGather('in-process', { runs: true, gathered })).toBe(gathered);
     expect(judgedGather('live', { runs: false, gathered: undefined })).toBeUndefined();
+  });
+});
+
+describe('the environment the gather runs tests in', () => {
+  it('runs workflows sandboxed as production does, even when the shell asked for Temporal debug mode', () => {
+    expect(gatherEnv({ PATH: '/bin', TEMPORAL_DEBUG: '1' }, '/runs')).toEqual({ PATH: '/bin', COUPLING_COVERAGE: '/runs' });
+  });
+
+  it('gathers nothing when the run is not covered, whatever the shell carried', () => {
+    expect(gatherEnv({ PATH: '/bin', COUPLING_COVERAGE: '/old', TEMPORAL_DEBUG: '1' }, undefined)).toEqual({ PATH: '/bin' });
   });
 });

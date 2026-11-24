@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { projectOfTest, type Setup } from '../tiers/projects.js';
-import { commitOf, gatheredIn, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
+import { commitOf, gatherEnv, gatheredIn, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import { changedBetween, changedLines, fileHashes, testsToRerun } from './impact.js';
 import { runsIn } from './artifacts.js';
 import { providedIn, setupsFor } from './setups.js';
@@ -64,7 +64,7 @@ if (!gathered?.complete || !gathered.files || failed.length > 0) {
       const setups = setupsFor(integration, runs, changed, { read: readIn, exists: (file) => existsSync(join(ROOT, file)), providers: await providersOf(workspace) });
       const projects = [...new Set(mine.map(projectOfTest))];
       if (integration.length > 0) console.log(`${workspace.name}: ${mine.length} test files, starting ${setups.length > 0 ? setups.join(', ') : 'none'} of its optional setups`);
-      const ok = run('npx', ['vitest', 'run', ...projects.flatMap((project) => ['--project', project]), ...mine.map((test) => relative(cwd, join(ROOT, test)))], cwd, { ...process.env, COUPLING_COVERAGE: runsDir, TEMPORAL_DEBUG: '1', KOALA_SETUPS: setups.join(',') });
+      const ok = run('npx', ['vitest', 'run', ...projects.flatMap((project) => ['--project', project]), ...mine.map((test) => relative(cwd, join(ROOT, test)))], cwd, { ...gatherEnv(process.env, runsDir), KOALA_SETUPS: setups.join(',') });
       passed &&= ok;
     }
     if (!passed) {
