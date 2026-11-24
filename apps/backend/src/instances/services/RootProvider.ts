@@ -7,7 +7,7 @@ import { decryptValue, encryptValue, reopening, type AccessRevoked, type Databas
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, basicSecretOf, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
-  logoutClaims, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
+  logoutClaims, logoutPage, privateJwkOf, registeredKeyOf, REGISTRATION_POLICY, rootWebMetadata, type PublicJwk, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   machineClientMetadata, metricsClientMetadata, refusedClientOf, tokenRefusalLine, type TokenRefusal, type ClientAt, type ClientKind, type ClientRegistration, type RegisteringClient, type SignInKey,
 } from '../lib/oidc.js';
 import { MACHINE_SCOPE, machineKeyEnds, machineOfMetricsClient, METRICS_CLIENT_FIELDS, METRICS_SCOPE, metricsClientIdOf, type KeyReplacement } from '@koala/engine-core/root-client';
@@ -344,11 +344,7 @@ export class RootProvider {
           enabled: true,
           logoutSource: async (ctx, form) => {
             ctx.type = 'html';
-            if (ctx.oidc.client && kindOf(ctx.oidc.client).kind === 'root-web') {
-              ctx.body = `<!doctype html><meta charset="utf-8"><title>Signing out of Koala</title><body onload="document.forms['op.logoutForm'].submit()" style="font-family:system-ui;padding:2rem">${form.replace('</form>', '<input type="hidden" name="logout" value="yes"/></form>')}<p>Signing this browser out of Koala…</p></body>`;
-              return;
-            }
-            ctx.body = `<!doctype html><meta charset="utf-8"><title>Sign out of Koala</title><body style="font-family:system-ui;padding:2rem">${form}<p>You signed out of your Koala. Sign this browser out of Koala everywhere too?</p><button autofocus type="submit" form="op.logoutForm" name="logout" value="yes">Sign out everywhere in this browser</button></body>`;
+            ctx.body = logoutPage(form);
           },
           postLogoutSuccessSource: async (ctx) => {
             ctx.type = 'html';

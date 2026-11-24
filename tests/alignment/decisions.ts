@@ -716,4 +716,22 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'The first hosting is root on its real server, the owner\'s own computer joined to it as their machine, and the owner working on their Koala from anywhere while away; no one else is invited yet. One full integration run is allowed now, while waits remain, to learn its real failures. Root\'s server is a new one bought through Koala\'s Host Koala on a server page (OVHcloud; the account passed its identity check). Root moves onto a hotfix release once ship passes: its tag says the release gates were skipped and names them, and they run after.',
   },
+  {
+    id: 'logging-out',
+    subject: 'What logging out of a Koala ends',
+    terms: ['log out', 'logout', 'logged in again', 'expunged'],
+    words: [
+      { at: '2026-11-24T17:21', text: 'if they log out the token should be expunged, theres no way they should get logged in again' },
+    ],
+    reading: 'Logging out of a Koala ends the sign-in on that Koala and root\'s sign-in in that browser together, with no question asked: the next visit asks for the password again. Other browsers stay signed in until the person signs out everywhere.',
+  },
+  {
+    id: 'suite-waits',
+    subject: 'How a live suite waits',
+    terms: ['waits', 'wait', 'action chains'],
+    words: [
+      { at: '2026-11-24T17:17', text: 'yep go with that for every wait in the suites, and doesn\'t the testing suite support action chains or something? but if its a real bug I can\'t be the one to poke you into looking at it, you have to figure out how to go check it' },
+    ],
+    reading: 'Every wait in the live suites ends on the thing it waits for or on the state that shows it will never come, and says which; none ends on a clock and none waits without an end. A real bug a suite finds is chased to its cause unasked.',
+  },
 ];

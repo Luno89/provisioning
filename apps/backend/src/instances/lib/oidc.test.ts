@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
   asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, clientAt, claimsShaped, clientMetadata, instanceClient,
-  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, refusedClientOf, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor, tokenRefusalLine,
+  logoutClaims, LOGOUT_EVENT, logoutPage, publicJwkOf, publicJwkShaped, refusedClientOf, ROOT_WEB_CLIENT, rootWebMetadata, safeNextPath, signInRefusal, signInWaitingFor, tokenRefusalLine,
 } from './oidc.js';
 
 const keys = identityKeysFrom(generateIdentityKey());
@@ -135,5 +135,16 @@ describe('which client root names when it refuses one at its token endpoint', ()
   it('says the provider\'s error, its description and its detail, and leaves out what it was not told', () => {
     expect(tokenRefusalLine('i-1', { error: 'invalid_grant', error_description: 'grant request is invalid' })).toBe('[sign-in] root refused i-1 at its token endpoint: invalid_grant (grant request is invalid)');
     expect(tokenRefusalLine(undefined, { error: 'invalid_request', error_detail: 'no client authentication mechanism provided' })).toBe('[sign-in] root refused a client that named no id at its token endpoint: invalid_request: no client authentication mechanism provided');
+  });
+});
+
+describe('root\'s page for a browser logging out', () => {
+  const form = '<form method="post" action="/oidc/session/end/confirm" id="op.logoutForm"><input type="hidden" name="xsrf" value="x"/></form>';
+
+  it('ends root\'s sign-in in this browser at once, whichever Koala the person logged out of, and asks nothing', () => {
+    const page = logoutPage(form);
+    expect(page).toContain('<input type="hidden" name="logout" value="yes"/></form>');
+    expect(page).toContain('onload="document.forms[\'op.logoutForm\'].submit()"');
+    expect(page).not.toContain('<button');
   });
 });

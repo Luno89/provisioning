@@ -305,3 +305,6 @@ export function asIssuerRequest(issuer: string, headers: RequestHeaders, proxied
     ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
   };
 }
+
+export const logoutPage = (form: string): string =>
+  `<!doctype html><meta charset="utf-8"><title>Signing out of Koala</title><body onload="document.forms['op.logoutForm'].submit()" style="font-family:system-ui;padding:2rem">${form.replace('</form>', '<input type="hidden" name="logout" value="yes"/></form>')}<p>Signing this browser out of Koala…</p></body>`;
