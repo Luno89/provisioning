@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
 import { devFile, devGatewayTls, devTemporalCa } from './dev-temporal.js';
 import { answers, envArgs, minioReady, minioRun, temporal, temporalCli } from './split-stack.js';
-import { DEV_TEMPORAL_ADDRESS, dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
+import { DEV_TEMPORAL_ADDRESS, dropSuiteDatabase, firstAdmin, readySuiteNamespace, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { until } from './until.js';
@@ -72,7 +72,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
   };
   const backendAnswers = () => until('the backend answering', () => answers(`${url}/api/auth/sign-in`), () => containerNotRunning(container.backend));
   try {
-    await temporal(['namespace', 'create', '--namespace', namespace, '--retention', '24h']);
+    await readySuiteNamespace(namespace);
     await hostContainers.run(container.files, files.args);
     started.push(container.files);
     await until('its MinIO being ready', () => minioReady(filesPort), () => containerNotRunning(container.files));

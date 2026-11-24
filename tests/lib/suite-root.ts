@@ -1,4 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { devFile, devTemporalCaFile } from './dev-temporal.js';
+import { DEV_TEMPORAL_ADDRESS, suiteNamespaceSettings } from './suite-namespace.js';
+import { temporalSetupStep } from '../../apps/backend/src/scripts/temporal-setup.js';
 import { hostContainers } from './dead-states.js';
 import { pinnedImage } from './pinned-image.js';
 import { randomBytes } from 'node:crypto';
@@ -45,7 +48,7 @@ export function suiteRoot(suite: string, metricsPort: number): SuiteRoot {
   };
 }
 
-export const DEV_TEMPORAL_ADDRESS = '127.0.0.1:7233';
+export { DEV_TEMPORAL_ADDRESS };
 
 export const DEV_HEADSCALE = 'http://127.0.0.1:8080';
 
@@ -100,8 +103,12 @@ export const temporalCli = async (args: string[]): Promise<string> =>
 
 export const temporal = (args: string[]): Promise<string> => temporalCli(['operator', ...args]);
 
+export async function readySuiteNamespace(namespace: string): Promise<void> {
+  await temporalSetupStep(suiteNamespaceSettings(readFileSync(devFile('apps/backend/.env'), 'utf8'), namespace, devTemporalCaFile()), (line) => console.log(`  ${line}`));
+}
+
 export async function makeSuiteNamespace(root: SuiteRoot): Promise<void> {
-  await temporal(['namespace', 'create', '--namespace', root.namespace, '--retention', '24h']);
+  await readySuiteNamespace(root.namespace);
 }
 
 export async function dropSuiteNamespace(root: SuiteRoot): Promise<void> {

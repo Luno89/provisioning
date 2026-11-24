@@ -12,7 +12,7 @@ import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
-import { DEV_TEMPORAL_ADDRESS, firstAdmin, temporal, temporalCli, temporalContainer, withDatabase, type FirstAdmin } from './suite-root.js';
+import { DEV_TEMPORAL_ADDRESS, firstAdmin, readySuiteNamespace, temporal, temporalCli, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 import { until, waiting } from './until.js';
@@ -151,7 +151,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
   };
 
   try {
-    await temporal(['namespace', 'create', '--namespace', names.namespace, '--retention', '24h']);
+    await readySuiteNamespace(names.namespace);
     await run('mailbox', ['-p', `127.0.0.1:${ports.smtp}:1025`, '-p', `127.0.0.1:${ports.mailApi}:8025`, MAILPIT_IMAGE]);
     const files = minioRun(ports.files);
     await run('files', files.args);

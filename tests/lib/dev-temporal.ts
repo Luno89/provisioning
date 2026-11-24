@@ -15,10 +15,14 @@ export const devFile = (path: string): string => {
   return existsSync(own) ? own : join(devCheckout(), path);
 };
 
-export function devTemporalCa(): string[] {
+export function devTemporalCaFile(): string {
   const tls = devFile('apps/backend/data/temporal-tls');
   if (!existsSync(`${tls}/ca.crt`)) throw new Error(`the dev stack's Temporal has no certificate at ${tls}: run npm run dev, which makes it`);
-  return ['-v', `${tls}/ca.crt:/etc/koala/temporal-tls/ca.crt:ro`, '-e', 'TEMPORAL_TLS_CA=/etc/koala/temporal-tls/ca.crt'];
+  return `${tls}/ca.crt`;
+}
+
+export function devTemporalCa(): string[] {
+  return ['-v', `${devTemporalCaFile()}:/etc/koala/temporal-tls/ca.crt:ro`, '-e', 'TEMPORAL_TLS_CA=/etc/koala/temporal-tls/ca.crt'];
 }
 
 export function devGatewayTls(): string[] {
