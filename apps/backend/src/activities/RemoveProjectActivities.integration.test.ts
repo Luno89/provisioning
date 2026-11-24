@@ -24,7 +24,7 @@ const stored = (): ReturnType<typeof storedFilesOn> => (storedFiles ??= storedFi
 
 const deps = (): ProjectRemovalDeps => ({
   store: db,
-  kube: async (args) => { kubectl.push(args); return { stdout: '', stderr: '', exitCode: 0 }; },
+  kube: async (args) => { kubectl.push(args); return { stdout: args[0] === 'get' ? args.slice(2).filter((name) => name.startsWith('koala-run-')).map((name) => `namespace/${name}`).join('\n') : '', stderr: '', exitCode: 0 }; },
   repositories: { deleteRepo: async (owner, name) => { repos.push(`${owner}/${name}`); } },
   secrets: { removeProject: async (projectId) => { secrets.push(projectId); return { workspace: true, readers: 1 }; } },
   webhooks: { unhook: async () => 0 },
@@ -53,7 +53,7 @@ describe('the steps that delete a project', () => {
   it('deletes its trees\' workspaces and those of their conversations, its secrets, and its repositories', async () => {
     const steps = createProjectRemovalActivities(deps());
     expect(await steps.RemoveProjectWorkspacesActivity({ projectId: 'p1' })).toBe(2);
-    expect(kubectl[0]).toEqual(['delete', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '--wait=true', '--timeout=720h']);
+    expect(kubectl[1]).toEqual(['delete', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '--wait=true', '--timeout=720h']);
     await steps.RemoveProjectSecretsActivity({ projectId: 'p1' });
     expect(secrets).toEqual(['p1']);
     expect(await steps.RemoveProjectRepositoriesActivity({ projectId: 'p1' })).toEqual(['koala-bo/shop-p1', 'koala-bo/tree-t1', 'koala-bo/research-c1']);

@@ -136,9 +136,13 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
         ...found.scope.trees.flatMap((tree) => tree.scope.conversationIds.map(conversationWorkspaceRunId)),
       ];
       if (runIds.length === 0) return 0;
-      const result = await deps.kube(['delete', 'namespace', ...runIds.map(workspaceName), '--ignore-not-found', '--wait=true', `--timeout=${CLI_CEILING}`]);
+      const listed = await deps.kube(['get', 'namespace', ...runIds.map(workspaceName), '--ignore-not-found', '-o', 'name']);
+      if (listed.exitCode !== 0) throw new Error(`the project's workspaces could not be read: ${listed.stderr.trim() || listed.stdout.trim()}`);
+      const there = listed.stdout.split('\n').map((line) => line.trim().replace(/^namespace\//, '')).filter(Boolean);
+      if (there.length === 0) return 0;
+      const result = await deps.kube(['delete', 'namespace', ...there, '--ignore-not-found', '--wait=true', `--timeout=${CLI_CEILING}`]);
       if (result.exitCode !== 0) throw new Error(`the project's workspaces could not be deleted: ${result.stderr.trim() || result.stdout.trim()}`);
-      return runIds.length;
+      return there.length;
     },
 
     async RemoveProjectSecretsActivity({ projectId }) {

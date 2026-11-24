@@ -49,19 +49,31 @@ beforeEach(async () => {
 });
 
 describe('the steps that delete a project', () => {
-  it('deletes its trees\' workspaces and those of their conversations in one call, its secrets, and its repositories', async () => {
-    expect(await steps().RemoveProjectWorkspacesActivity({ projectId: 'p1' })).toBe(2);
-    expect(kube).toHaveBeenCalledWith(['delete', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '--wait=true', '--timeout=720h']);
+  it('deletes those of its trees\' workspaces and their conversations\' that are there, in one call, its secrets, and its repositories', async () => {
+    kube.mockImplementation(async (args) => (args[0] === 'get' ? { stdout: 'namespace/koala-run-tree-t1\n', stderr: '', exitCode: 0 } : { stdout: '', stderr: '', exitCode: 0 }));
+    expect(await steps().RemoveProjectWorkspacesActivity({ projectId: 'p1' })).toBe(1);
+    expect(kube.mock.calls).toEqual([
+      [['get', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '-o', 'name']],
+      [['delete', 'namespace', 'koala-run-tree-t1', '--ignore-not-found', '--wait=true', '--timeout=720h']],
+    ]);
     await steps().RemoveProjectSecretsActivity({ projectId: 'p1' });
     expect(secrets.removeProject).toHaveBeenCalledWith('p1');
     expect(await steps().RemoveProjectRepositoriesActivity({ projectId: 'p1' })).toEqual(['koala-bo/shop-p1', 'koala-bo/tree-t1', 'koala-bo/research-c1']);
     expect(repositories.deleteRepo.mock.calls).toEqual([['koala-bo', 'shop-p1'], ['koala-bo', 'tree-t1'], ['koala-bo', 'research-c1']]);
   });
 
-  it('refuses to go on when the cluster would not delete the workspaces, and has none to delete for a project without trees', async () => {
+  it('removes nothing and says so once its workspaces are gone, so the sweep that asks again can end', async () => {
+    expect(await steps().RemoveProjectWorkspacesActivity({ projectId: 'p1' })).toBe(0);
+    expect(kube.mock.calls).toEqual([[['get', 'namespace', 'koala-run-tree-t1', 'koala-run-conversation-c1', '--ignore-not-found', '-o', 'name']]]);
+  });
+
+  it('refuses to go on when the cluster would not say or delete the workspaces, and has none to delete for a project without trees', async () => {
     kube.mockResolvedValue({ stdout: '', stderr: 'forbidden', exitCode: 1 });
+    await expect(steps().RemoveProjectWorkspacesActivity({ projectId: 'p1' })).rejects.toThrow('the project\'s workspaces could not be read: forbidden');
+    kube.mockImplementation(async (args) => (args[0] === 'get' ? { stdout: 'namespace/koala-run-tree-t1\n', stderr: '', exitCode: 0 } : { stdout: '', stderr: 'forbidden', exitCode: 1 }));
     await expect(steps().RemoveProjectWorkspacesActivity({ projectId: 'p1' })).rejects.toThrow('the project\'s workspaces could not be deleted: forbidden');
-    kube.mockClear();
+    kube.mockReset();
+    kube.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
     await db.projects.saveProject({ id: 'p3', name: 'bare', ownerId: 'bo', appType: 'gitapp', createdAt: at });
     expect(await steps().RemoveProjectWorkspacesActivity({ projectId: 'p3' })).toBe(0);
     expect(await steps().RemoveProjectWorkspacesActivity({ projectId: 'nope' })).toBe(0);
