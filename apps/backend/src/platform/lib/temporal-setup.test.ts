@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Reopening } from '@koala/engine-core/reopening';
-import { untilTemporalSetUp, type TemporalSetUpAsks } from './temporal-setup.js';
+import { onceNamespaceKnown, untilTemporalSetUp, type TemporalSetUpAsks } from './temporal-setup.js';
 
 const grpc = (code: number, message: string): Error => Object.assign(new Error(message), { code, details: message, metadata: {} });
 
@@ -57,6 +57,25 @@ describe('waiting for Temporal\'s namespace to be set up', () => {
     await untilTemporalSetUp(asks, 'default', (line) => said.push(line), again);
 
     expect(said).toEqual(['waiting for Temporal\'s namespace default to be set up: it is unavailable: 14 UNAVAILABLE: No connection established']);
+  });
+
+  it('adds the search attributes once Temporal\'s frontend knows the namespace it just registered, saying it waits until then', async () => {
+    const answers = [() => { throw grpc(5, '5 NOT_FOUND: Namespace default is not found.'); }, () => undefined];
+    let added = 0;
+    const { again, times } = askedAgain();
+    const said: string[] = [];
+
+    await onceNamespaceKnown(async () => { answers[added++]!(); }, 'default', (line) => said.push(line), again);
+
+    expect(said).toEqual(['waiting for Temporal\'s frontend to know the namespace default it registered, to add the search attributes Koala uses']);
+    expect([added, times()]).toEqual([2, 1]);
+  });
+
+  it('ends at once with the reason when adding the search attributes is refused for any other reason', async () => {
+    const { again, times } = askedAgain();
+
+    await expect(onceNamespaceKnown(async () => { throw grpc(7, '7 PERMISSION_DENIED: Request unauthorized.'); }, 'default', () => undefined, again)).rejects.toThrow('7 PERMISSION_DENIED');
+    expect(times()).toBe(0);
   });
 
   it('ends at once with the reason when Temporal refuses for good', async () => {

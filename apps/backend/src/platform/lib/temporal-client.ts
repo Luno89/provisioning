@@ -11,7 +11,7 @@ import { sharedPayloadBlobs } from './db-interface.js'
 import type { PlatformKeys } from './keys.js'
 import { temporalDial, type TemporalPlace } from './temporal-connection.js'
 import { thrownFor, type DependencyReporter } from './dependencies.js'
-import { KOALA_SEARCH_ATTRIBUTES, TEMPORAL_SYSTEM_NAMESPACE, untilTemporalSetUp } from './temporal-setup.js'
+import { KOALA_SEARCH_ATTRIBUTES, TEMPORAL_SYSTEM_NAMESPACE, onceNamespaceKnown, untilTemporalSetUp } from './temporal-setup.js'
 import { temporalToken } from './temporal-auth.js'
 
 export interface TemporalClientSettings {
@@ -120,17 +120,17 @@ export interface NamespaceKeys {
   namespace: string
 }
 
-export async function readyNamespace(connection: Connection, namespace: string, keys?: NamespaceKeys): Promise<void> {
+export async function readyNamespace(connection: Connection, namespace: string, say: (line: string) => void, keys?: NamespaceKeys): Promise<void> {
   const register = () => connection.workflowService.registerNamespace({
     namespace,
     workflowExecutionRetentionPeriod: { seconds: Long.fromNumber(NAMESPACE_RETENTION_SECONDS) },
   })
   await madeOrThere(() => (keys ? connection.withApiKey(keys.system, register) : register()))
-  await registerOwnerAttribute(connection, namespace, keys?.namespace)
+  await onceNamespaceKnown(() => registerOwnerAttribute(connection, namespace, keys?.namespace), namespace, say)
 }
 
 export async function setUpTemporal(connection: Connection, namespace: string, key: string, subject: string, say: (line: string) => void): Promise<void> {
-  await readyNamespace(connection, namespace, {
+  await readyNamespace(connection, namespace, say, {
     system: temporalToken(key, { subject, namespace: TEMPORAL_SYSTEM_NAMESPACE, role: 'admin' }),
     namespace: temporalToken(key, { subject, namespace, role: 'admin' }),
   })

@@ -7,6 +7,7 @@ import { testKeys } from '../testing/keys.js';
 
 let connection: Connection;
 const made: string[] = [];
+const quiet = (): void => undefined;
 
 beforeAll(async () => { connection = await Connection.connect({ address: inject('temporalAddress') }); });
 afterAll(async () => {
@@ -18,8 +19,8 @@ describe('a Koala readying its Temporal namespace, as a plain Temporal server ma
   it('registers its namespace when the server has none, with the owner search attribute, and is a no-op the second time', async () => {
     const namespace = `koala-ready-${randomUUID()}`;
     made.push(namespace);
-    await readyNamespace(connection, namespace);
-    await readyNamespace(connection, namespace);
+    await readyNamespace(connection, namespace, quiet);
+    await readyNamespace(connection, namespace, quiet);
     const described = await connection.workflowService.describeNamespace({ namespace });
     expect(described.namespaceInfo?.name).toBe(namespace);
     const attributes = await connection.operatorService.listSearchAttributes({ namespace });
@@ -31,7 +32,7 @@ describe('a Koala readying its Temporal namespace, as a plain Temporal server ma
     made.push(...namespaces);
     const other = await Connection.connect({ address: inject('temporalAddress') });
     try {
-      const readied = await Promise.allSettled(namespaces.flatMap((namespace) => [connection, other].map((each) => readyNamespace(each, namespace))));
+      const readied = await Promise.allSettled(namespaces.flatMap((namespace) => [connection, other].map((each) => readyNamespace(each, namespace, quiet))));
       expect(readied.filter((each) => each.status === 'rejected')).toEqual([]);
     } finally {
       await other.close();

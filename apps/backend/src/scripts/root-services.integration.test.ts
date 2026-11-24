@@ -31,12 +31,12 @@ describe('npm run root-services, the entry dev and the host start root\'s servic
 
     const first = terminal();
     expect(await rootServices(['--compose', COMPOSE, 'temporal'], { places, env, terminal: first })).toBe(true);
-    expect(first.shown()).toMatch(/\[1\] Temporal's certificate, signed by a CA of its own\n[\s\S]*  done\n\n\[2\] The key Temporal checks Koala's tokens with\n[\s\S]*  done\n\n\[3\] Temporal, answering over TLS\n[\s\S]*  done\n$/);
+    expect(first.shown()).toMatch(/\[1\] Temporal's certificate, signed by a CA of its own\n[\s\S]*  done\n\n\[2\] The key Temporal checks Koala's tokens with\n[\s\S]*  done\n\n\[3\] Temporal, answering over TLS\n[\s\S]*  done\n\n\[4\] Temporal's namespace \S+ and the search attributes Koala uses\n[\s\S]*  done\n$/);
     expect(JSON.parse(readFileSync(places.temporal.jwksFile, 'utf8'))).toEqual(temporalJwks(env.TEMPORAL_KEY!));
 
     const again = terminal();
     expect(await rootServices(['--compose', COMPOSE, 'temporal'], { places, env, terminal: again })).toBe(true);
-    expect(again.shown().match(/ {2}already done\n/g)).toHaveLength(3);
+    expect(again.shown().match(/ {2}already done\n/g)).toHaveLength(4);
   }, 0);
 
   it('says why a service could not start and answers that it failed, so the entry exits non-zero', async () => {
