@@ -726,6 +726,15 @@ export const DECISIONS: Decision[] = [
     reading: 'Logging out of a Koala ends the sign-in on that Koala and root\'s sign-in in that browser together, with no question asked: the next visit asks for the password again. Other browsers stay signed in until the person signs out everywhere.',
   },
   {
+    id: 'deletion-that-stopped',
+    subject: 'What a person sees of a project deletion that ended without finishing',
+    terms: ['deletion', 'deleting', 'stuck', 'ended without finishing'],
+    words: [
+      { at: '2026-11-24T19:58', text: 'yep go with 1, do it after hosting' },
+    ],
+    reading: 'A project deletion that ended any way other than finishing shows why: the deletion page asks Temporal whether it still runs, says "Deleting stopped" with Temporal\'s reason, and Delete again starts a fresh one; Temporal not answering is shown as its state. As account removal already does. Done after the first hosting.',
+  },
+  {
     id: 'suite-waits',
     subject: 'How a live suite waits',
     terms: ['waits', 'wait', 'action chains'],
