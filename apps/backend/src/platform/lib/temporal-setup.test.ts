@@ -28,16 +28,20 @@ function askedAgain() {
 
 const there = () => ({ namespaceInfo: { name: 'default' } });
 
+async function waitedThrough(answers: Parameters<typeof temporalAnswering>[0]) {
+  const { asks, asked } = temporalAnswering(answers);
+  const { again, times } = askedAgain();
+  const said: string[] = [];
+  await untilTemporalSetUp(asks, 'default', (line) => said.push(line), again);
+  return { said, times, asked };
+}
+
 describe('waiting for Temporal\'s namespace to be set up', () => {
   it('waits while the namespace is not there or an attribute Koala uses is not listed, saying what is missing, and ends once both are', async () => {
-    const { asks } = temporalAnswering({
+    const { said, times } = await waitedThrough({
       namespace: [() => { throw grpc(5, '5 NOT_FOUND: Namespace default is not found.'); }, there],
       attributes: [() => ({ KoalaOwner: 2 }), () => ({ KoalaOwner: 2, KoalaProject: 2 })],
     });
-    const { again, times } = askedAgain();
-    const said: string[] = [];
-
-    await untilTemporalSetUp(asks, 'default', (line) => said.push(line), again);
 
     expect(said).toEqual([
       'waiting for Temporal\'s namespace default to be set up: the namespace is not there yet',
@@ -47,15 +51,11 @@ describe('waiting for Temporal\'s namespace to be set up', () => {
   });
 
   it('waits while Temporal lists the attributes but cannot yet use them in a query, and ends once a query by them is answered', async () => {
-    const { asks, asked } = temporalAnswering({
+    const { said, times, asked } = await waitedThrough({
       namespace: [there],
       attributes: [() => ({ KoalaOwner: 2, KoalaProject: 2 })],
       query: [() => { throw grpc(3, '3 INVALID_ARGUMENT: Namespace default has no mapping defined for search attribute KoalaOwner'); }, () => ({ executions: [] })],
     });
-    const { again, times } = askedAgain();
-    const said: string[] = [];
-
-    await untilTemporalSetUp(asks, 'default', (line) => said.push(line), again);
 
     expect(said).toEqual(['waiting for Temporal\'s namespace default to be set up: Temporal lists KoalaOwner and KoalaProject but cannot use them in a query yet']);
     expect(asked.query).toBe(2);
