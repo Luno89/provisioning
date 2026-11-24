@@ -55,7 +55,7 @@ export interface SplitPorts { root: number; instance: number; instanceGateway: n
 
 export const splitPlace = (names: SplitNames, ports: SplitPorts): SplitPlace => ({
   rootUrl: `http://localhost:${ports.root}`,
-  instanceUrl: `http://localhost:${ports.instance}`,
+  instanceUrl: `http://127.0.0.1:${ports.instance}`,
   rootApiPort: ports.root,
   instanceApiPort: ports.instance,
   rootDatabase: names.databases.root,

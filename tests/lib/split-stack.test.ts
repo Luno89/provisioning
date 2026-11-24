@@ -11,10 +11,10 @@ describe('a split stack of its own', () => {
     expect(splitNames('other').databases.root).not.toBe(names.databases.root);
   });
 
-  it('places each side on its own port and database, the instance on one of its own too', () => {
+  it('places each side on its own host, port and database, since a browser keeps one set of cookies per host whatever the port', () => {
     const place = splitPlace(names, { root: 1, instance: 2, instanceGateway: 4, rootGateway: 5, smtp: 7, mailApi: 8, metrics: 9, files: 10 });
     expect(place).toEqual({
-      rootUrl: 'http://localhost:1', instanceUrl: 'http://localhost:2',
+      rootUrl: 'http://localhost:1', instanceUrl: 'http://127.0.0.1:2',
       rootApiPort: 1, instanceApiPort: 2,
       rootDatabase: 'koala_split_root_abc123', instanceDatabase: 'koala_split_instance_abc123',
     });
