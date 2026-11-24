@@ -63,3 +63,32 @@ the card then showed in red.
 ## Also checked, nothing found
 - Root logs one `invalid_client … client not found` from the instance at its token endpoint during start; sign-in passes after
   it. It is a start-up order between the instance's processes and its registration at root, followed up on its own.
+
+# Audit: browser-live.ts, logging out (2026-11-24)
+
+## What failed
+- 16:40Z: after Log Out the browser came back to the instance's chat, signed in, and the step's 30-second clock ran out.
+- 17:50Z: the new wait for root's sign-out ended at once on what the page reported: `400 GET /socket.io/` and Chromium refusing
+  an inline event handler under root's `script-src 'self'`.
+(The run at 16:44Z, which hung on a wait with no end, was stopped by hand and recorded nothing.)
+
+## What I found
+Three faults in the code, one in the suite:
+- The page sent the browser to root to end the sign-in, and in the same moment, now signed out, started a new sign-in (`8f3415a4e`
+  shows it at unit: two navigations, root's sign-out and the instance's sign-in start, the second winning).
+- Root's page for an instance's logout asked whether to end root's sign-in too and kept it unless the person said yes, so the
+  new sign-in went straight through with no password. The owner, 2026-11-24: "if they log out the token should be expunged, theres
+  no way they should get logged in again" (`9f0ead0f7`).
+- Root's logout page submitted itself with an inline `onload`, which root's own policy forbids, so it never submitted: no logout,
+  from an instance or from root's own pages, ever ended root's sign-in (`e2f8e9517`).
+- The page's live connection kept reconnecting with the ended session (`e2f8e9517`).
+- The suite waited on clocks, and once on nothing at all: the first never said why, the second hung.
+
+## The cause
+The logout flow had no test that followed it to its end in a browser; each piece was tested alone and the pieces disagreed.
+
+## The fix
+- The page holds at "Signing you out of Koala…", closes its connection, and goes only to root.
+- Every logout ends root's sign-in at once through one page, submitted by a script root serves.
+- The suite waits only through `seen` and `reached`: each ends on what it waits for, or at once on a failed request, a console
+  error, a closed page, a stopped root or instance, or, for logging out, the instance signing the browser back in.
