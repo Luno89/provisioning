@@ -29,7 +29,7 @@ interface Child {
 function begin(envOf: EnvOf, run: ProcessRun, group: boolean, outputFd: number | undefined): Child {
   const out = outputFd ?? 'pipe';
   const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: envOf(run.env), stdio: ['pipe', out, out], detached: group }) as Child['child'];
-  let failed: (err: Error) => void = () => undefined;
+  let failed!: (err: Error) => void;
   let over = false;
   const closed = new Promise<Pick<ProcessResult, 'code' | 'signal'>>((done, fail) => {
     failed = fail;

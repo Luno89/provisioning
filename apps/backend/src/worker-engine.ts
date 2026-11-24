@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { QUEUES, isOff, reachingMemoryIndex } from './platform/index.js';
+import { QUEUES, isOff, reachingMemoryIndex, saidFailures } from './platform/index.js';
 import { dependencyFetch } from '@koala/engine-core/http';
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import { catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, RunTokens, revokeRunSignal, WorkspaceBuildService, hostedMcpUrl } from './engine/index.js';
@@ -148,7 +148,7 @@ async function buildActivities(settings: EngineWorkerSettings, dependencies: Dep
   const rootSignIn = rootSignInFor({
     role: engineRole, client: settings.client, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl,
     sessions: new BrowserSessions({ store: db.platform, secret: keys.session, securedFor: () => true }),
-    dependency: { failed: (dependency, err) => { logger.warn(`[sign-in] ${dependency} did not answer the engine worker: ${(err as Error).message}`); return err; } },
+    dependency: saidFailures('the engine worker', (line) => logger.warn(`[sign-in] ${line}`)),
   });
   rootSignIn?.keepRegistering((message) => console.warn(`[sign-in] ${message}`));
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess) });
