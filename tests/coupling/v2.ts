@@ -37,7 +37,7 @@ export interface Context {
 const NAMED = /\.(component|contract|container)\.test\.[a-z]+$/;
 const INTEGRATION = /\.integration\.test\.[a-z]+$/;
 
-export const JUDGED_FROM = '744567b6ca15e7be04bfc2b27768fd8585b67c54';
+export const JUDGED_FROM = '4cd8b3262df7658d10e9a9cb68f4672aa0d48ced';
 
 export const changedBase = (at: { shipped: string; startShipped: boolean }): string => (at.startShipped ? at.shipped : JUDGED_FROM);
 
