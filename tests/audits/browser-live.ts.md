@@ -92,3 +92,20 @@ The logout flow had no test that followed it to its end in a browser; each piece
 - Every logout ends root's sign-in at once through one page, submitted by a script root serves.
 - The suite waits only through `seen` and `reached`: each ends on what it waits for, or at once on a failed request, a console
   error, a closed page, a stopped root or instance, or, for logging out, the instance signing the browser back in.
+
+# Audit: browser-live.ts, logging out, the last two layers (2026-11-24)
+
+## What failed
+- Root's logout page now submitted, and the browser refused the redirect back to the instance: root's `form-action 'self'`
+  governs where a submitted form may lead, and the instance is another origin.
+- With that allowed, the suite's wait ended at once on "the browser is back on the instance, signed in again without a password".
+
+## What I found
+- Root's logout page carried root's whole policy, so its own redirect to the client's registered return address was blocked.
+- Root holds two sign-ins in a browser: its provider's session and its own web session. Logging out ended the first only, and root
+  finishes an instance's sign-in at once while its web session lives, so the instance's next sign-in went straight through.
+
+## The fix
+- Root's logout page lets its form lead on to exactly the return addresses the logging-out client registered (`formActionAlso`).
+- Confirming a logout at root ends root's own web session in that browser before the provider ends its session.
+Both watched failing first at unit.
