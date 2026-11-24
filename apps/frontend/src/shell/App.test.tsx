@@ -7,6 +7,7 @@ import * as deploymentsApi from '../features/infrastructure/api/deployments';
 import * as authApi from '../features/platform/api';
 import * as credentialsApi from '../features/infrastructure/api/credentials';
 import * as identityApi from '../features/instances/api/identity';
+import { signedInShell } from '../test/signed-in';
 
 vi.mock('../features/instances/api/identity', async (importOriginal) => (await import('../test/mocked-module')).withResolved(importOriginal<typeof identityApi>, { getMyInstance: { instance: null, servesTenants: true } }));
 vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof clustersApi>, 'listClusters'));
@@ -29,13 +30,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 );
 
 describe('App Dashboard', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(clustersApi.listClusters).mockResolvedValue([]);
-    vi.mocked(deploymentsApi.listDeployments).mockResolvedValue([]);
-    vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
-    vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
-  });
+  beforeEach(signedInShell);
 
   it('renders the sidebar with one Infrastructure entry', async () => {
     render(<App />, { wrapper });

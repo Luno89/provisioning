@@ -11,6 +11,7 @@ import * as authApi from '../features/platform/api';
 import * as identityApi from '../features/instances/api/identity';
 import * as instancesApi from '../features/instances/api/instances';
 import { replacedLocation } from '../test/location';
+import { signedInShell } from '../test/signed-in';
 
 vi.mock('../features/infrastructure/api/clusters', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof clustersApi>, 'listClusters'));
 vi.mock('../features/infrastructure/api/deployments', async (importOriginal) => (await import('../test/mocked-module')).withMocked(importOriginal<typeof deploymentsApi>, 'listDeployments'));
@@ -28,13 +29,7 @@ const show = () => {
 };
 
 describe('where a signed-in person lands', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(clustersApi.listClusters).mockResolvedValue([]);
-    vi.mocked(deploymentsApi.listDeployments).mockResolvedValue([]);
-    vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
-    vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
-  });
+  beforeEach(signedInShell);
 
   it('root\'s page never reads clusters, deployments or cloud providers', async () => {
     vi.mocked(identityApi.getMyInstance).mockResolvedValue({ instance: null, servesTenants: false });
@@ -125,11 +120,7 @@ describe('signing out of a Koala', () => {
   const { assign } = stood;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(clustersApi.listClusters).mockResolvedValue([]);
-    vi.mocked(deploymentsApi.listDeployments).mockResolvedValue([]);
-    vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
-    vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
+    signedInShell();
     vi.mocked(identityApi.getMyInstance).mockResolvedValue({ instance: null, servesTenants: true });
     vi.mocked(authApi.signInPlace).mockResolvedValue({ url: '/api/auth/oidc/start', providers: [] });
     vi.mocked(authApi.logout).mockResolvedValue(END);
