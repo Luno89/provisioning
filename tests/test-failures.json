@@ -86,6 +86,10 @@
   {
    "at": "2026-11-24T17:50:08.364Z",
    "why": "exited with code 1"
+  },
+  {
+   "at": "2026-11-24T18:00:52.586Z",
+   "why": "exited with code 1"
   }
  ],
  "tests/odoo-release-live.ts": [

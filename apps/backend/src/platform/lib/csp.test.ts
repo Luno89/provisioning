@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CSP_REPORT_PATH, cspHeader, cspModeFrom, policyText, SPA_POLICY, violationLine } from './csp.js';
+import { CSP_REPORT_PATH, cspHeader, cspModeFrom, formActionAlso, policyText, SPA_POLICY, violationLine } from './csp.js';
 
 describe('the content security policy', () => {
   it('enforces unless CSP says otherwise', () => {
@@ -43,5 +43,18 @@ describe('the content security policy', () => {
     expect(violationLine({ hello: 'world' })).toBeUndefined();
     expect(violationLine('nonsense')).toBeUndefined();
     expect(violationLine(undefined)).toBeUndefined();
+  });
+});
+
+describe('a page that sends a form on to an address of its own', () => {
+  it('lets the form go on to exactly those origins as well as its own, and changes nothing else', () => {
+    const policy = policyText();
+    const widened = formActionAlso(policy, ['http://127.0.0.1:4100/', 'https://koala.example.com/after']);
+    expect(widened).toContain("form-action 'self' http://127.0.0.1:4100 https://koala.example.com;");
+    expect(widened.replace(" http://127.0.0.1:4100 https://koala.example.com", '')).toBe(policy);
+  });
+
+  it('leaves the policy as it is when there is nowhere else to go', () => {
+    expect(formActionAlso(policyText(), [])).toBe(policyText());
   });
 });

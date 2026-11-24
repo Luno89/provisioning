@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { errors, type Adapter, type AdapterPayload, type ClientMetadata, type Configuration, type InteractionResults, type KoaContextWithOIDC, type ResourceServer } from 'oidc-provider';
 import { servingOf } from '../lib/instances.js';
 import { decodeProtectedHeader, SignJWT } from 'jose';
-import { decryptValue, encryptValue, reopening, type AccessRevoked, type Database, type Reopening, type SecretKey, type Watching } from '../../platform/index.js';
+import { decryptValue, encryptValue, formActionAlso, reopening, type AccessRevoked, type Database, type Reopening, type SecretKey, type Watching } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   ACCESS_TOKEN_TYPE, basicSecretOf, CLAIMS_SECONDS, clientAt, clientMetadata, claimsFor, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP, MACHINE_TOKEN_SECONDS, OWNER_TOKEN_TYPE, RUN_SCOPE, RUN_TOKEN_SECONDS, runResourceOf, TOKEN_EXCHANGE,
@@ -343,6 +343,11 @@ export class RootProvider {
         rpInitiatedLogout: {
           enabled: true,
           logoutSource: async (ctx, form) => {
+            const returns = ctx.oidc.client?.postLogoutRedirectUris ?? [];
+            for (const header of ['Content-Security-Policy', 'Content-Security-Policy-Report-Only']) {
+              const policy = ctx.response.get(header);
+              if (policy) ctx.set(header, formActionAlso(policy, returns));
+            }
             ctx.type = 'html';
             ctx.body = logoutPage(form);
           },

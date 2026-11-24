@@ -29,6 +29,12 @@ export function policyText(policy: Readonly<Record<string, readonly string[]>> =
   return Object.entries(policy).map(([directive, sources]) => `${directive} ${sources.join(' ')}`).join('; ');
 }
 
+export function formActionAlso(policy: string, addresses: readonly string[]): string {
+  const origins = [...new Set(addresses.map((address) => new URL(address).origin))];
+  if (origins.length === 0) return policy;
+  return policy.split('; ').map((directive) => (directive.startsWith('form-action ') ? `${directive} ${origins.join(' ')}` : directive)).join('; ');
+}
+
 export function cspHeader(mode: CspMode): { name: string; value: string } | undefined {
   if (mode === 'off') return undefined;
   return { name: mode === 'enforce' ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only', value: policyText() };

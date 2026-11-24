@@ -11,7 +11,7 @@ export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';
 export type { Keyring, SecretKey } from './lib/crypto.js';
-export { CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine } from './lib/csp.js';
+export { CSP_REPORT_PATH, cspHeader, cspModeFrom, formActionAlso, violationLine } from './lib/csp.js';
 export { createDatabase, keepPayloadsIn, sharedPayloadBlobs } from './lib/db-interface.js';
 export type { Database } from './lib/db-interface.js';
 export { COOLING_OFF_DAYS, compareVersions, devOnly, fixOf, judgeVulnerabilities } from './lib/dependency-rule.js';
