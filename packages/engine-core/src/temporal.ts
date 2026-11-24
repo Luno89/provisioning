@@ -101,9 +101,11 @@ export async function createWorker(options: KoalaWorkerOptions): Promise<Worker>
   });
 }
 
+const SANDBOXED: Pick<WorkerOptions, 'debugMode'> = { debugMode: false };
+
 export type KoalaReplayOptions = Omit<ReplayWorkerOptions, 'dataConverter' | 'interceptors'> & { workflowModules?: string[] | undefined };
 
 export async function replayHistory(options: KoalaReplayOptions, history: unknown, payloads: TemporalPayloads, workflowId?: string): Promise<void> {
   const { workflowModules, ...rest } = options;
-  await Worker.runReplayHistory({ ...rest, dataConverter: payloadConverter(payloads), ...(workflowModules ? { interceptors: { workflowModules } } : {}) }, history, workflowId);
+  await Worker.runReplayHistory({ ...rest, ...SANDBOXED, dataConverter: payloadConverter(payloads), ...(workflowModules ? { interceptors: { workflowModules } } : {}) }, history, workflowId);
 }

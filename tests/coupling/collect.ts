@@ -14,9 +14,8 @@ export interface RanRange { start: Position; end: Position; count: number; fn?: 
 export interface Ran { testFile: string; files: Record<string, RanRange[]> }
 
 interface V8Script { scriptId: string; url: string; functions: V8Function[] }
-interface MappedScript { own: string | undefined; map: TraceMap; starts: number[] }
+interface MappedScript { own: string; map: TraceMap; starts: number[] }
 
-const WORKFLOW_BUNDLE = /\/workflow-bundle-[0-9a-f]+\.js$/;
 const INLINE_MAP = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,([A-Za-z0-9+/=]+)\s*$/m;
 
 function lineStarts(text: string): number[] {
@@ -67,12 +66,11 @@ export async function startCollecting(options: { dir: string; root: string; keep
   const mapped = new Map<string, MappedScript | undefined>();
   const mappedOf = async (script: V8Script): Promise<MappedScript | undefined> => {
     if (mapped.has(script.scriptId)) return mapped.get(script.scriptId);
-    const bundled = WORKFLOW_BUNDLE.test(script.url);
-    const own = bundled || !script.url.startsWith('file://') ? undefined : relative(options.root, fileURLToPath(script.url));
-    const wanted = bundled || (own !== undefined && options.keep(own));
+    const own = script.url.startsWith('file://') ? relative(options.root, fileURLToPath(script.url)) : undefined;
+    const wanted = own !== undefined && options.keep(own);
     const { scriptSource } = wanted ? await session.post('Debugger.getScriptSource', { scriptId: script.scriptId }) as { scriptSource: string } : { scriptSource: '' };
     const inline = INLINE_MAP.exec(scriptSource)?.[1];
-    const found = inline ? { own, map: new TraceMap(JSON.parse(Buffer.from(inline, 'base64').toString('utf8')) as SourceMapInput), starts: lineStarts(scriptSource) } : undefined;
+    const found = own !== undefined && inline ? { own, map: new TraceMap(JSON.parse(Buffer.from(inline, 'base64').toString('utf8')) as SourceMapInput), starts: lineStarts(scriptSource) } : undefined;
     mapped.set(script.scriptId, found);
     return found;
   };
@@ -83,14 +81,8 @@ export async function startCollecting(options: { dir: string; root: string; keep
       const found = await mappedOf(script);
       if (!found) continue;
       const { own, map, starts } = found;
-      const fileOf = (source: string | null): string | undefined => own ?? (source ? relative(options.root, source.replace(/^webpack:\/\/[^/]*/, '')) : undefined);
       for (const ranges of mappedFunctions(script.functions, map, (offset) => generatedAt(starts, offset))) {
-        for (const { source, range } of ranges) {
-          const file = fileOf(source);
-          if (file === undefined) continue;
-          if (own === undefined && !options.keep(file)) continue;
-          (files[file] ??= []).push(range);
-        }
+        for (const { range } of ranges) (files[own] ??= []).push(range);
       }
     }
   };

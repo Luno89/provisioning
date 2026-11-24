@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, openSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commitOf, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf, type Timing } from './artifacts.js';
+import { commitOf, gatherEnv, HASHED_PATHS, OUT, record, ROOT, runsOf, sourceOf, type Timing } from './artifacts.js';
 import { fileHashes } from './impact.js';
 import { watchQuiet } from '../lib/quiet-watch.js';
 import { WORKSPACES, type Workspace } from './workspaces.js';
@@ -19,8 +19,7 @@ function optionsFrom(args: readonly string[]): Options {
 function suite(workspace: Workspace, log: string, coverage: string | undefined): { seconds: number; passed: boolean } {
   const started = Date.now();
   const output = openSync(log, 'w');
-  const env = { ...process.env, ...(coverage ? { COUPLING_COVERAGE: coverage, TEMPORAL_DEBUG: '1' } : {}) };
-  if (!coverage) delete env.COUPLING_COVERAGE;
+  const env = gatherEnv(process.env, coverage);
   const watch = watchQuiet();
   let ran;
   try {

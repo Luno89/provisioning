@@ -80,6 +80,11 @@ describe('a worker Koala builds', () => {
     const options = vi.mocked(Worker.runReplayHistory).mock.calls[0]?.[0];
     expect(codecsOf(options?.dataConverter)).toEqual([CompressionCodec, EncryptionCodec]);
   });
+
+  it('replays in a sandboxed thread as production runs workflows, never in the caller\'s own isolate', async () => {
+    await replayHistory({ workflowsPath: '/the/workflows.ts' }, { events: [] }, payloads);
+    expect(vi.mocked(Worker.runReplayHistory).mock.lastCall?.[0]).toMatchObject({ debugMode: false });
+  });
 });
 
 describe('a client Koala builds', () => {
