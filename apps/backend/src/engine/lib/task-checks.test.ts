@@ -1,7 +1,7 @@
 import { browserTestsMissing } from './browser-tests.js';
 import { describe, it, expect } from 'vitest';
 import { runTaskChecks, checksFailed, checkReport } from './task-checks.js';
-import { E2E_IGNORED } from './e2e.js';
+import { E2E_IGNORED, E2E_RUNNER_MISSING } from './e2e.js';
 import { PLAYWRIGHT_REPORT } from './e2e-fixtures.js';
 
 interface Reply { stdout?: string; stderr?: string; exitCode?: number }
@@ -176,7 +176,7 @@ describe('browser tests a task carries', () => {
     const timeouts: (number | undefined)[] = [];
     const outcomes = await runTaskChecks({ ...world, exec: (command, timeoutMs) => { timeouts.push(timeoutMs); return world.exec(command); } }, { e2e: { specs: ['e2e/a.spec.ts'] } });
 
-    expect(world.ran[0]).toBe(`{ ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`);
+    expect(world.ran[0]).toBe(`command -v koala-e2e >/dev/null || exit 69; { ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/a.spec.ts'`);
     expect(timeouts).toEqual([undefined]);
     expect(outcomes).toEqual([
       { check: 'the browser tests in e2e/a.spec.ts pass against the workspace\'s own app', passed: true, says: '1 passed, 0 failed' },
@@ -213,8 +213,15 @@ describe('browser tests a task carries', () => {
     expect(outcomes[0]).toMatchObject({ passed: false, says: '1 passed, 0 failed, yet it exited 1: worker crashed' });
   });
 
+  it('says a command the run could not find is a failure of the run, with what it printed, not a missing runner', async () => {
+    const [outcome] = await runTaskChecks(environment(() => ({ exitCode: 127, stderr: '/usr/local/bin/koala-e2e: 18: initdb: not found' })), { e2e: { specs: ['e2e'] } });
+    expect(outcome?.passed).toBe(false);
+    expect(outcome?.says).toContain('initdb: not found');
+    expect(outcome?.says).not.toContain(browserTestsMissing({}));
+  });
+
   it('says so when the workspace image cannot serve its app to a browser', async () => {
-    const outcomes = await runTaskChecks(environment(() => ({ exitCode: 127 })), { e2e: { specs: ['e2e'] } });
+    const outcomes = await runTaskChecks(environment(() => ({ exitCode: E2E_RUNNER_MISSING })), { e2e: { specs: ['e2e'] } });
 
     expect(outcomes).toEqual([{ check: 'the browser tests in e2e pass against the workspace\'s own app', passed: false, says: browserTestsMissing({}) }]);
   });

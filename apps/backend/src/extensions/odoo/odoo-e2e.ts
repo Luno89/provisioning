@@ -1,3 +1,4 @@
+import { PG_SERVER_BIN } from './postgres-server.js';
 import { E2E_IGNORED } from '../../engine/lib/e2e.js';
 import { E2E_LOGIN, LOGIN_SCRIPT } from '../../releases/lib/release-e2e.js';
 
@@ -33,7 +34,7 @@ export const ODOO_E2E_SCRIPT = [
   "}",
   "kept=/tmp/odoo-e2e-kept",
   "ODOO_E2E_HELPERS=\"${ODOO_E2E_HELPERS:-" + ODOO_E2E_HELPERS_AT + "}\"",
-  "pgbin=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)",
+  PG_SERVER_BIN,
   "stop_kept() {",
   "  [ -f \"$kept/odoo.pid\" ] && kill \"$(cat \"$kept/odoo.pid\")\" 2>/dev/null || true",
   "  \"$pgbin/pg_ctl\" -D \"$kept/pg\" -m fast stop >/dev/null 2>&1 || true",

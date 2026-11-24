@@ -1,3 +1,4 @@
+import { PG_SERVER_BIN } from './postgres-server.js';
 export const ODOO_CHECK_SCRIPT = [
   "#!/bin/sh",
   "set -eu",
@@ -8,7 +9,7 @@ export const ODOO_CHECK_SCRIPT = [
   "modules=\"$1\"",
   "addons=\"${2:-$PWD/addons}\"",
   "tags=$(printf '%s' \"$modules\" | tr ',' '\\n' | sed 's|^|/|' | paste -sd, -)",
-  "pgbin=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)",
+  PG_SERVER_BIN,
   "state=$(mktemp -d /tmp/odoo-check.XXXXXX)",
   "log=\"$state/odoo.log\"",
   "cleanup() {",

@@ -26,13 +26,13 @@ describe('what a browser test check asks for', () => {
 });
 
 describe('the command a browser test check runs', () => {
-  it('asks the workspace image to serve its own app, starting from clean results', () => {
-    expect(e2eCommand({ specs: ['e2e/it\'s.spec.ts'] })).toBe(`{ ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/it'\\''s.spec.ts'`);
+  it('asks the workspace image to serve its own app, starting from clean results, saying so when the image has no runner', () => {
+    expect(e2eCommand({ specs: ['e2e/it\'s.spec.ts'] })).toBe(`command -v koala-e2e >/dev/null || exit 69; { ${E2E_IGNORED}; } && rm -rf e2e-results && mkdir -p e2e-results && koala-e2e 'e2e/it'\\''s.spec.ts'`);
   });
 
   it('runs Playwright straight at an address, saying so when there is no Playwright', () => {
     const command = e2eCommand({ specs: ['e2e'], url: 'http://shop.local' });
-    expect(command.startsWith('command -v playwright >/dev/null || exit 127;')).toBe(true);
+    expect(command.startsWith('command -v playwright >/dev/null || exit 69;')).toBe(true);
     expect(command).toContain(`BASE_URL='http://shop.local' PLAYWRIGHT_JSON_OUTPUT_NAME="$PWD/e2e-results/report.json" playwright test 'e2e' --reporter=line,json --output="$PWD/e2e-results/artifacts"`);
   });
 });

@@ -122,6 +122,10 @@
   },
   {
    "at": "2026-11-10T05:13:49.982Z"
+  },
+  {
+   "at": "2026-11-24T21:08:29.588Z",
+   "why": "exited with code 1"
   }
  ],
  "tests/alignment/trace.integration.test.ts": [
