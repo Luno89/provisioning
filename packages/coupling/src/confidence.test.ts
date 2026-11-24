@@ -219,6 +219,72 @@ describe('logic only a test above unit runs', () => {
     expect(judged.blocking).toEqual([]);
   });
 
+  it('lets an adapter method that reaches the outside service through a helper of its own file be proven at the layer of the real thing', () => {
+    const judged = judge(codebase({
+      units: [
+        { id: 'byCode', file: 'store.ts', name: 'Store.getInviteByCode', line: 1 },
+        { id: 'byHash', file: 'store.ts', name: 'Store.getInviteByHash', line: 5 },
+      ],
+      links: [
+        { id: 'store.ts:2', from: 'byCode', to: ['byHash'], kind: 'logic' },
+        { id: 'store.ts:6', from: 'byHash', to: ['pkg:mongodb#Collection.findOne'], kind: 'dependency', path: ['mongodb', 'invites', 'Collection.findOne'] },
+      ],
+      runs: [{ test: 'c', layer: 'component', units: ['byCode', 'byHash'], links: [] }],
+      changed: ['byCode', 'byHash'],
+    }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([]);
+  });
+
+  it('lets a function written inside an adapter method, like the mapping of the documents it reads, be proven with it', () => {
+    const judged = judge(codebase({
+      units: [
+        { id: 'getInvites', file: 'store.ts', name: 'Store.getInvites', line: 1 },
+        { id: 'mapped', file: 'store.ts', name: '(anonymous)', line: 2, within: 'getInvites' },
+      ],
+      links: [{ id: 'store.ts:2', from: 'getInvites', to: ['pkg:mongodb#Collection.find'], kind: 'dependency', path: ['mongodb', 'invites', 'Collection.find'] }],
+      runs: [{ test: 'c', layer: 'component', units: ['getInvites', 'mapped'], links: [] }],
+      changed: ['getInvites', 'mapped'],
+    }), WEIGHTS);
+
+    expect(judged.blocking).toEqual([]);
+  });
+
+  it('holds a function written inside one that only reaches the outside service through a helper to a unit test', () => {
+    const judged = judge(codebase({
+      units: [
+        { id: 'wiring', file: 'worker.ts', name: 'buildActivities', line: 1 },
+        { id: 'connect', file: 'worker.ts', name: 'connect', line: 9 },
+        { id: 'activity', file: 'worker.ts', name: 'activity', line: 2, within: 'wiring' },
+      ],
+      links: [
+        { id: 'worker.ts:3', from: 'wiring', to: ['connect'], kind: 'logic' },
+        { id: 'worker.ts:10', from: 'connect', to: ['pkg:@temporalio/client#Connection.connect'], kind: 'dependency', path: ['@temporalio/client', 'Connection.connect'] },
+      ],
+      runs: [{ test: 'v', layer: 'vm', units: ['wiring', 'connect', 'activity'], links: [] }],
+      changed: ['activity'],
+    }), WEIGHTS);
+
+    expect(judged.blocking.map((unit) => unit.id)).toEqual(['activity']);
+  });
+
+  it('holds a caller in another file that reaches the service only through the adapter to a unit test', () => {
+    const judged = judge(codebase({
+      units: [
+        { id: 'service', file: 'service.ts', name: 'Service.invite', line: 1 },
+        { id: 'byHash', file: 'store.ts', name: 'Store.getInviteByHash', line: 5 },
+      ],
+      links: [
+        { id: 'service.ts:2', from: 'service', to: ['byHash'], kind: 'logic' },
+        { id: 'store.ts:6', from: 'byHash', to: ['pkg:mongodb#Collection.findOne'], kind: 'dependency', path: ['mongodb', 'invites', 'Collection.findOne'] },
+      ],
+      runs: [{ test: 'c', layer: 'component', units: ['service', 'byHash'], links: [] }],
+      changed: ['service'],
+    }), WEIGHTS);
+
+    expect(judged.blocking.map((unit) => unit.id)).toEqual(['service']);
+  });
+
   it('holds a unit whose only calls are into Koala\'s own pieces to a unit test', () => {
     const judged = judge(codebase({
       links: [{ id: 'a.ts:2', from: 'save', to: ['store'], kind: 'composition' }, { id: 'b.ts:2', from: 'store', to: ['pkg:mongodb#insertOne'], kind: 'dependency', path: ['mongodb', 'users', 'insertOne'] }],
