@@ -118,3 +118,36 @@ describe('where a signed-out person goes', () => {
     expect(screen.queryByRole('button', { name: /^sign in$/i })).toBeNull();
   });
 });
+
+describe('signing out of a Koala', () => {
+  const END = 'http://root.example/oidc/session/end?id_token_hint=t';
+  const stood = replacedLocation();
+  const { assign } = stood;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(clustersApi.listClusters).mockResolvedValue([]);
+    vi.mocked(deploymentsApi.listDeployments).mockResolvedValue([]);
+    vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
+    vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
+    vi.mocked(identityApi.getMyInstance).mockResolvedValue({ instance: null, servesTenants: true });
+    vi.mocked(authApi.signInPlace).mockResolvedValue({ url: '/api/auth/oidc/start', providers: [] });
+    vi.mocked(authApi.logout).mockResolvedValue(END);
+    useShellStore.getState().setUser(null);
+    useShellStore.getState().setAuthLoading(true);
+    window.history.replaceState({}, '', '/');
+    stood.install();
+  });
+
+  afterEach(() => {
+    stood.restore();
+  });
+
+  it('goes only to root to end the sign-in there, and never starts a new sign-in on the way', async () => {
+    show();
+    (await screen.findByRole('button', { name: 'Log Out' })).click();
+    expect(await screen.findByText('Signing you out of Koala…')).toBeInTheDocument();
+    expect(assign.mock.calls).toEqual([[END]]);
+    expect(authApi.signInPlace).not.toHaveBeenCalled();
+  });
+});

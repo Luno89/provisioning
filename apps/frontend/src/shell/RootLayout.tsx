@@ -47,6 +47,7 @@ export function RootLayout() {
 
   useEffect(() => startHistorySync(), []);
 
+  const [leaving, setLeaving] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const confirmDestroy = useShellStore((s) => s.confirmDestroy);
@@ -85,15 +86,19 @@ export function RootLayout() {
   const handleLogout = async () => {
     try {
       const endAtRoot = safeHref(await logout());
+      if (endAtRoot) {
+        setLeaving(true);
+        setUser(null);
+        return window.location.assign(endAtRoot);
+      }
       setUser(null);
-      if (endAtRoot) return window.location.assign(endAtRoot);
       void navigate({ to: '/infrastructure' });
     } catch (err) {
       console.error('Logout failed', err);
     }
   };
 
-  const signInUrl = useQuery({ queryKey: signInKeys.place(), queryFn: signInPlace, enabled: !authLoading && !user, staleTime: Infinity, select: (place) => place.url });
+  const signInUrl = useQuery({ queryKey: signInKeys.place(), queryFn: signInPlace, enabled: !authLoading && !user && !leaving, staleTime: Infinity, select: (place) => place.url });
   const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user), staleTime: Infinity });
   useEffect(() => {
     const resume = user ? resumePathFrom(window.location.search) : undefined;
@@ -102,8 +107,8 @@ export function RootLayout() {
   const resume = resumePathFrom(window.location.search);
   useEffect(() => {
     const signIn = safeHref(signInUrl.data);
-    if (!user && !resume && signIn) window.location.assign(signIn);
-  }, [user, resume, signInUrl.data]);
+    if (!user && !resume && signIn && !leaving) window.location.assign(signIn);
+  }, [user, resume, signInUrl.data, leaving]);
   const adminPage = (location.pathname === '/admin' && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail' || location.pathname === '/monitoring') && can('administer'));
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
@@ -193,6 +198,14 @@ export function RootLayout() {
     setShowLogModal({ type, id });
     setLogTab(type === 'app' ? 'general' : 'provision');
   };
+
+  if (leaving) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans">
+        <p className="text-sm text-slate-300">Signing you out of Koala…</p>
+      </div>
+    );
+  }
 
   if (authLoading || (!user && signInUrl.isPending) || (!user && !resume && signInUrl.data) || (user && placement.isPending)) {
     return (
