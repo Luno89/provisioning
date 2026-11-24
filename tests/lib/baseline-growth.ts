@@ -33,8 +33,15 @@ export const STAGED: ReadonlyArray<{ path: string; by: 'rule' | 'total'; flat?: 
 
 const sum = (baseline: Baseline): number => Object.values(baseline).reduce((total, count) => total + count, 0);
 
-export function grownTotal(before: Baseline, after: Baseline): string[] {
-  return sum(after) > sum(before) ? [`grew from ${sum(before)} to ${sum(after)}`] : [];
+export const WHOLE_COUNT = '*';
+
+export function grownTotal(path: string, before: Baseline, after: Baseline, granted: readonly BaselineGrant[]): string[] {
+  const from = sum(before);
+  const now = sum(after);
+  if (now <= from) return [];
+  const grant = granted.find((one) => one.path === path && one.rule === WHOLE_COUNT && one.from === from);
+  if (!grant) return [`grew from ${from} to ${now}`];
+  return now > grant.to ? [`grew from ${from} to ${now}, past the ${grant.to} the register allows`] : [];
 }
 
 const totals = (baseline: Baseline): Map<string, number> => {
@@ -70,7 +77,7 @@ export function stagedGrowth(root: string): string[] {
     const before = shown(root, `HEAD:${path}`, flat === true);
     const after = shown(root, `:${path}`, flat === true);
     if (!before || !after) return [];
-    return (by === 'total' ? grownTotal(before, after) : grown(path, before, after, grants(DECISIONS))).map((line) => `${path}: ${line}`);
+    return (by === 'total' ? grownTotal(path, before, after, grants(DECISIONS)) : grown(path, before, after, grants(DECISIONS))).map((line) => `${path}: ${line}`);
   });
 }
 

@@ -2,6 +2,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { heldTo, judge, learnedWeights, reportOf, untestedList, type UntestedList, type Weights } from '@koala/coupling';
+import { DECISIONS } from '../alignment/decisions.js';
+import { grants } from '../lib/baseline-growth.js';
+import { acceptedUntested } from './accepted.js';
 import { ARTIFACTS, gatheredIn, judgedGather, OUT, ROOT, runsIn, runsOf } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
 import { WORKSPACES } from './workspaces.js';
@@ -90,6 +93,13 @@ if (!existsSync(LIST)) {
 } else {
   if (args.includes('--seed')) throw new Error(`${LIST} exists: the untested list only shrinks, so it is never seeded again; use --prune`);
   const list = JSON.parse(readFileSync(LIST, 'utf8')) as UntestedList;
+  if (args.includes('--accept')) {
+    const accepted = acceptedUntested(list, untestedList(judged.untested), grants(DECISIONS));
+    if ('refused' in accepted) throw new Error(accepted.refused);
+    writeList(accepted.list);
+    console.log(`untested list taken as it is today, as the register allows: ${Object.keys(accepted.list).length} functions`);
+    process.exit(0);
+  }
   const held = heldTo(judged.untested, list);
   for (const key of held.added) console.log(`new untested function: ${key}`);
   for (const fixed of held.fixed) console.log(`now tested or gone, prune it: ${fixed.key} (${fixed.was} -> ${fixed.now})`);

@@ -12,8 +12,8 @@ describe('a baseline that may only shrink', () => {
 
   it('judges the untested list by its whole count, so a function that moves files keeps it level and one more untested function grows it', () => {
     const before = { 'a.ts#save': 1, 'b.ts#load': 2 };
-    expect(grownTotal(before, { 'moved.ts#save': 1, 'b.ts#load': 2 })).toEqual([]);
-    expect(grownTotal(before, { 'a.ts#save': 1, 'b.ts#load': 2, 'c.ts#new': 1 })).toEqual(['grew from 3 to 4']);
+    expect(grownTotal('p', before, { 'moved.ts#save': 1, 'b.ts#load': 2 }, [])).toEqual([]);
+    expect(grownTotal('p', before, { 'a.ts#save': 1, 'b.ts#load': 2, 'c.ts#new': 1 }, [])).toEqual(['grew from 3 to 4']);
     expect(STAGED.map((baseline) => baseline.path)).toContain('tests/coupling/untested.json');
   });
 
@@ -44,5 +44,14 @@ describe('a baseline that may only shrink', () => {
     const named = grants(DECISIONS);
     expect(named.length).toBeGreaterThan(0);
     for (const grant of named) expect(STAGED.map((baseline) => baseline.path)).toContain(grant.path);
+  });
+
+  it('lets a list judged by its count grow only from the count and up to the count a yes in the register names, once', () => {
+    const yes = [{ path: 'tests/coupling/untested.json', rule: '*', from: 3, to: 5 }];
+    const before = { 'a.ts#save': 1, 'b.ts#load': 2 };
+    expect(grownTotal('tests/coupling/untested.json', before, { ...before, 'c.ts#new': 1, 'd.ts#new': 1 }, yes)).toEqual([]);
+    expect(grownTotal('tests/coupling/untested.json', before, { ...before, 'c.ts#new': 3 }, yes)).toEqual(['grew from 3 to 6, past the 5 the register allows']);
+    expect(grownTotal('tests/coupling/untested.json', { ...before, 'c.ts#new': 1 }, { ...before, 'c.ts#new': 2 }, yes)).toEqual(['grew from 4 to 5']);
+    expect(grownTotal('tests/copies/baseline.json', before, { ...before, 'c.ts#new': 1 }, yes)).toEqual(['grew from 3 to 4']);
   });
 });
