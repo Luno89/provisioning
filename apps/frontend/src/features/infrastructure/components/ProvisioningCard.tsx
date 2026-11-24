@@ -67,6 +67,8 @@ export function ProvisioningCard() {
   if (view.isPending) return <Section title={TITLE}><div className="flex items-center gap-2 text-[12px] text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading how far Koala is with setting itself up…</div></Section>
   if (view.isError) return <Section title={TITLE}><p className="text-[12px] text-rose-300">{errorMessage(view.error)}</p></Section>
 
+  if (view.data.off !== undefined) return <Section title={TITLE}><p className="text-[12px] text-slate-400">{view.data.off}</p></Section>
+
   const shown = provisioningShown(view.data.setups, can('set-up-again', view.data))
 
   return (

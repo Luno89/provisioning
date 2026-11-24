@@ -6,6 +6,7 @@ export type { ProvisioningView }
 
 export interface ProvisioningAnswer extends Permitted<'set-up-again'> {
   setups: ProvisioningView[]
+  off?: string
 }
 
 export const provisioningKeys = {

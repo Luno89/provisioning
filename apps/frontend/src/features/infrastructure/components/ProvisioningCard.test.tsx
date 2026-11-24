@@ -84,6 +84,14 @@ describe('the "Setting Koala up" card on Infrastructure', () => {
     expect(screen.getByText('Koala\'s services and monitoring are set up (revision 7).')).toBeDefined()
   })
 
+  it('says why setting up is off, as a plain line and not as a failure, when this Koala has no cluster of its own', async () => {
+    answering({ setups: [], can: [], off: 'this Koala runs on no cluster of its own, so it sets nothing up' })
+    renderCard()
+    const line = await screen.findByText('this Koala runs on no cluster of its own, so it sets nothing up')
+    expect(line.closest('[role="alert"]')).toBeNull()
+    expect(line.className).toContain('text-slate-400')
+  })
+
   it('says why it cannot show the setup when the answer fails', async () => {
     vi.mocked(api.get).mockRejectedValue(Object.assign(new Error('Request failed'), { isAxiosError: true, response: { status: 500, data: { error: 'the provisioning records could not be read' } } }))
     renderCard()

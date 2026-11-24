@@ -59,10 +59,10 @@ describe('/api/infrastructure/provisioning', () => {
     expect(await routes.post('/api/infrastructure/provisioning/again', { clusterId: 'machine-nowhere' })).toMatchObject({ status: 404, data: { error: 'Koala has set nothing up on machine-nowhere' } });
   });
 
-  it('says why when this Koala has no cluster of its own to set up', async () => {
+  it('answers that setting up is off and why when this Koala has no cluster of its own, and refuses setting up again', async () => {
     const off = { off: 'this Koala runs on no cluster of its own, so it sets nothing up' };
     const routes = await on(provisioningRouter({ provisioning: off }));
-    expect(await routes.get('/api/infrastructure/provisioning')).toMatchObject({ status: 409, data: { error: off.off } });
+    expect(await routes.get('/api/infrastructure/provisioning')).toMatchObject({ status: 200, data: { setups: [], can: [], off: off.off } });
     expect(await routes.post('/api/infrastructure/provisioning/again', { clusterId: 'machine-desk' })).toMatchObject({ status: 409, data: { error: off.off } });
   });
 });

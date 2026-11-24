@@ -13,7 +13,7 @@ export function provisioningRouter({ provisioning }: ProvisioningRouterDeps): Ro
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => {
-    if (isOff(provisioning)) return res.status(409).json({ error: provisioning.off });
+    if (isOff(provisioning)) return res.json({ setups: [], can: [], off: provisioning.off });
     const principal = principalFrom(req);
     const setups = (await provisioning.latest()).filter((record) => allowed(principal, 'see', { kind: 'record', noun: 'provisioning', ownerId: record.ownerId }));
     const can: SetupAction[] = allowed(principal, 'set-up-again', { kind: 'install' }) ? ['set-up-again'] : [];
