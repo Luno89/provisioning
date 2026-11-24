@@ -57,7 +57,7 @@ export function koalaSocket(options: KoalaSocketOptions): Socket {
       held = token;
       answer({ ...options.auth, token });
     }, (err: Error) => {
-      say(`this machine could not take a token for its Koala from root (${err.message}); it asks again as it connects again`);
+      say(`this machine could not take a token for its Koala from root (${err.message}); it asks again once root is back`);
       answer({ ...options.auth });
     });
   };
@@ -78,4 +78,10 @@ export function koalaSocket(options: KoalaSocketOptions): Socket {
     return socket;
   }) as typeof socket.emit;
   return socket;
+}
+
+export function connectAgainIfRefused(socket: Pick<Socket, 'active' | 'connect'>): boolean {
+  if (socket.active) return false;
+  socket.connect();
+  return true;
 }

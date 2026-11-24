@@ -77,3 +77,27 @@ there on 2026-11-15.
 
 **How it is now built**: the destroy workflow's end sends `resource-destroyed` to the owner's browsers (TemporalBridge's settle,
 tested in TemporalBridge.test.ts), and v1-live checks the destroyed app's dashboard closes by itself rather than closing it.
+
+# Audit: v1-live.ts (2026-11-24)
+
+## What failed
+- 2026-11-23 20:23Z: recorded with no reason beyond its exit code; the suite passed later that day on a fresh stack. What failed is
+  not known, and nothing here pretends to know it.
+- 2026-11-24 18:38Z: My Machines showed this computer offline, last seen 10:10:52, and the suite stopped there.
+
+## What I found
+The machine agent's journal: at 10:01:32, during one of root's restarts (dev restarts root on a saved file), the agent could not
+take a token for its Koala from root, connected to its Koala without one, and its Koala refused it ("Unauthorized"). socket.io
+does not reconnect a socket the server refused in its middleware; `socket.active` turns false and only `connect()` asks again.
+The agent's line said "it asks again as it connects again", but nothing ever connected it again. It reconnected to root four times
+after, and root named its Koala each time, which the agent ignored because the address had not changed. It stayed cut off from its
+Koala until restarted. A hosted root restarting or upgrading at the wrong moment would do the same to a person's machine.
+
+## The cause
+A refusal was taken for a dropped connection, which socket.io retries; a refusal it does not.
+
+## The fix
+Each time root names the machine's Koala, as it does on every connect, the agent connects to its Koala again if its Koala refused
+it and nothing is trying; that connect asks root for a fresh token first (`connectAgainIfRefused`). Held by a component test with
+a real socket.io server that refuses a socket with no token: refused while root gives no token, connected with root's token once
+root answers.

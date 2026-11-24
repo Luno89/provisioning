@@ -1,6 +1,6 @@
 import type { Socket } from 'socket.io-client';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
-import { koalaSocket, type KoalaAccess } from './koala-access.js';
+import { connectAgainIfRefused, koalaSocket, type KoalaAccess } from './koala-access.js';
 import type { Koala } from './root-link.js';
 import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
@@ -79,7 +79,7 @@ export function startWork(
   koala: Koala,
   access: KoalaAccess,
   sessionsMade: (sessions: ExternalAgentSessions) => void,
-): { url: string } {
+): { url: string; again: () => void } {
   const { rootDir } = config;
   const koalaUrl = koala.url;
   const gate = new IdleGate();
@@ -172,6 +172,6 @@ export function startWork(
     void deleteLocalFile(rootDir, relativePath).then(ack);
   });
 
-  return { url: koalaUrl };
+  return { url: koalaUrl, again: () => { if (connectAgainIfRefused(socket)) say(`asking its Koala at ${koalaUrl} again, now that root is back`); } };
 }
 
