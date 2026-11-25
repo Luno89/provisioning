@@ -1,5 +1,5 @@
 import { AssertionError } from 'node:assert';
-import { statusFailure } from '@koala/engine-core/failures';
+import { failureOf, statusFailure } from '@koala/engine-core/failures';
 import { Hopeless } from '@koala/engine-core/until';
 
 export { Hopeless };
@@ -29,7 +29,8 @@ const MISTAKES = [TypeError, ReferenceError, RangeError, SyntaxError];
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function waitingOn(err: unknown): string {
-  if (err instanceof Hopeless || err instanceof AssertionError || MISTAKES.some((kind) => err instanceof kind)) throw err;
+  if (err instanceof Hopeless || err instanceof AssertionError) throw err;
+  if (MISTAKES.some((kind) => err instanceof kind) && failureOf(err).kind !== 'temporary') throw err;
   const status = (err as { response?: { status?: number } } | undefined)?.response?.status;
   if (status !== undefined && !NOT_THERE_YET.has(status) && statusFailure(status).kind === 'final') throw err;
   return err instanceof Error ? err.message : String(err);

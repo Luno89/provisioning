@@ -1,4 +1,4 @@
-import { Construct, Namespace, appDeployment, type DeploymentSpecTemplateSpec, Service, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, appDeployment, type DeploymentSpecTemplateSpec, Service, PersistentVolumeClaim, type VpnConfig, defaultServiceType, exposeApp } from "../lib/native-app.js";
 
 export interface JellyfinNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -134,17 +134,11 @@ export class JellyfinNativeApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "jellyfin",
       servicePort: 8096,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "jellyfin",
-      servicePort: 8096,
     });
   }
 }

@@ -105,7 +105,7 @@ export class SpecApp extends Construct {
     // ingress pointing at one would be a hostname that answers with a protocol error.
     if (rendered.ingressPort) {
       createAppIngress(this, "ingress", {
-        namespace: namespaceName,
+        namespace: ns,
         serviceName: rendered.service.metadata.name,
         servicePort: rendered.ingressPort,
         hostname: `${namespaceName}.apps.local`,
@@ -114,7 +114,7 @@ export class SpecApp extends Construct {
 
     if (rendered.health) {
       createAppProbe(this, "probe", {
-        namespace: namespaceName,
+        namespace: ns,
         serviceName: rendered.service.metadata.name,
         servicePort: rendered.health.port,
         path: rendered.health.path,

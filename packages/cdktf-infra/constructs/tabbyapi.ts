@@ -1,11 +1,10 @@
 import { Construct } from "constructs";
+import { exposeApp } from "../lib/app-ingress.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
 import { AppDeployment } from "../lib/app-deployment.js";
 import { type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
 
 export interface TabbyApiConfig {
@@ -337,17 +336,11 @@ export class TabbyApiApp extends Construct {
       waitForLoadBalancer: false,
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: `${sanitizedName}-tabbyapi`,
       servicePort: 5000,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: `${sanitizedName}-tabbyapi`,
-      servicePort: 5000,
       path: "/health",
     });
   }

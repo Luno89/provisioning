@@ -1,4 +1,4 @@
-import { Construct, Namespace, appDeployment, type DeploymentSpecTemplateSpec, Service, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, appDeployment, type DeploymentSpecTemplateSpec, Service, PersistentVolumeClaim, type VpnConfig, defaultServiceType, exposeApp } from "../lib/native-app.js";
 
 export interface KavitaNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -106,17 +106,11 @@ export class KavitaNativeApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "kavita",
       servicePort: 5000,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "kavita",
-      servicePort: 5000,
     });
   }
 }

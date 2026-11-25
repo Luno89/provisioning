@@ -1,4 +1,4 @@
-import { Construct, Namespace, AppDeployment, Service, PersistentVolumeClaim, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, AppDeployment, Service, PersistentVolumeClaim, defaultServiceType, exposeApp } from "../lib/native-app.js";
 import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
 
 export interface HermesAgentConfig {
@@ -133,17 +133,11 @@ export class HermesAgentApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "hermes",
       servicePort: 9119,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "hermes",
-      servicePort: 9119,
       path: "/api/health",
     });
   }

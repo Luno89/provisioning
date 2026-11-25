@@ -1,10 +1,9 @@
 import { Construct } from "constructs";
+import { exposeApp } from "../lib/app-ingress.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { AppDeployment } from "../lib/app-deployment.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
 import { bindingsFrom, jsonFrom } from "../lib/env-json.js";
 
@@ -195,17 +194,11 @@ export class GitappApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "gitapp",
       servicePort: containerPort,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "gitapp",
-      servicePort: containerPort,
     });
   }
 }

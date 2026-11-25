@@ -56,6 +56,12 @@ describe('waitUntil', () => {
       if (looks === 3) throw Object.assign(new Error('busy'), { response: { status: 503 } });
       return 'up';
     }, undefined, instant())).toBe('up');
+    let fetched = 0;
+    expect(await waitUntil('Tempo through a port-forward not listening yet', async () => {
+      fetched += 1;
+      if (fetched === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:44419'), { code: 'ECONNREFUSED' }) });
+      return 'up';
+    }, undefined, instant())).toBe('up');
     await expect(waitUntil('root', async () => { throw new Hopeless('gone'); }, undefined, instant())).rejects.toThrow('gone');
     await expect(waitUntil('root', async () => { throw Object.assign(new Error('refused'), { response: { status: 401 } }); }, undefined, instant())).rejects.toThrow('refused');
   });

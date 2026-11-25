@@ -1,8 +1,10 @@
 import { Construct } from "constructs";
 import { IngressV1 } from "../.gen/providers/kubernetes/ingress-v1/index.js";
+import type { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { createAppProbe } from "./app-probe.js";
 
 export interface AppIngressConfig {
-  readonly namespace: string;
+  readonly namespace: Namespace;
   readonly serviceName: string;
   readonly servicePort: number;
   readonly hostname: string;
@@ -20,7 +22,7 @@ export function createAppIngress(scope: Construct, id: string, config: AppIngres
   return new IngressV1(scope, id, {
     metadata: {
       name: "app",
-      namespace: config.namespace,
+      namespace: config.namespace.metadata.name,
     },
     spec: {
       ingressClassName: "traefik",
@@ -48,5 +50,21 @@ export function createAppIngress(scope: Construct, id: string, config: AppIngres
     // populate Ingress.status.loadBalancer the way this flag expects — don't block `cdktf
     // deploy` waiting on it. Same reasoning as gitapp.ts's Deployment `waitForRollout: false`.
     waitForLoadBalancer: false,
+  });
+}
+
+export interface ExposedAppConfig extends AppIngressConfig {
+  readonly path?: string;
+  readonly module?: string;
+}
+
+export function exposeApp(scope: Construct, config: ExposedAppConfig): void {
+  createAppIngress(scope, "ingress", config);
+  createAppProbe(scope, "probe", {
+    namespace: config.namespace,
+    serviceName: config.serviceName,
+    servicePort: config.servicePort,
+    ...(config.path === undefined ? {} : { path: config.path }),
+    ...(config.module === undefined ? {} : { module: config.module }),
   });
 }

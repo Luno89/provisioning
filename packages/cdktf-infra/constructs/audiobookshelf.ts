@@ -1,8 +1,7 @@
 import { Construct } from "constructs";
+import { exposeApp } from "../lib/app-ingress.js";
 import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 import { chartRepository } from "../lib/chart-source.js";
@@ -58,17 +57,11 @@ export class AudiobookshelfApp extends Construct {
 
     // Chart's Service is named after the release ("audiobookshelf"), port 8080 — confirmed via
     // `helm template` against the real chart, not assumed.
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "audiobookshelf",
       servicePort: 8080,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "audiobookshelf",
-      servicePort: 8080,
     });
   }
 }

@@ -143,14 +143,14 @@ export class Crawl4aiNativeApp extends Construct {
     });
 
     createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+      namespace: ns,
       serviceName: "crawl4ai",
       servicePort: 11235,
       hostname: `${namespaceName}.apps.local`,
     });
 
     createAppProbe(this, "probe", {
-      namespace: namespaceName,
+      namespace: ns,
       serviceName: "crawl4ai",
       servicePort: 11235,
       // Every other route sits behind the auth gate and answers 401, which blackbox-exporter would

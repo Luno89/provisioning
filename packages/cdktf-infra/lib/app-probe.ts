@@ -1,8 +1,9 @@
 import { Construct } from "constructs";
 import { Manifest } from "../.gen/providers/kubernetes/manifest/index.js";
+import type { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 
 export interface AppProbeConfig {
-  readonly namespace: string;
+  readonly namespace: Namespace;
   readonly serviceName: string;
   readonly servicePort: number;
   readonly path?: string;
@@ -28,20 +29,21 @@ export interface AppProbeConfig {
  * hostname — that hostname is only a Traefik routing key (see app-ingress.ts), not a real DNS
  * record, so blackbox-exporter running in-cluster can't resolve it.
  */
-export function probeTarget(config: Pick<AppProbeConfig, "serviceName" | "namespace" | "servicePort" | "path">): string {
+export function probeTarget(config: Pick<AppProbeConfig, "serviceName" | "servicePort" | "path"> & { readonly namespace: string }): string {
   const path = config.path ? (config.path.startsWith("/") ? config.path : `/${config.path}`) : "";
   return `${config.serviceName}.${config.namespace}.svc.cluster.local:${config.servicePort}${path}`;
 }
 
 export function createAppProbe(scope: Construct, id: string, config: AppProbeConfig): Manifest {
-  const target = probeTarget(config);
+  const namespace = config.namespace.metadata.name;
+  const target = probeTarget({ ...config, namespace });
   return new Manifest(scope, id, {
     manifest: {
       apiVersion: "monitoring.coreos.com/v1",
       kind: "Probe",
       metadata: {
         name: "app",
-        namespace: config.namespace,
+        namespace,
         // Mandatory — Prometheus Operator's probeSelector only watches Probes carrying this
         // exact label (confirmed live: `kubectl get prometheus -o jsonpath='{...probeSelector}'`
         // == {matchLabels: {release: kube-prometheus-stack}}), same convention already
@@ -62,7 +64,7 @@ export function createAppProbe(scope: Construct, id: string, config: AppProbeCon
             // as every other per-app panel/rule this session (dashboards.ts's $namespace
             // variable, alerting.ts's AppProbeDown rule).
             labels: {
-              namespace: config.namespace,
+              namespace,
               app: config.serviceName,
             },
           },

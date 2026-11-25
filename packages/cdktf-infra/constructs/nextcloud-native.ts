@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Construct, Namespace, appDeployment, mariadb, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, appDeployment, mariadb, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, defaultServiceType, exposeApp } from "../lib/native-app.js";
 
 export interface NextcloudNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -116,17 +116,11 @@ export class NextcloudNativeApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "nextcloud",
       servicePort: 80,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "nextcloud",
-      servicePort: 80,
     });
   }
 }

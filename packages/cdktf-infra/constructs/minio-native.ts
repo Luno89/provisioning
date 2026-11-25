@@ -133,7 +133,7 @@ export class MinioNativeApp extends Construct {
     });
 
     createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+      namespace: ns,
       serviceName: "minio",
       // The console, because the ingress is what a person opens. Clients use the Service on 9000.
       servicePort: 9001,
@@ -141,7 +141,7 @@ export class MinioNativeApp extends Construct {
     });
 
     createAppProbe(this, "probe", {
-      namespace: namespaceName,
+      namespace: ns,
       serviceName: "minio",
       servicePort: 9000,
       path: "/minio/health/live",

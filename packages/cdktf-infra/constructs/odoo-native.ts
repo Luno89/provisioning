@@ -1,4 +1,4 @@
-import { Construct, Namespace, AppDeployment, appDeployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, AppDeployment, appDeployment, type DeploymentSpecTemplateSpec, Service, Secret, PersistentVolumeClaim, type VpnConfig, defaultServiceType, exposeApp } from "../lib/native-app.js";
 
 export interface OdooNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -162,17 +162,11 @@ export class OdooNativeApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "odoo",
       servicePort: 8069,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "odoo",
-      servicePort: 8069,
     });
   }
 }

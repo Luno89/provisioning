@@ -216,7 +216,7 @@ export class PalworldApp extends Construct {
     // module (constructs/blackbox-exporter.ts) — existing clusters need ObservabilityStack
     // re-applied before this resolves.
     createAppProbe(this, "probe", {
-      namespace: namespaceName,
+      namespace: ns,
       serviceName: "palworld",
       servicePort: REST_PORT,
       module: "tcp_connect",

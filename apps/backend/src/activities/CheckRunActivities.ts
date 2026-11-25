@@ -375,8 +375,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         const id = (made.data as { id: string }).id;
         for (;;) {
           await stopIfCancelled();
-          const found = ((await http.get('/deployments')).data as { id: string; status: string; namespace?: string }[]).find((entry) => entry.id === id);
-          if (!found || found.status === 'failed') return { result: failedResult(scenario, '', `the world's app ${app.name} did not deploy${found ? '' : ': it is gone'}`, startedAt), runIds: [] };
+          const found = ((await http.get('/deployments')).data as { id: string; status: string; namespace?: string; failure?: string }[]).find((entry) => entry.id === id);
+          if (!found) return { result: failedResult(scenario, '', `the world's app ${app.name} did not deploy: it is gone`, startedAt), runIds: [] };
+          if (found.status === 'failed') return { result: failedResult(scenario, '', `the world's app ${app.name} did not deploy${found.failure ? `: ${found.failure}` : ', and its deployment says nothing of why'}`, startedAt), runIds: [] };
           if (found.status === 'running') {
             if (found.namespace) worldNamespaces[app.name] = found.namespace;
             break;

@@ -63,3 +63,29 @@ that is gone, what a killed kubectl returns, what an image installs, what 127 me
 - One shared step picks the newest PostgreSQL with its server and refuses with why when there is none; a browser test run checks
   for its runner and says it is missing by an exit code of its own.
 Each watched failing first; each failing check passed alone on the dev stack after its fix.
+
+# Audit: checks-live.ts again (2026-11-25)
+
+## What failed
+Ship on 963610ec0, the mechanics checks: 23 of 24 passed, and `mechanics-odoo-module` failed with "the world's app books did not
+deploy". The cluster worker's log says why, which the check did not: Terraform's `Failed to create Ingress 'books-8dff3c/app'
+because: namespaces "books-8dff3c" not found`. The suite then ended with `TypeError: fetch failed` (ECONNREFUSED) in
+`where-it-failed.ts` instead of its report. Its failure on 2026-11-24 was the same suite failing in ship.
+
+## The cause
+- **The Ingress could be made before its namespace (code).** Every app stack made its namespace as a resource, then handed the
+  Ingress and the blackbox probe the namespace's name as a plain string. Terraform saw no link between them and made them in
+  parallel; whenever the Ingress won, the cluster refused it. 26 constructs and the spec app shared the one mistake through
+  `createAppIngress` and `createAppProbe`, so any app could fail its deploy by chance.
+- **The check dropped the deploy's reason.** The deployment recorded why it failed; the check said only "did not deploy".
+- **The report of where it failed crashed on a port-forward still opening (code).** `devPortForward` returns as kubectl starts,
+  before it listens. The first `fetch` to Tempo was refused, and undici reports that as a `TypeError`, which the one wait read as
+  a mistake in the test and threw, rather than as a connection not open yet.
+
+## The fix
+- `createAppIngress` and `createAppProbe` take the namespace resource itself and name it by its reference, so Terraform makes the
+  namespace first in every app (proven by synthesizing every app: each Ingress and probe names `kubernetes_namespace.….name`).
+- A check whose world app fails says the deployment's own reason, or that the deployment gives none.
+- The wait asks the one rule (`failureOf`) before calling a `TypeError` a mistake: a network failure is waited through, and the
+  port-forward's exit still ends it.
+Each watched failing first.

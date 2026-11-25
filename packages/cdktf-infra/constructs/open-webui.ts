@@ -1,4 +1,4 @@
-import { Construct, Namespace, AppDeployment, Service, PersistentVolumeClaim, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, AppDeployment, Service, PersistentVolumeClaim, defaultServiceType, exposeApp } from "../lib/native-app.js";
 import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
 
 export interface OpenWebUiConfig {
@@ -173,17 +173,11 @@ export class OpenWebUiApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "open-webui",
       servicePort: 8080,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "open-webui",
-      servicePort: 8080,
     });
   }
 }

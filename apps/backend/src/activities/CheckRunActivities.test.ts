@@ -580,13 +580,15 @@ describe('a check\'s world', () => {
     expect((await db.accounts.getUserById('space-1'))?.space?.world).toMatchObject({ apps: { shop: 'd1' }, namespaces: { shop: 'shop-abc' } });
     expect(ok.result.outcome).toBe('ok');
 
-    const failed = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { ...apps, 'GET /deployments': { data: [{ id: 'd1', status: 'failed' }] } });
-    expect(failed.result.error).toBe('the world\'s app shop did not deploy');
+    const failed = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { ...apps, 'GET /deployments': { data: [{ id: 'd1', status: 'failed', failure: 'namespaces "shop-abc" not found' }] } });
+    expect(failed.result.error).toBe('the world\'s app shop did not deploy: namespaces "shop-abc" not found');
+    const unsaid = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { ...apps, 'GET /deployments': { data: [{ id: 'd1', status: 'failed' }] } });
+    expect(unsaid.result.error).toBe('the world\'s app shop did not deploy, and its deployment says nothing of why');
     const gone = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { ...apps, 'GET /deployments': { data: [] } });
     expect(gone.result.error).toBe('the world\'s app shop did not deploy: it is gone');
     const nowhere = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, apps, { ownClusterId: undefined });
     expect(nowhere.result.error).toBe('the world\'s app shop has no cluster to go on: this Koala runs in no cluster of its own');
-    expect(happened('POST /deployments')).toHaveLength(3);
+    expect(happened('POST /deployments')).toHaveLength(4);
     const refused = await perform({ ...CHAT, world: { apps: [{ name: 'shop', appType: 'wordpress' }] } }, { 'POST /deployments': { status: 400, data: { error: 'no cluster' } } });
     expect(refused.result.error).toBe('the world\'s app shop could not be deployed: no cluster');
   });

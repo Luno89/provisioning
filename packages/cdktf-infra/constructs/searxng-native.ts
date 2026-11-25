@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Construct } from "constructs";
+import { exposeApp } from "../lib/app-ingress.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
 import { AppDeployment } from "../lib/app-deployment.js";
@@ -7,8 +8,6 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { ConfigMap } from "../.gen/providers/kubernetes/config-map/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
 
 /**
@@ -175,17 +174,11 @@ export class SearxngNativeApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "searxng",
       servicePort: 8080,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "searxng",
-      servicePort: 8080,
     });
   }
 }

@@ -7,6 +7,6 @@ export { Service } from "../.gen/providers/kubernetes/service/index.js";
 export { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 export { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 export { type VpnConfig, VpnService } from "./vpn-service.js";
-export { createAppIngress } from "./app-ingress.js";
+export { createAppIngress, exposeApp } from "./app-ingress.js";
 export { createAppProbe } from "./app-probe.js";
 export { defaultServiceType } from "./service-type.js";

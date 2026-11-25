@@ -1,4 +1,4 @@
-import { Construct, Namespace, appDeployment, mariadb, type DeploymentSpecTemplateSpec, Service, Secret, type VpnConfig, createAppIngress, createAppProbe, defaultServiceType } from "../lib/native-app.js";
+import { Construct, Namespace, appDeployment, mariadb, type DeploymentSpecTemplateSpec, Service, Secret, type VpnConfig, defaultServiceType, exposeApp } from "../lib/native-app.js";
 
 export interface WordPressNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -78,17 +78,11 @@ export class WordPressNativeApp extends Construct {
       },
     });
 
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "wordpress",
       servicePort: 80,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "wordpress",
-      servicePort: 80,
     });
   }
 }

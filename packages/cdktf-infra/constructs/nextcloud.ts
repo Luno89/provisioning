@@ -1,8 +1,7 @@
 import { Construct } from "constructs";
+import { exposeApp } from "../lib/app-ingress.js";
 import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { createAppIngress } from "../lib/app-ingress.js";
-import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
 import { HELM_CEILING_SECONDS } from "../lib/helm-ceiling.js";
 
@@ -95,17 +94,11 @@ export class NextcloudApp extends Construct {
     // pre-existing issue (Bitnami has been moving some charts behind auth) unrelated to this
     // change. Re-verify with `helm template nextcloud oci://registry-1.docker.io/bitnamicharts/nextcloud`
     // once that's resolved.
-    createAppIngress(this, "ingress", {
-      namespace: namespaceName,
+    exposeApp(this, {
+      namespace: ns,
       serviceName: "nextcloud",
       servicePort: 80,
       hostname: `${namespaceName}.apps.local`,
-    });
-
-    createAppProbe(this, "probe", {
-      namespace: namespaceName,
-      serviceName: "nextcloud",
-      servicePort: 80,
     });
   }
 }

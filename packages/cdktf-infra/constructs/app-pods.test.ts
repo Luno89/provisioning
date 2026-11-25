@@ -50,8 +50,7 @@ function rightsProblems(build: (scope: Construct) => unknown, hostFolder?: strin
 beforeEach(() => { vi.stubEnv("APP_SERVICE_TYPE", "NodePort"); });
 afterEach(() => { vi.unstubAllEnvs(); });
 
-describe("an app's pods run as nothing of Koala's", () => {
-  const apps: [string, (scope: Construct) => unknown][] = [
+const apps: [string, (scope: Construct) => unknown][] = [
     ["Audiobookshelf", (scope) => new AudiobookshelfNativeApp(scope, "app", {})],
     ["Crawl4AI", (scope) => new Crawl4aiNativeApp(scope, "app", {})],
     ["a project's own app", (scope) => new GitappApp(scope, "app", { webRepo: "gitea-http.gitea.svc.cluster.local:3000/u/shop", webTag: "a".repeat(40) })],
@@ -77,8 +76,18 @@ describe("an app's pods run as nothing of Koala's", () => {
       deployment: { metadata: { name: "tei", namespace: "tei" }, spec: { selector: { matchLabels: { app: "tei" } }, template: { metadata: { labels: { app: "tei" } }, spec: { container: [{ name: "tei", image: "tei:1" }] } } } },
       service: { metadata: { name: "tei", namespace: "tei" }, spec: { port: [{ port: 80 }] } },
     } })],
+    ["an app from a spec a person opens", (scope) => new SpecApp(scope, "app", { rendered: {
+      namespace: { metadata: { name: "books" } },
+      pvcs: [],
+      deployment: { metadata: { name: "books", namespace: "books" }, spec: { selector: { matchLabels: { app: "books" } }, template: { metadata: { labels: { app: "books" } }, spec: { container: [{ name: "books", image: "books:1" }] } } } },
+      service: { metadata: { name: "books", namespace: "books" }, spec: { port: [{ port: 80 }] } },
+      ingressPort: 80,
+      health: { port: 80, path: "/healthcheck" },
+    } })],
     ["an app behind the VPN", (scope) => new JellyfinNativeApp(scope, "app", { vpnEnabled: true, vpnProtocol: "openvpn", vpnConfig: "client" })],
   ];
+
+describe("an app's pods run as nothing of Koala's", () => {
 
   for (const [name, build] of apps) {
     it(`${name}: no Koala account, no token, nothing privileged, no host folder`, () => {
@@ -91,4 +100,32 @@ describe("an app's pods run as nothing of Koala's", () => {
     expect(rightsProblems((scope) => new VllmApp(scope, "app", { image: "vllm/vllm-openai-rocm:v0.32.0", gpuVendor: "amd", gpuCount: 1, cachePvc: MODEL_CACHE }), MODEL_CACHE)).toEqual([]);
     expect(rightsProblems((scope) => new TabbyApiApp(scope, "app", { image: "ghcr.io/theroyallab/tabbyapi:latest", gpuCount: 1, modelSizeBytes: 20e9, cachePvc: MODEL_CACHE }), MODEL_CACHE)).toEqual([]);
   });
+});
+
+interface NamespacedResources {
+  kubernetes_ingress_v1?: Record<string, { metadata: { namespace: string } }>;
+  kubernetes_manifest?: Record<string, { manifest: { kind: string; metadata: { namespace: string } } }>;
+}
+
+const NAMESPACE_MADE_HERE = /^\$\{kubernetes_namespace\.[^.]+\.metadata\[0\]\.name\}$/;
+
+function madeBeforeItsNamespace(build: (scope: Construct) => unknown): string[] {
+  const resources = (JSON.parse(Testing.synthScope((scope) => { build(scope); })) as { resource: NamespacedResources }).resource;
+  const ingresses = Object.values(resources.kubernetes_ingress_v1 ?? {}).map((ingress) => ["its Ingress", ingress.metadata.namespace] as const);
+  const probes = Object.values(resources.kubernetes_manifest ?? {}).filter((m) => m.manifest.kind === "Probe").map((probe) => ["its probe", probe.manifest.metadata.namespace] as const);
+  return [...ingresses, ...probes].filter(([, namespace]) => !NAMESPACE_MADE_HERE.test(namespace)).map(([what, namespace]) => `${what} names the namespace ${namespace}, not the one it makes, so Terraform may make it first`);
+}
+
+describe("an app's Ingress and probe wait for the namespace they live in", () => {
+  it("an app from a spec a person opens makes an Ingress and a probe at all", () => {
+    const resources = (JSON.parse(Testing.synthScope((scope) => { apps.find(([name]) => name === "an app from a spec a person opens")![1](scope); })) as { resource: NamespacedResources }).resource;
+    expect(Object.keys(resources.kubernetes_ingress_v1 ?? {})).toHaveLength(1);
+    expect(Object.values(resources.kubernetes_manifest ?? {}).filter((m) => m.manifest.kind === "Probe")).toHaveLength(1);
+  });
+
+  for (const [name, build] of apps) {
+    it(`${name}: made only once its namespace is`, () => {
+      expect(madeBeforeItsNamespace(build)).toEqual([]);
+    });
+  }
 });
