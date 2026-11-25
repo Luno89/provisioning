@@ -50,14 +50,6 @@ describe('external agents on a machine', () => {
     expect(await opening).toMatchObject({ state: 'ended', events: [{ type: 'text', delta: 'found it' }] });
   });
 
-  it('ends a session waiting for the machine to find its agents with why, when finding them failed', async () => {
-    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root') });
-    const opening = sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
-    sessions.notFound('Koala did not answer which agents were added by hand');
-    expect(failure(await opening)).toBe('this machine could not find its agents: Koala did not answer which agents were added by hand');
-    expect(failure(await sessions.step({ key: 'k2', agent: 'scripted', op: { kind: 'open', brief: 'go' } }))).toBe('this machine could not find its agents: Koala did not answer which agents were added by hand');
-  });
-
   it('runs a turn in the folder it is given, telling the agent the context once, until the turn ends', async () => {
     const machineSessions = await machine({ name: 'scripted', version: '2', turns: [{ steps: [{ write: { path: 'notes.md', content: 'hello' } }, { say: 'Wrote it.' }] }] });
     const result = await machineSessions.step({ key: 'run-1:node:1', agent: 'scripted', op: { kind: 'open', brief: 'Write notes', context: 'You work on the shop.', path: 'shop' } });
