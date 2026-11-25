@@ -504,5 +504,11 @@
    "at": "2026-11-25T03:38:55.545Z",
    "why": "a browser signing in on 'root' behind root's real Caddy > is given the __Host- session cookie over https and stays signed in with it, whatever forwarding headers the browser itself sends: write EPROTO C0086CD3EA7F0000:error:0A000438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error:../deps/openssl/openssl/ssl/record/rec_layer_s3.c:918:SSL alert number 80\n\na browser signing in on 'an instance, through root\\'s route to…' behind root's real Caddy > is given the __Host- session cookie over https and stays signed in with it, whatever forwarding headers the browser itself sends: write EPROTO C0086CD3EA7F0000:error:0A000438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error:../deps/openssl/openssl/ssl/record/rec_layer_s3.c:918:SSL alert number 80\n"
   }
+ ],
+ "apps/backend/src/monitoring/services/own-rules.integration.test.ts": [
+  {
+   "at": "2026-11-25T15:23:05.324Z",
+   "why": "the alerts a Koala sets on the cluster it runs in, applied to a real cluster > on an instance, writes its workers' rules into that cluster's monitoring namespace, rule by rule: error: .status.conditions accessor error: <nil> is of the type <nil>, expected []interface{}"
+  }
  ]
 }
