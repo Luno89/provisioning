@@ -11,7 +11,9 @@ import { JellyfinNativeApp } from "./jellyfin-native.js";
 import { KavitaNativeApp } from "./kavita-native.js";
 import { MinioNativeApp } from "./minio-native.js";
 import { NavidromeNativeApp } from "./navidrome-native.js";
+import { NextcloudApp } from "./nextcloud.js";
 import { NextcloudNativeApp } from "./nextcloud-native.js";
+import { OdooApp } from "./odoo.js";
 import { OdooNativeApp } from "./odoo-native.js";
 import { OpenWebUiApp } from "./open-webui.js";
 import { PalworldApp } from "./palworld.js";
@@ -22,6 +24,7 @@ import { SpecApp } from "./spec-app.js";
 import { TabbyApiApp } from "./tabbyapi.js";
 import { VerdaccioNativeApp } from "./verdaccio-native.js";
 import { VllmApp } from "./vllm.js";
+import { WordPressApp } from "./wordpress.js";
 import { WordPressNativeApp } from "./wordpress-native.js";
 
 interface Container { name: string; security_context?: { privileged?: boolean } }
@@ -87,6 +90,12 @@ const apps: [string, (scope: Construct) => unknown][] = [
     ["an app behind the VPN", (scope) => new JellyfinNativeApp(scope, "app", { vpnEnabled: true, vpnProtocol: "openvpn", vpnConfig: "client" })],
   ];
 
+const helmApps: [string, (scope: Construct) => unknown][] = [
+  ["Nextcloud through its chart", (scope) => new NextcloudApp(scope, "app", {})],
+  ["Odoo through its chart", (scope) => new OdooApp(scope, "app", {})],
+  ["WordPress through its chart", (scope) => new WordPressApp(scope, "app", {})],
+];
+
 describe("an app's pods run as nothing of Koala's", () => {
 
   for (const [name, build] of apps) {
@@ -123,7 +132,7 @@ describe("an app's Ingress and probe wait for the namespace they live in", () =>
     expect(Object.values(resources.kubernetes_manifest ?? {}).filter((m) => m.manifest.kind === "Probe")).toHaveLength(1);
   });
 
-  for (const [name, build] of apps) {
+  for (const [name, build] of [...apps, ...helmApps]) {
     it(`${name}: made only once its namespace is`, () => {
       expect(madeBeforeItsNamespace(build)).toEqual([]);
     });
