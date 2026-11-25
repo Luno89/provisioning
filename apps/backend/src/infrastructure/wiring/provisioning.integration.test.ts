@@ -104,6 +104,22 @@ async function koalaAt(clusterId: string, root: ProvisionRoot = { setup: async (
   return { db, url, owner, provisioning };
 }
 
+async function recordWhen(db: Awaited<ReturnType<typeof testDatabase>>, read: () => Promise<ProvisioningRecord[]>, until: (record: ProvisioningRecord) => boolean, act: () => Promise<unknown> = async () => undefined): Promise<ProvisioningRecord> {
+  let found!: (record: ProvisioningRecord) => void;
+  let failed!: (err: unknown) => void;
+  const seen = new Promise<ProvisioningRecord>((done, fail) => { found = done; failed = fail; });
+  const watching = db.infrastructure.watchProvisioning((record) => { if (until(record)) found(record); });
+  try {
+    await watching.ready;
+    act().catch(failed);
+    const already = (await read()).find(until);
+    if (already) found(already);
+    return await seen;
+  } finally {
+    await watching.close();
+  }
+}
+
 function provisioningOn(db: Awaited<ReturnType<typeof testDatabase>>, clusterId: string, provisionRuns: ProvisionRuns): Provisioning {
   const provisioning = new Provisioning({
     store: db.infrastructure,
@@ -202,11 +218,8 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
     const settled = asks.settled(asked.id);
     const heard = await owner.when((view) => view.id === asked.id && view.state === 'running');
     expect(heard.target).toEqual({ kind: 'machine', clusterId: labId, machine: 'lab', deviceId: 'device-lab' });
-    const named = await new Promise<string>((done) => {
-      const watching = db.infrastructure.watchProvisioning((record) => { if (record.id === asked.id && record.workflowId) { void watching.close(); done(record.workflowId); } });
-      void db.infrastructure.getProvisioningRun(asked.id).then((record) => { if (record?.workflowId) { void watching.close(); done(record.workflowId); } });
-    });
-    expect(named).toBe(`provision-${labId}`);
+    const named = await recordWhen(db, async () => [await db.infrastructure.getProvisioningRun(asked.id)].filter((record) => record !== undefined), (record) => record.id === asked.id && (record.workflowId !== undefined || record.state !== 'running'));
+    expect(named.workflowId).toBe(`provision-${labId}`);
     expect(started.filter((request) => request.runId === asked.id).map((request) => request.inputs)).toEqual([{ ownerId: OWNER.id, recordId: asked.id, target: heard.target, revision: 2, reason: 'missing' }]);
 
     await env.client.workflow.getHandle(`provision-${labId}`).signal('cancelRun');
@@ -219,11 +232,12 @@ describe('Koala setting itself up after a new chart revision, on real Mongo and 
     const bridge = new TemporalBridge(db, testDataDir(), undefined, undefined, undefined, { connect: async () => env.client });
     const engineRuns = createRunStarter({ ...runsActingAsTheirOwner(), registry: createAgentRegistry(), workflows: () => (bridge.isReady() ? temporalWorkflowStarter(bridge.client.workflow) : undefined) });
     const provisioning = provisioningOn(db, clusterId, engineProvisionRuns({ runs: engineRuns, client: () => (bridge.isReady() ? bridge.client.workflow : undefined), connected: () => bridge.connected(), agent: PROVISION_AGENT }));
-    const opened = new Promise<ProvisioningRecord>((done) => {
-      const watching = db.infrastructure.watchProvisioning((record) => { if (record.target.clusterId === clusterId) { void watching.close(); done(record); } });
+    let starting!: Promise<void>;
+    const record = await recordWhen(db, () => db.infrastructure.getProvisioning(clusterId), (seen) => seen.target.clusterId === clusterId, () => {
+      starting = provisioning.start();
+      return starting;
     });
-    const starting = provisioning.start();
-    return { db, bridge, starting, record: await opened };
+    return { db, bridge, starting, record };
   }
 
   it('waits for the engine to connect to Temporal before starting the setup it was asked for, then starts it', async () => {
