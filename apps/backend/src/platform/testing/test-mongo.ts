@@ -9,6 +9,8 @@ const MONGO_VERSION = '8.0.38';
 
 export const TEST_MONGO_CACHE_GB = 0.25;
 
+export const TEST_MONGO_ENGINE = 'file_manager=(close_idle_time=5,close_scan_interval=2)';
+
 export interface TestMongo extends Provider<ServiceContext> {
   address(): string;
   uri(): string;
@@ -47,7 +49,7 @@ export function testMongo(dbPath: string): TestMongo {
         await mkdir(dbPath, { recursive: true });
         port = await portToHandOn();
         const binary = await MongoBinary.getPath({ version: MONGO_VERSION });
-        mongod = processProvider({ name: 'mongod', command: binary, args: ['--port', String(port), '--dbpath', dbPath, '--replSet', 'rs0', '--bind_ip', '127.0.0.1', '--unixSocketPrefix', dirname(dbPath), '--wiredTigerCacheSizeGB', String(TEST_MONGO_CACHE_GB)] });
+        mongod = processProvider({ name: 'mongod', command: binary, args: ['--port', String(port), '--dbpath', dbPath, '--replSet', 'rs0', '--bind_ip', '127.0.0.1', '--unixSocketPrefix', dirname(dbPath), '--wiredTigerCacheSizeGB', String(TEST_MONGO_CACHE_GB), '--wiredTigerEngineConfigString', TEST_MONGO_ENGINE] });
       } catch (err) {
         throw new Error(`the test Mongo could not start: ${err instanceof Error ? err.message : String(err)} ${await disk(dbPath)}`, { cause: err });
       }
