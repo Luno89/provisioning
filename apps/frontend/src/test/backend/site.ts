@@ -21,7 +21,7 @@ import { loadBreachedPasswords } from '../../../../backend/src/accounts/services
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
 import { getMe, logout, register, resumePathFrom, signIn as signInAt, verifySignUp, type InteractionPath, type SessionUser } from '../../features/platform'
-import { INTERACTION_PATH, START_PATH } from '../../../../backend/src/instances/lib/oidc'
+import { INTERACTION_PATH, LOGOUT_SCRIPT, START_PATH } from '../../../../backend/src/instances/lib/oidc'
 import { openRoutesOf } from '../../../../backend/src/open-routes'
 import { InstanceReach } from '../../../../backend/src/instances/services/InstanceReach'
 import { SESSION_ID_COOKIE, servedThroughRoot, signInThroughRoot, type Served } from '../../../../backend/src/instances/testing/through-root'
@@ -177,7 +177,8 @@ export async function startBackend(mount: (site: Site) => void | Promise<void>, 
     const page = await shown.text()
     const form = /<form[^>]*id="op\.logoutForm"[^>]*>/.exec(page)?.[0]
     const action = form && /action="([^"]+)"/.exec(form)?.[1]
-    const submitsItself = /<body[^>]*onload="document\.forms\['op\.logoutForm'\]\.submit\(\)"/.test(page)
+    const script = /<script src="([^"]+)"><\/script>/.exec(page)?.[1]
+    const submitsItself = script !== undefined && (await (await hop(new URL(script, at))).text()) === LOGOUT_SCRIPT
     if (!action || !submitsItself || /<button/.test(page)) throw new Error(`root's sign-out page asked instead of signing this browser out: ${shown.status} ${page.slice(0, 300)}`)
     const fields = new URLSearchParams([...page.matchAll(/<input[^>]*type="hidden"[^>]*>/g)].map(([input]) => [/name="([^"]+)"/.exec(input)?.[1] ?? '', /value="([^"]*)"/.exec(input)?.[1] ?? '']))
     const ended = await hop(new URL(action, at), fields)

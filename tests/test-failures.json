@@ -370,5 +370,113 @@
   {
    "at": "2026-11-22T03:24:15.000Z"
   }
+ ],
+ "apps/frontend/src/features/accounts/api.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a person's own password, second factor and sessions, combined > resets a forgotten password by the mailed code, and the new password signs in: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:38455/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"1668fcffd5bf1ef2b0755e8a63ef0fb90ba39f7fe75\nwhat someone who is not an operator may do on root > refuses them the invites and the people: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 403 } }\n(56 matching properties omitted from actual)\nwhat someone who is not an operator may do on root > removes their own account once they type its email and give their password, which starts its removal and ends the session: Request failed with status code 401"
+  }
+ ],
+ "apps/frontend/src/features/checks/api.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "another person > sees none of the first person's checks, runs, practices or proposals: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:35327/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"1ef432ff2a99de0e9fe9a83cd4e7fa602697c6fc287"
+  }
+ ],
+ "apps/frontend/src/features/machines/api.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "machines are the signed-in person's alone > shows another person none of the first person's machines: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:46543/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"39c8dad78a12177afb91dc898d5b949a3322b3fc0a9"
+  }
+ ],
+ "apps/frontend/src/features/models/api.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "the models the browser lists and the account default, against the real models routes > shows another person none of the first person's models: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:35007/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"b60d2881428ac04a9593e6e99f38788cd1a889e8b99"
+  }
+ ],
+ "apps/frontend/src/features/platform/api.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "the session the browser holds, against the real sign-in routes > signs out, after which getMe answers null, and root ends its own session in this browser without asking, so signing in again asks for the password: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:34515/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"b597208bf3f06b658089733df80e3384ae0306bff33\nthe session the browser holds, against the real sign-in routes > refuses a wrong password with 401 and the words the sign-in page shows: the sign-in stopped at /: 404 <!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /</pre>\n</body>\n</html>\n\nthe session the browser holds, against the real sign-in routes > confirms an invited sign-up by the emailed code: a wrong code is refused, a new one can be sent, the right one signs the account in: the sign-in stopped at /: 404 <!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /</pre>\n</body>\n</html>\n"
+  }
+ ],
+ "apps/frontend/src/features/memory/api.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "the Memories page, as the browser asks for it > reads the last consolidation as nothing yet for the operator, and refuses it to anyone else: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:42399/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"b30220e4a7f4102bc7ae4461cf6181825a571fac1a0"
+  }
+ ],
+ "apps/frontend/src/features/engine/components/signed-out.integration.test.tsx": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "the engine's pages, once the person's session has ended elsewhere > says why a finding in a run could not be dismissed, and leaves it open: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:38349/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"c89a93fd010b106c17632a66aaa47a7dc380d3460f4\nthe engine's pages, once the person's session has ended elsewhere > says why the extensions cannot be listed: the sign-in stopped at /: 404 <!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /</pre>\n</body>\n</html>\n"
+  }
+ ],
+ "apps/frontend/src/features/engine/api/engine.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a chat, as the chat surface asks for it > shows another person none of the first person's conversations: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:45785/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"9757b2898b7a9ea44d64059418687027bd40310a6bf"
+  }
+ ],
+ "apps/frontend/src/features/engine/api/turns.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a turn's live log, as the chat and Watch it work read it > shows another person nothing of the first person's turns: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:39351/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"7274302b199c91f66d97c4396a2ae72ad574ed70113"
+  }
+ ],
+ "apps/frontend/src/features/infrastructure/api/credentials.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a backup, for the operator > is refused to someone who is not the operator: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:33159/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"6f3c5d4220fd7964bace9ede52ff6e4516e592d3db4"
+  }
+ ],
+ "apps/frontend/src/features/infrastructure/api/egress.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a run asking to see the platform's namespaces, as the chat's card answers it > refuses a person who is not the operator, and shows them none of the operator's requests: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:42583/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"c7352c1019f6cbbf0547e66f8ef92fb523542eccf21"
+  }
+ ],
+ "apps/frontend/src/features/infrastructure/api/server-orders.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "what only the operator may do > refuses server orders and a catalog refresh to someone who is not the operator: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:37471/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"640f06653f1e5e47e927b7a39c345aa0d77e023e066"
+  }
+ ],
+ "apps/frontend/src/features/instances/api/instances.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "what someone who is not an operator is refused, where accounts are held > is refused the dependencies and the mail: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:33275/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"c63846dc34000b9c59834a58455ae546e2575edd737"
+  }
+ ],
+ "apps/frontend/src/features/instances/components/RootAdmin.integration.test.tsx": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "root's admin sections, as an operator reads them against root's own routes > says why root's mail cannot be checked once the session has ended elsewhere: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:35359/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"efc88d4bb6a1e21d68fe2f58b983cff728a2eb56954\nroot's admin sections, as an operator reads them against root's own routes > says why the dependencies and the mail cannot be read once signed out: the sign-in stopped at /: 404 <!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /</pre>\n</body>\n</html>\n"
+  }
+ ],
+ "apps/frontend/src/features/releases/api/releases.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "another person > reaches none of the project's releases, settings, app, customizations or import: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:33527/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"a876f52f59bee20f900ae70e4a280323aac5c32fcbf"
+  }
+ ],
+ "apps/frontend/src/features/projects/api/grove.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "trees, features and stories, as the board asks for them > answers 404 to another person for the tree, its features and stories: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:43289/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"ad57b595d22370464e4b407700cc3ade815020b1d3d\ntrees, features and stories, as the board asks for them > deletes the tree with everything in it: Request failed with status code 401\ntree types > saves the person's own copy of a shipped type, and the list then carries theirs once: Request failed with status code 401\ntree types > refuses a type whose agent does not exist: Request failed with status code 401"
+  }
+ ],
+ "apps/frontend/src/features/projects/api/project-files.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a project's repository files, as the Files page asks for them > answers 404 for a project that is someone else's: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:44947/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"c3ef4a933b0ced237992e7fc4aa46c17a3b5b4fa8a4"
+  }
+ ],
+ "apps/frontend/src/features/projects/api/projects.integration.test.ts": [
+  {
+   "at": "2026-11-25T01:02:54.768Z",
+   "why": "a project, as the projects pages ask for it > answers 404 to another person for every project route: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:42505/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"269ea9d82320c927b650bc1975f5ac9a772cec07cfe\na story's and a feature's chat > opens the chat of a story and of a feature, the same one each time: Request failed with status code 401\na story's and a feature's chat > answers 404 for a story that does not exist: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 404, …(1) } }\n(54 matching properties omitted from actual)\nplan cards > lists a conversation's and a tree's plans: Request failed with status code 401\nplan cards > approves a plan, which starts its adoption, and refuses to approve it twice: Request failed with status code 401\nplan cards > rejects a plan with the reason the person gave: Request failed with status code 401\nplan cards > answers 404 for a plan that is not the person's: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 404, …(1) } }\n(54 matching properties omitted from actual)\nsecrets Koala asks the person for > lists the requests of a conversation and of a tree: Request failed with status code 401\nsecrets Koala asks the person for > refuses an empty secret before anything is stored: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 400 } }\n(56 matching properties omitted from actual)\nsecrets Koala asks the person for > dismisses a request, after which it cannot be dismissed again: Request failed with status code 401\nsecrets Koala asks the person for > answers 404 for a request that is not the person's: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 404, …(1) } }\n(54 matching properties omitted from actual)"
+  }
  ]
 }
