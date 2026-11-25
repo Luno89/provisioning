@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { DeviceWorkerHost, type After, type RunningWorker } from './device-worker-host.js';
+import { DeviceWorkerHost, runningWorkerOf, type After, type RunningWorker } from './device-worker-host.js';
 
 const fakeWorker = () => {
   let finish: () => void = () => {};
   const ran = new Promise<void>((resolve) => { finish = resolve; });
-  const worker: RunningWorker & { stopped: boolean; end(): void } = {
+  const worker: RunningWorker & { stopped: boolean; broken: boolean; end(): void } = {
     stopped: false,
+    broken: false,
     run: () => ran,
     shutdown() { worker.stopped = true; finish(); },
+    failed: () => worker.broken,
     end: () => finish(),
   };
   return worker;
@@ -125,6 +127,27 @@ describe('the machine\'s engine worker follows the payload key it is given', () 
     expect(host.fingerprint).toBeDefined();
   });
 
+  it('starts a fresh worker once Koala is back when the one it had failed and never finished stopping, as when its token could not be checked while root was down', async () => {
+    const started: ReturnType<typeof fakeWorker>[] = [];
+    const lines: string[] = [];
+    const host = new DeviceWorkerHost(async () => {
+      const worker = fakeWorker();
+      worker.shutdown = () => { worker.stopped = true; };
+      started.push(worker);
+      return worker;
+    }, (line) => lines.push(line));
+    const settings = async () => ({ ring: { current: 'a'.repeat(64) } });
+    await host.connected(settings);
+    started[0]!.broken = true;
+    await host.connected(settings);
+    expect(started).toHaveLength(2);
+    expect(started[1]!.broken).toBe(false);
+    expect(lines).toContain('the engine worker had failed and could not finish stopping, so a fresh one starts');
+    started[1]!.broken = true;
+    await host.stop();
+    expect(host.fingerprint).toBeUndefined();
+  });
+
   it('tries again on the layer\'s backoff, 5 s doubling to a minute and never more', async () => {
     const pending: { ms: number; then: () => void }[] = [];
     const after: After = (ms, then) => { const entry = { ms, then }; pending.push(entry); return () => { pending.splice(pending.indexOf(entry), 1); }; };
@@ -138,5 +161,29 @@ describe('the machine\'s engine worker follows the payload key it is given', () 
       await new Promise((resolve) => setImmediate(resolve));
     }
     expect(waits).toEqual([5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000]);
+  });
+});
+
+describe('a Temporal worker as the host runs it', () => {
+  const temporalWorker = (state: string) => {
+    const calls: string[] = [];
+    return { calls, worker: { run: async () => { calls.push('run'); }, shutdown: () => { calls.push('shutdown'); }, getState: () => state } };
+  };
+
+  it('stops keeping its token fresh when its run ends, and asks a running worker to drain', async () => {
+    const { calls, worker } = temporalWorker('RUNNING');
+    const running = runningWorkerOf(worker, () => calls.push('stop'));
+    await running.run();
+    running.shutdown();
+    expect(calls).toEqual(['run', 'stop', 'stop', 'shutdown']);
+    expect(running.failed()).toBe(false);
+  });
+
+  it('says a failed worker failed and does not ask it to drain, which the SDK refuses once it is not running', () => {
+    const { calls, worker } = temporalWorker('FAILED');
+    const running = runningWorkerOf(worker, () => calls.push('stop'));
+    running.shutdown();
+    expect(calls).toEqual(['stop']);
+    expect(running.failed()).toBe(true);
   });
 });

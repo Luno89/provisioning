@@ -76,7 +76,7 @@ interface Live {
 
 export interface ExternalAgentSessionsOptions {
   rootDir: string;
-  launches: ExternalAgentLaunches;
+  launches?: ExternalAgentLaunches | undefined;
   segmentMs?: number | undefined;
   mcp?: LocalMcpServer | undefined;
   callAnswerMs?: number | undefined;
@@ -109,10 +109,14 @@ const within = <T>(promise: Promise<T>, ms: number): Promise<T | undefined> => n
 
 export class ExternalAgentSessions {
   private readonly live = new Map<string, Live>();
-  private launches: ExternalAgentLaunches;
+  private launches: ExternalAgentLaunches = {};
+  private looked = false;
+  private found: Promise<string | undefined>;
+  private find: (failure: string | undefined) => void = () => {};
 
   constructor(private readonly options: ExternalAgentSessionsOptions) {
-    this.launches = { ...options.launches };
+    this.found = new Promise((resolve) => { this.find = resolve; });
+    if (options.launches) this.setLaunches(options.launches);
   }
 
   agents(): string[] {
@@ -121,6 +125,18 @@ export class ExternalAgentSessions {
 
   setLaunches(launches: ExternalAgentLaunches): void {
     this.launches = { ...launches };
+    this.looked = true;
+    this.settle(undefined);
+  }
+
+  notFound(why: string): void {
+    if (this.looked) return;
+    this.settle(`this machine could not find its agents: ${why}`);
+  }
+
+  private settle(failure: string | undefined): void {
+    this.find(failure);
+    this.found = Promise.resolve(failure);
   }
 
   openKeys(): string[] {
@@ -215,7 +231,9 @@ export class ExternalAgentSessions {
 
   private async open(key: string, agent: string, op: Extract<ExternalAgentStepArgs['op'], { kind: 'open' }>, beat: () => void, workflowId: string | undefined): Promise<ExternalAgentStepResult> {
     if (this.live.has(key)) return { state: 'failed', error: 'that session is already open on this machine', events: [] };
+    const notFound = await this.found;
     const launch = this.launches[agent];
+    if (!launch && notFound) return { state: 'failed', error: notFound, events: [] };
     if (!launch) {
       const known = this.agents();
       return { state: 'failed', error: `this machine has no agent called ${agent}${known.length ? ` (it has ${known.join(', ')})` : ''}`, events: [] };

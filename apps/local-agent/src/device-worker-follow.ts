@@ -1,7 +1,7 @@
 import type { Socket } from 'socket.io-client';
 import { createMachineGit } from './machine-git.js';
 import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
-import { DeviceWorkerHost } from './device-worker-host.js';
+import { DeviceWorkerHost, runningWorkerOf } from './device-worker-host.js';
 import { machineClusterOp, type MachineHost } from './machine-cluster.js';
 import type { MachineConfig } from './machine-config.js';
 import type { ExternalAgentSessions } from './external-agents.js';
@@ -39,13 +39,7 @@ export function followEngineWorker(socket: Socket, config: MachineConfig, koala:
       onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${address}`),
     });
     const stop = keepTokenFresh({ access, resource, apply: (token) => worker.setToken(token), say });
-    return {
-      run: () => worker.run().finally(stop),
-      shutdown: () => {
-        stop();
-        worker.shutdown();
-      },
-    };
+    return runningWorkerOf(worker, stop);
   });
   socket.on('connect', () => { void host.connected(() => engineSettingsOver(socket)); });
   return host;

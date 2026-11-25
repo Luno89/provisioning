@@ -4,6 +4,24 @@ import { settingsFingerprint, type EngineSettings } from './remote-blobs.js';
 export interface RunningWorker {
   run(): Promise<void>;
   shutdown(): void;
+  failed(): boolean;
+}
+
+export interface TemporalWorkerLike {
+  run(): Promise<void>;
+  shutdown(): void;
+  getState(): string;
+}
+
+export function runningWorkerOf(worker: TemporalWorkerLike, stop: () => void): RunningWorker {
+  return {
+    run: () => worker.run().finally(stop),
+    shutdown: () => {
+      stop();
+      if (worker.getState() === 'RUNNING') worker.shutdown();
+    },
+    failed: () => worker.getState() === 'FAILED',
+  };
 }
 
 interface Current {
@@ -91,8 +109,9 @@ export class DeviceWorkerHost {
     const settings = await settingsOf();
     if (this.paused) return;
     const fingerprint = settingsFingerprint(settings);
-    if (this.current?.fingerprint === fingerprint) return;
-    if (this.current) this.log('Koala\'s payload key or the way to its Temporal changed, so the engine worker starts again with it');
+    if (this.current?.worker.failed()) this.log('the engine worker had failed and could not finish stopping, so a fresh one starts');
+    else if (this.current?.fingerprint === fingerprint) return;
+    else if (this.current) this.log('Koala\'s payload key or the way to its Temporal changed, so the engine worker starts again with it');
     await this.retire();
     const worker = await this.start(settings);
     const startedAt = this.now();
@@ -114,6 +133,6 @@ export class DeviceWorkerHost {
     if (!current) return;
     this.current = undefined;
     current.worker.shutdown();
-    await current.done;
+    if (!current.worker.failed()) await current.done;
   }
 }

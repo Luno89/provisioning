@@ -48,7 +48,10 @@ const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve, reje
 
 function watchAgents(place: AgentPlace, socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions, gate: IdleGate): void {
   const deps = place.discovery(config.rootDir);
-  const rediscover = (): Promise<void> => discovered().catch((err: Error) => say(`its agents were not reported this time, so Koala keeps the ones it last heard of: ${err.message}`));
+  const rediscover = (): Promise<void> => discovered().catch((err: Error) => {
+    sessions.notFound(err.message);
+    say(`its agents were not reported this time, so Koala keeps the ones it last heard of: ${err.message}`);
+  });
   const discovered = async (): Promise<void> => {
     const manual = await manualOver(socket);
     const found = await reportAgents(deps, manual, () => place.agentsNotSetUp(), (report, launches) => {
@@ -104,7 +107,7 @@ export function startWork(
   const mcp = new LocalMcpServer({ log: say });
   void mcp.start();
   const tellRuns = (runIds: string[]) => { if (socket.connected) socket.emit('machine:runs', { runIds }); };
-  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate, onRunsChanged: tellRuns });
+  const sessions = new ExternalAgentSessions({ rootDir, mcp, gate, onRunsChanged: tellRuns });
   sessionsMade(sessions);
   socket.on('connect', () => tellRuns(sessions.openRuns()));
   socket.on('connect', () => {

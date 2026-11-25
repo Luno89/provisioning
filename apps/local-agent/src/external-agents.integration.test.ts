@@ -38,6 +38,26 @@ describe('external agents on a machine', () => {
     expect(await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go' } })).toEqual({ state: 'failed', error: 'this machine has no agent called scripted', events: [] });
   });
 
+  it('waits for the machine to find its agents before it opens a session, rather than refusing an agent it has not looked for yet', async () => {
+    const scriptPath = path.join(dir, 'script.json');
+    await writeFile(scriptPath, JSON.stringify({ name: 'scripted', version: '1', turns: [{ steps: [{ say: 'found it' }] }] }));
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root') });
+    let answered = false;
+    const opening = sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go' } }).finally(() => { answered = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(answered).toBe(false);
+    sessions.setLaunches({ scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } });
+    expect(await opening).toMatchObject({ state: 'ended', events: [{ type: 'text', delta: 'found it' }] });
+  });
+
+  it('ends a session waiting for the machine to find its agents with why, when finding them failed', async () => {
+    sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root') });
+    const opening = sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+    sessions.notFound('Koala did not answer which agents were added by hand');
+    expect(failure(await opening)).toBe('this machine could not find its agents: Koala did not answer which agents were added by hand');
+    expect(failure(await sessions.step({ key: 'k2', agent: 'scripted', op: { kind: 'open', brief: 'go' } }))).toBe('this machine could not find its agents: Koala did not answer which agents were added by hand');
+  });
+
   it('runs a turn in the folder it is given, telling the agent the context once, until the turn ends', async () => {
     const machineSessions = await machine({ name: 'scripted', version: '2', turns: [{ steps: [{ write: { path: 'notes.md', content: 'hello' } }, { say: 'Wrote it.' }] }] });
     const result = await machineSessions.step({ key: 'run-1:node:1', agent: 'scripted', op: { kind: 'open', brief: 'Write notes', context: 'You work on the shop.', path: 'shop' } });
