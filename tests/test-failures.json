@@ -130,6 +130,14 @@
   {
    "at": "2026-11-25T13:33:13.099Z",
    "why": "exited with code 1"
+  },
+  {
+   "at": "2026-11-25T13:51:39.839Z",
+   "why": "exited with code 1"
+  },
+  {
+   "at": "2026-11-25T13:54:12.956Z",
+   "why": "exited with code 1"
   }
  ],
  "tests/alignment/trace.integration.test.ts": [
