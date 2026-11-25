@@ -98,12 +98,14 @@ describe('requireAuth on root', () => {
   });
 
   it('holds only an id in the cookie, puts the account on the request, and the socket handshake resolves the same account', async () => {
-    const { root } = await build();
-    const cookie = await root.signIn('u1');
+    const { db, root } = await build();
+    const account = 'account-whose-id-the-cookie-never-holds';
+    await db.accounts.saveUser({ id: account, email: 'held-by-id@example.com', createdAt: new Date().toISOString() } as never);
+    const cookie = await root.signIn(account);
     expect(cookie).toMatch(/^koala_sid=s%3A/);
-    expect(cookie).not.toContain('u1');
-    expect((await root.ask('GET', '/api/me', cookie)).body).toEqual({ id: 'u1' });
-    expect((await root.ask('GET', '/socket', cookie)).body).toEqual({ id: 'u1' });
+    expect(cookie).not.toContain(account);
+    expect((await root.ask('GET', '/api/me', cookie)).body).toEqual({ id: account });
+    expect((await root.ask('GET', '/socket', cookie)).body).toEqual({ id: account });
   });
 
   it('refuses a held session whose account no longer exists or is being removed, for requests and sockets alike', async () => {

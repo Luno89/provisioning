@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import type { Step } from '@koala/provision';
 import { containerProvider, type ContainerContext, type ContainerProvider, throwawayLabel } from '@koala/provision/testing';
-import { nodeProcesses } from '@koala/engine-core/node-processes';
+import { nodeProcesses, nodeRunner } from '@koala/engine-core/node-processes';
 import { caddyStep } from '../wiring/root-services.js';
 
 const CHART_VALUES = resolve(import.meta.dirname, '../../../../../charts/instance/values.yaml');
@@ -39,6 +39,18 @@ export interface RootCaddy {
   step: Step<ContainerContext>;
   https: number;
   rootCertificate(): Promise<string>;
+  certificatesHeldFor(hosts: readonly string[]): Promise<void>;
+}
+
+export const coversHost = (name: string, host: string): boolean =>
+  name === host || (name.startsWith('*.') && host.endsWith(name.slice(1)) && !host.slice(0, host.length - name.length + 1).includes('.'));
+
+export function certificatesIn(log: string): string[] {
+  return log.split('\n').flatMap((line) => {
+    if (!line.startsWith('{') || !line.endsWith('}') || !line.includes('certificate obtained successfully')) return [];
+    const entry = JSON.parse(line) as { msg?: string; identifier?: string };
+    return entry.msg === 'certificate obtained successfully' && entry.identifier ? [entry.identifier] : [];
+  });
 }
 
 export interface RootCaddyPorts {
@@ -73,5 +85,25 @@ export function rootCaddy(caddyfile: string, folder: string, env: Record<string,
     if (read.code !== 0) throw new Error(`Caddy's own certificate authority could not be read from ${container.name}: ${read.stderr}`);
     return read.stdout;
   };
-  return { container, step: caddyStep(container, () => ({ socket: join(folder, 'admin', 'admin.sock') })), https: ports.https, rootCertificate };
+  const certificatesHeldFor = (hosts: readonly string[]): Promise<void> => new Promise((done, fail) => {
+    const logs = join(folder, 'log');
+    const log = join(logs, 'caddy.log');
+    const missing = (): string[] => { const held = certificatesIn(existsSync(log) ? readFileSync(log, 'utf8') : ''); return hosts.filter((host) => !held.some((name) => coversHost(name, host))); };
+    const stopped = nodeRunner.start({ command: 'docker', args: ['wait', container.name] });
+    const watcher = watch(logs);
+    let over = false;
+    const end = (problem?: Error): void => {
+      if (over) return;
+      over = true;
+      watcher.close();
+      stopped.stop();
+      if (problem) fail(problem); else done();
+    };
+    const look = (): void => { if (missing().length === 0) end(); };
+    watcher.on('change', look);
+    watcher.on('error', (err) => end(new Error(`Caddy's log folder ${logs} could not be watched: ${err.message}`)));
+    void stopped.ended.then(() => end(new Error(`Caddy (${container.name}) stopped before it held a certificate for ${missing().join(', ')}`)));
+    look();
+  });
+  return { container, step: caddyStep(container, () => ({ socket: join(folder, 'admin', 'admin.sock') })), https: ports.https, rootCertificate, certificatesHeldFor };
 }

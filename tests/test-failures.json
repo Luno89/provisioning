@@ -335,6 +335,10 @@
  "apps/backend/src/platform/middleware/auth.integration.test.ts": [
   {
    "at": "2026-11-21T20:26:26.000Z"
+  },
+  {
+   "at": "2026-11-25T03:38:55.545Z",
+   "why": "requireAuth on root > holds only an id in the cookie, puts the account on the request, and the socket handshake resolves the same account: expected 'koala_sid=s%3Ai4A6j-uyTR6lRCZz-7G89By…' not to contain 'u1'"
   }
  ],
  "apps/backend/src/worker-host.integration.test.ts": [
@@ -481,6 +485,12 @@
   {
    "at": "2026-11-25T01:02:54.768Z",
    "why": "a project, as the projects pages ask for it > answers 404 to another person for every project route: root's sign-out page asked instead of signing this browser out: 200 <!doctype html><meta charset=\"utf-8\"><title>Signing out of Koala</title><body style=\"font-family:system-ui;padding:2rem\"><form id=\"op.logoutForm\" method=\"post\" action=\"http://127.0.0.1:42505/oidc/session/end/confirm\"><input type=\"hidden\" name=\"xsrf\" value=\"269ea9d82320c927b650bc1975f5ac9a772cec07cfe\na story's and a feature's chat > opens the chat of a story and of a feature, the same one each time: Request failed with status code 401\na story's and a feature's chat > answers 404 for a story that does not exist: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 404, …(1) } }\n(54 matching properties omitted from actual)\nplan cards > lists a conversation's and a tree's plans: Request failed with status code 401\nplan cards > approves a plan, which starts its adoption, and refuses to approve it twice: Request failed with status code 401\nplan cards > rejects a plan with the reason the person gave: Request failed with status code 401\nplan cards > answers 404 for a plan that is not the person's: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 404, …(1) } }\n(54 matching properties omitted from actual)\nsecrets Koala asks the person for > lists the requests of a conversation and of a tree: Request failed with status code 401\nsecrets Koala asks the person for > refuses an empty secret before anything is stored: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 400 } }\n(56 matching properties omitted from actual)\nsecrets Koala asks the person for > dismisses a request, after which it cannot be dismissed again: Request failed with status code 401\nsecrets Koala asks the person for > answers 404 for a request that is not the person's: expected AxiosError: Request failed with status co… { …(6) } to match object { response: { status: 404, …(1) } }\n(54 matching properties omitted from actual)"
+  }
+ ],
+ "apps/backend/src/platform/services/BrowserSessions.integration.test.ts": [
+  {
+   "at": "2026-11-25T03:38:55.545Z",
+   "why": "a browser signing in on 'root' behind root's real Caddy > is given the __Host- session cookie over https and stays signed in with it, whatever forwarding headers the browser itself sends: write EPROTO C0086CD3EA7F0000:error:0A000438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error:../deps/openssl/openssl/ssl/record/rec_layer_s3.c:918:SSL alert number 80\n\na browser signing in on 'an instance, through root\\'s route to…' behind root's real Caddy > is given the __Host- session cookie over https and stays signed in with it, whatever forwarding headers the browser itself sends: write EPROTO C0086CD3EA7F0000:error:0A000438:SSL routines:ssl3_read_bytes:tlsv1 alert internal error:../deps/openssl/openssl/ssl/record/rec_layer_s3.c:918:SSL alert number 80\n"
   }
  ]
 }

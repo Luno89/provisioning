@@ -86,6 +86,7 @@ beforeAll(async () => {
     { https: await portToHandOn(), http: await portToHandOn(), metrics: await portToHandOn() });
   await runSteps([caddy.step], ctx, memoryReporter());
   rootCa = await caddy.rootCertificate();
+  await caddy.certificatesHeldFor([APP_DOMAIN, INSTANCE_HOST]);
 });
 
 afterAll(async () => {
