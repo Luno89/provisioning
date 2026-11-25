@@ -89,3 +89,13 @@ because: namespaces "books-8dff3c" not found`. The suite then ended with `TypeEr
 - The wait asks the one rule (`failureOf`) before calling a `TypeError` a mistake: a network failure is waited through, and the
   port-forward's exit still ends it.
 Each watched failing first.
+
+## Two hand runs after the fix (2026-11-25 13:51 and 13:54)
+- **Root's dev stack had ended with ship's terminal (code).** Ship starts `npm run dev` and says it "runs on after ship", but it
+  started it in ship's own session. When ship's terminal closed, the hang-up reached `npm run dev` too, and root stopped: the first
+  hand run could not sign in (`fetch failed`, ECONNREFUSED at root). Ship now starts it in a session of its own, proven by a test
+  that hangs up a stand-in for ship's terminal and finds the process it started still running, having heard nothing.
+- **The second hand run picked the wrong checks (operator).** Run alone, `checks-live.ts` takes the model checks as its default;
+  ship hands it its 24 mechanics checks. Run without a model, the seven model checks failed with "No models available". Ship's own
+  step, `npm run gate -- test:checks-live`, is the way to run ship's checks by hand.
+

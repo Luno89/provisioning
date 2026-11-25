@@ -1,4 +1,4 @@
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { localCommands } from '@koala/provision';
 import { containersOn } from '@koala/provision/testing/containers';
 import { here } from './processes.js';
@@ -179,6 +179,10 @@ export async function devStackProblem(repo: string): Promise<string | undefined>
 
 export const DEV_STACK_LOG = 'tests/.dev-stack.log';
 
+export function startOutlivingShip(command: string, args: readonly string[], cwd: string, out: number): ChildProcess {
+  return spawn(command, args, { cwd, stdio: ['ignore', out, out], detached: true });
+}
+
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 export async function freshDevStack(repo: string): Promise<void> {
@@ -191,7 +195,7 @@ export async function freshDevStack(repo: string): Promise<void> {
   console.log('\n━━ provisioning the dev stack: npm run dev, until root reports your Koala ready');
   const log = join(repo, DEV_STACK_LOG);
   const out = openSync(log, 'w');
-  const dev = spawn('npm', ['run', 'dev'], { cwd: repo, stdio: ['ignore', out, out] });
+  const dev = startOutlivingShip('npm', ['run', 'dev'], repo, out);
   let stopped: string | undefined;
   dev.on('exit', (code, signal) => { stopped = `npm run dev stopped (${signal ?? code})`; });
   dev.unref();
