@@ -12,10 +12,12 @@ const provider = {
   continueInteraction: async () => undefined,
 } as unknown as Pick<RootProvider, 'provider' | 'continueInteraction' | 'issuer' | 'proxied'>;
 
+const signedOut = { userOf: async () => undefined, endSession: async () => undefined, clearSession: () => undefined };
+
 describe('root\'s provider routes', () => {
   it('serve the script that submits the logout page, as root\'s own script, so a browser runs it under root\'s policy', async () => {
     const app = express();
-    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: async () => undefined, endBrowserSession: async () => undefined, interactions: Router() }));
+    app.use(OIDC_PATH, oidcProviderRouter({ provider, auth: signedOut, interactions: Router() }));
     const answer = await serveInProcess(app, new Request('http://root.test/oidc/logout.js'));
     expect(answer.status).toBe(200);
     expect(answer.headers.get('content-type')).toMatch(/^application\/javascript/);
@@ -26,10 +28,15 @@ describe('root\'s provider routes', () => {
 describe('confirming a logout at root', () => {
   it('ends root\'s own sign-in in this browser before the provider ends its session, so nothing signs the browser back in', async () => {
     const ended: string[] = [];
+    const auth = {
+      userOf: async () => undefined,
+      endSession: async (req: express.Request) => { ended.push(`ended ${req.path}`); return undefined; },
+      clearSession: (res: express.Response) => { ended.push(`cleared${res.headersSent ? ' after answering' : ''}`); },
+    };
     const app = express();
-    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: async () => undefined, endBrowserSession: async (req) => { ended.push(req.path); }, interactions: Router() }));
+    app.use(OIDC_PATH, oidcProviderRouter({ provider, auth, interactions: Router() }));
     const answer = await serveInProcess(app, new Request('http://root.test/oidc/session/end/confirm', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'xsrf=x&logout=yes' }));
-    expect(ended).toEqual(['/session/end/confirm']);
+    expect(ended).toEqual(['ended /session/end/confirm', 'cleared']);
     expect(await answer.text()).toBe('the provider answered /session/end/confirm');
   });
 });

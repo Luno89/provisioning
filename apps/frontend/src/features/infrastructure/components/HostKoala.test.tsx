@@ -129,6 +129,22 @@ describe('the page', () => {
     expect(ordersApi.buyServer).not.toHaveBeenCalled()
   })
 
+  it('asks who serves both domains\' DNS once the operator stops typing, and shows each zone\'s provider', async () => {
+    vi.mocked(ordersApi.listServerOrders).mockResolvedValue([])
+    vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({ offers: [], sources: [], fetchedAt: 'x' })
+    vi.mocked(ordersApi.checkZones).mockResolvedValue([
+      { zone: 'nowrinkles.dev', nameservers: ['a.ns.cloudflare.com'], provider: 'cloudflare', label: 'Cloudflare DNS', credentials: true },
+      { zone: 'nowrinkles.app', nameservers: ['a.ns.porkbun.com'], provider: 'porkbun', label: 'Porkbun DNS', credentials: false, setup: 'Turn on API Access.' },
+    ])
+    wrap(<HostKoala />)
+    fireEvent.change(document.getElementById('host-koala-domain')!, { target: { value: 'NoWrinkles.dev ' } })
+    fireEvent.change(document.getElementById('host-koala-ingress')!, { target: { value: 'nowrinkles.app' } })
+    expect((await screen.findByTestId('zone-nowrinkles.app', {}, { timeout: 3000 })).textContent).toContain('Porkbun DNS, no credentials stored. Turn on API Access.')
+    expect(screen.getByTestId('zone-nowrinkles.dev').textContent).toContain('Cloudflare DNS, credentials stored')
+    expect(ordersApi.checkZones).toHaveBeenCalledTimes(1)
+    expect(ordersApi.checkZones).toHaveBeenCalledWith(['nowrinkles.dev', 'nowrinkles.app'])
+  })
+
   it('offers every sign-in provider the backend describes, with root\'s redirect URI, and sends those given with the quote', async () => {
     vi.mocked(ordersApi.listServerOrders).mockResolvedValue([])
     vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({

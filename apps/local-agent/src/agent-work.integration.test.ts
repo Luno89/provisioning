@@ -2,12 +2,19 @@ import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { temporal } from '@temporalio/proto';
 import type { Socket } from 'socket.io';
-import { describe, expect, it } from 'vitest';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { describe, expect, it, vi } from 'vitest';
 import { MACHINE_CLIENT_TOKEN } from '@koala/engine-core/machine-join';
 import { startWork, type AgentPlace } from './agent-work.js';
 import { deviceQueue, startDeviceWorker } from './engine-worker.js';
 import type { MachineHost } from './machine-cluster.js';
 import { koalaAnsweringPayloads, temporalBehindTls } from './testing/temporal-world.js';
+
+const made = vi.hoisted(() => ({ sockets: [] as ClientSocket[] }));
+vi.mock('./koala-access.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./koala-access.js')>();
+  return { ...real, koalaSocket: (...args: Parameters<typeof real.koalaSocket>) => { const socket = real.koalaSocket(...args); made.sockets.push(socket); return socket; } };
+});
 
 const world = temporalBehindTls('koala-agent-work-');
 
@@ -134,6 +141,29 @@ describe('the machine agent starting its work for its Koala', () => {
     sockets[0]!.conn.close();
     await reconnected;
     expect(handshakes).toEqual(['access-1', 'access-3']);
+    await new Promise<void>((done) => { void koala.close(() => done()); });
+  });
+
+  it('asks its Koala again once root is back, after its Koala refused it while root could not give it a token', async () => {
+    const handshakes: string[] = [];
+    let connected: () => void = () => undefined;
+    const { koala, port } = await koalaAnsweringPayloads(world, { at: '/agent', key: 'agent-work-again-key-0123456789abcdef', connected: () => connected() });
+    koala.of('/agent').use((socket, next) => {
+      const token = (socket.handshake.auth as { token?: string }).token;
+      handshakes.push(token ?? '');
+      next(token ? undefined : new Error('Unauthorized: send a token root gave this machine for this Koala'));
+    });
+    let rootAnswers = false;
+    const access = { ...accessFromRoot(), freshToken: async () => { if (!rootAnswers) throw new Error('unexpected HTTP response status code'); return 'fresh'; } };
+    const work = startWork(placeHere([]), { rootUrl: 'http://127.0.0.1:1', rootDir: world.rootDir, deviceId: 'again-desk', key: 'unused-here' }, koalaAt(port), access, () => undefined);
+    const socket = made.sockets.at(-1)!;
+    await new Promise<void>((refused) => socket.once('connect_error', () => refused()));
+    expect(socket.active).toBe(false);
+    rootAnswers = true;
+    const back = new Promise<void>((done) => { connected = done; });
+    work.again();
+    await back;
+    expect(handshakes).toEqual(['', 'fresh']);
     await new Promise<void>((done) => { void koala.close(() => done()); });
   });
 
