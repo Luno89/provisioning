@@ -8,7 +8,7 @@ import { acceptedUntested } from './accepted.js';
 import { ARTIFACTS, gatheredIn, judgedGather, OUT, ROOT, runsIn, runsOf } from './artifacts.js';
 import { builtGraph } from './repo-graph.js';
 import { WORKSPACES } from './workspaces.js';
-import { changedBase, codebaseOf, DEPENDENCIES, JUDGED_FROM, SHARING, versionsIn, type Since } from './v2.js';
+import { changedBase, changedLinesIn, codebaseOf, DEPENDENCIES, JUDGED_FROM, SHARING, versionsIn, type Since } from './v2.js';
 import { AREAS, evidenceFrom, scoresIn, survivorsIn, type KeptRun, type MutationReport, type Unchecked } from './mutation.js';
 import { backtest, faultEvidence, type KnownFault } from './faults.js';
 
@@ -56,8 +56,10 @@ for (const { workspace, report } of Object.values(AREAS)) {
   Object.assign(unchecked, survivorsIn(run, workspace, Object.values(graph.units)));
   Object.assign(scores, scoresIn(run, workspace, Object.values(graph.units)));
 }
+const changedNow = changedLinesIn(git(['diff', '-U0', '--no-color', '--no-ext-diff', changedBase({ shipped, startShipped })]));
 const codebase = { ...codebaseOf(graph, runs, {
-  changed: changedSince(changedBase({ shipped, startShipped })),
+  changed: [...new Set([...changedNow.whole, ...untracked])],
+  changedLines: changedNow.lines,
   since: (test) => sinceByTest.get(test),
   versions: versionsIn(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'), modules),
   churn,

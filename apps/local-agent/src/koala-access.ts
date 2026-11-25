@@ -85,3 +85,8 @@ export function connectAgainIfRefused(socket: Pick<Socket, 'active' | 'connect'>
   socket.connect();
   return true;
 }
+
+export function whenRootNamesKoala(working: { url: string } | undefined, url: string): 'start' | 'again' | 'moved' {
+  if (!working) return 'start';
+  return working.url === url ? 'again' : 'moved';
+}

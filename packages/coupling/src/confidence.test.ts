@@ -203,6 +203,13 @@ describe('logic only a test above unit runs', () => {
     expect(judged.blocking.map((unit) => unit.reason)).toEqual(['runs only at container, vm; its logic needs a unit test']);
   });
 
+  it('lets changed wiring through once a run above unit runs it, since wiring is proven by both sides running for real, and still blocks it when no test runs it', () => {
+    const wiring = codebase({ units: [{ id: 'wire', file: 'w.ts', name: 'wire', line: 1, assembles: true }, { id: 'save', file: 'a.ts', name: 'save', line: 1 }] });
+
+    expect(judge({ ...wiring, runs: [{ test: 'c', layer: 'component', units: ['wire'], links: [] }], changed: ['wire'] }, WEIGHTS).blocking).toEqual([]);
+    expect(judge({ ...wiring, changed: ['wire'] }, WEIGHTS).blocking).toEqual([{ id: 'wire', file: 'w.ts', name: 'wire', line: 1, assembles: true, reason: 'no test runs it' }]);
+  });
+
   it('lets changed logic through once a unit run runs it as well', () => {
     const judged = judge(codebase({ runs: [{ test: 'c', layer: 'component', units: ['save'], links: [] }, { test: 'u', layer: 'unit', units: ['save'], links: [] }], changed: ['save'] }), WEIGHTS);
 

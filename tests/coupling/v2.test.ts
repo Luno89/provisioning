@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ran, RanRange } from './collect.js';
 import type { Graph, Unit } from './graph.js';
-import { changedBase, codebaseOf, DEPENDENCIES, JUDGED_FROM, layerOf, layerOfRun, SHARING, versionsIn } from './v2.js';
+import { changedBase, changedLinesIn, codebaseOf, DEPENDENCIES, JUDGED_FROM, layerOf, layerOfRun, SHARING, versionsIn } from './v2.js';
 import { STARTUP } from './live.js';
 
 const unit = (id: string, file: string, name: string, extra: Partial<Unit> = {}): Unit => ({ id, file, name, line: 1, column: 1, start: 0, end: 0, inTest: false, ...extra });
@@ -89,6 +89,53 @@ describe('Koala\'s code as the coupler sees it', () => {
     ]);
     expect(codebase.changed).toEqual(['help']);
     expect(codebase.links.at(-1)).toEqual({ id: `${STORE}:5`, from: 'store', to: ['pkg:mongodb#Collection.insertOne'], kind: 'dependency', path: ['mongodb', 'users', 'Collection.insertOne'], realFrom: 'component' });
+  });
+
+  it('counts as changed only the innermost function holding a changed line, and the whole of a file that is new', () => {
+    const WIRE = 'apps/backend/src/x/wiring/x.ts';
+    const span = (id: string, name: string, from: number, to: number): Unit => unit(id, WIRE, name, { line: from, ends: { line: to, column: 1 } });
+    const lined: Graph = {
+      ...graph,
+      units: { ...graph.units, wire: span('wire', 'wire', 1, 20), inner: span('inner', 'inner', 5, 7), other: span('other', 'other', 10, 12), whole: unit('whole', WIRE, '(module)', { line: 1, ends: { line: 30, column: 1 } }) },
+    };
+
+    expect(codebaseOf(lined, [], { changed: [], changedLines: { [WIRE]: [[6, 6]] } }).changed).toEqual(['inner']);
+    expect(codebaseOf(lined, [], { changed: [], changedLines: { [WIRE]: [[15, 15], [11, 13]] } }).changed).toEqual(['other', 'wire']);
+    expect(codebaseOf(lined, [], { changed: [], changedLines: { [WIRE]: [[25, 26]] } }).changed).toEqual([]);
+    expect(codebaseOf(lined, [], { changed: [WIRE, HELP], changedLines: { [WIRE]: [[6, 6]] } }).changed).toEqual(['help', 'inner', 'other', 'wire']);
+  });
+
+  it('marks as wiring what puts a process together: an area\'s wiring folder and each process\'s entry, and nothing else', () => {
+    const at = (file: string): Graph => ({ ...graph, units: { one: unit('one', file, 'one') } });
+    const assembles = (file: string): boolean | undefined => codebaseOf(at(file), [], { changed: [] }).units[0]?.assembles;
+
+    expect(assembles('apps/backend/src/instances/wiring/instances.ts')).toBe(true);
+    expect(assembles('apps/backend/src/index.ts')).toBe(true);
+    expect(assembles('apps/local-agent/src/index.ts')).toBe(true);
+    expect(assembles('apps/local-agent/src/agent-work.ts')).toBe(true);
+    expect(assembles('apps/backend/src/instances/routes/oidc-provider.ts')).toBeUndefined();
+    expect(assembles('apps/local-agent/src/koala-access.ts')).toBeUndefined();
+  });
+
+  it('reads the lines a diff changed in each file, a file new since as whole, and a removal as the lines around it', () => {
+    const diff = [
+      'diff --git a/apps/x.ts b/apps/x.ts',
+      '--- a/apps/x.ts',
+      '+++ b/apps/x.ts',
+      '@@ -3 +3 @@ export function x() {',
+      '@@ -10,2 +10,4 @@',
+      '@@ -20,3 +21,0 @@',
+      'diff --git a/apps/new.ts b/apps/new.ts',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/apps/new.ts',
+      '@@ -0,0 +1,9 @@',
+      'diff --git a/apps/gone.ts b/apps/gone.ts',
+      '--- a/apps/gone.ts',
+      '+++ /dev/null',
+      '@@ -1,4 +0,0 @@',
+    ].join('\n');
+    expect(changedLinesIn(diff)).toEqual({ whole: ['apps/new.ts'], lines: { 'apps/x.ts': [[3, 3], [10, 13], [21, 22]] } });
   });
 
   it('carries what has happened since each run: proofs of code changed since go stale, each run keeps the versions it ran, and history weighs the risk', () => {

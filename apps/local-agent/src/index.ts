@@ -15,6 +15,7 @@ import { localJoinHost, stopsOnCtrlC } from './join/host.js';
 import { runJoin } from './join/join.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { startWork, type AgentPlace } from './agent-work.js';
+import { whenRootNamesKoala } from './koala-access.js';
 import { forgetThisMachine, meshIp, removeThisMachine } from './machine-removal.js';
 import { hostCluster, metricsClientInto, startIfWanted } from './machine-cluster.js';
 import { koalaPlacements, ownValuesFile } from './koala-install.js';
@@ -79,12 +80,13 @@ async function main() {
       await metricsClientInto(machineCluster);
     },
     onKoala: (koala) => {
-      if (!working) {
+      const now = whenRootNamesKoala(working, koala.url);
+      if (now === 'start') {
         working = startWork(thisComputer(service), config, koala, client, (sessions) => { sessionsOf = sessions; });
         return;
       }
-      if (working.url === koala.url) {
-        working.again();
+      if (now === 'again') {
+        working?.again();
         return;
       }
       say(`this machine's Koala is now at ${koala.url}`);

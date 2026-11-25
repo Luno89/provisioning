@@ -26,8 +26,11 @@ export const SHARING: Sharing = { service: 0.6, resource: 0.2, operation: 0.2 };
 
 export interface Since { files: string[]; versions: Record<string, string> }
 
+export type LineSpan = readonly [number, number];
+
 export interface Context {
   changed: readonly string[];
+  changedLines?: Readonly<Record<string, readonly LineSpan[]>>;
   since?: (testFile: string) => Since | undefined;
   versions?: Record<string, string>;
   churn?: Record<string, number>;
@@ -36,6 +39,8 @@ export interface Context {
 
 const NAMED = /\.(component|contract|container)\.test\.[a-z]+$/;
 const INTEGRATION = /\.integration\.test\.[a-z]+$/;
+
+export const ASSEMBLES = /^apps\/backend\/src\/[a-z-]+\/wiring\/[^/]+\.ts$|^apps\/(backend|local-agent)\/src\/index\.ts$|^apps\/local-agent\/src\/agent-work\.ts$/;
 
 export const JUDGED_FROM = '8e1d039ee8a9291bcc868f26f385db2752918496';
 
@@ -127,6 +132,21 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context):
     for (const test of new Set(tests)) unitsBy.set(test, [...(unitsBy.get(test) ?? []), unit]);
   }
   const unitsIn = (files: readonly string[]): string[] => { const set = new Set(files); return units.filter((unit) => set.has(unit.file)).map((unit) => unit.id).sort(); };
+  const changedUnits = (): string[] => {
+    const found = new Set(unitsIn(context.changed));
+    const kept = new Set(units.map((unit) => unit.id));
+    for (const [file, spans] of Object.entries(context.changedLines ?? {})) {
+      const inFile = Object.values(graph.units).filter((unit) => unit.file === file && unit.ends !== undefined);
+      for (const [from, to] of spans) {
+        for (let line = from; line <= to; line += 1) {
+          const holding = inFile.filter((unit) => unit.line <= line && unit.ends!.line >= line);
+          const innermost = holding.reduce<Unit | undefined>((best, unit) => (best === undefined || unit.ends!.line - unit.line < best.ends!.line - best.line ? unit : best), undefined);
+          if (innermost && kept.has(innermost.id)) found.add(innermost.id);
+        }
+      }
+    }
+    return [...found].sort();
+  };
   const runs: Run[] = ran.map((run): Run => {
     const since = context.since?.(run.testFile);
     return {
@@ -149,13 +169,35 @@ export function codebaseOf(graph: Graph, ran: readonly Ran[], context: Context):
     if (failed > 0) for (const unit of run.units) failures[unit] = (failures[unit] ?? 0) + failed;
   }
   return {
-    units: units.map((unit) => { const around = within.get(unit.id); return { id: unit.id, file: unit.file, name: unit.name, line: unit.line, ...(around ? { within: around } : {}) }; }),
+    units: units.map((unit) => { const around = within.get(unit.id); return { id: unit.id, file: unit.file, name: unit.name, line: unit.line, ...(around ? { within: around } : {}), ...(ASSEMBLES.test(unit.file) ? { assembles: true } : {}) }; }),
     links,
     runs,
-    changed: unitsIn(context.changed),
+    changed: changedUnits(),
     ...(context.versions ? { versions: context.versions } : {}),
     ...(context.churn || context.failures ? { history: { changes, failures } } : {}),
   };
+}
+
+export function changedLinesIn(diff: string): { whole: string[]; lines: Record<string, LineSpan[]> } {
+  const whole: string[] = [];
+  const lines: Record<string, LineSpan[]> = {};
+  let file: string | undefined;
+  let isNew = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) { file = undefined; isNew = false; continue; }
+    if (line.startsWith('new file mode')) { isNew = true; continue; }
+    if (line.startsWith('+++ ')) {
+      file = line === '+++ /dev/null' ? undefined : line.replace(/^\+\+\+ b\//, '');
+      if (file !== undefined && isNew) { whole.push(file); file = undefined; }
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!hunk || file === undefined) continue;
+    const from = Number(hunk[1]);
+    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    (lines[file] ??= []).push(count === 0 ? [from, from + 1] : [from, from + count - 1]);
+  }
+  return { whole, lines };
 }
 
 export function versionsIn(lock: string, modules: readonly string[]): Record<string, string> {

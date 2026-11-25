@@ -3,7 +3,7 @@ export const LAYERS: readonly Layer[] = ['unit', 'component', 'contract', 'conta
 
 export type Kind = 'logic' | 'composition' | 'dependency';
 
-export interface CodeUnit { id: string; file: string; name: string; line: number; within?: string }
+export interface CodeUnit { id: string; file: string; name: string; line: number; within?: string; assembles?: boolean }
 
 export interface Link { id: string; from: string; to: string[]; kind: Kind; path?: string[]; realFrom?: Layer }
 
@@ -155,7 +155,7 @@ export function judge(codebase: Codebase, weights: Weights, sharing: SharingByKi
   const reasonOf = (unit: CodeUnit): string | undefined => {
     const layers = ranAt.get(unit.id);
     if (layers === undefined) return 'no test runs it';
-    if (layers.has('unit') || reaching.has(unit.id)) return undefined;
+    if (layers.has('unit') || reaching.has(unit.id) || unit.assembles) return undefined;
     return `runs only at ${LAYERS.filter((layer) => layers.has(layer)).join(', ')}; its logic needs a unit test`;
   };
   const blocking = codebase.units.filter((unit) => changed.has(unit.id)).sort((a, b) => a.id.localeCompare(b.id))

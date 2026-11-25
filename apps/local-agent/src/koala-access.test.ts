@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { keepTokenFresh, type KoalaAccess } from './koala-access.js';
+import { describe, expect, it, vi } from 'vitest';
+import { connectAgainIfRefused, keepTokenFresh, koalaSocket, whenRootNamesKoala, type KoalaAccess } from './koala-access.js';
+
+const opened = vi.hoisted(() => ({ auth: [] as Array<(answer: (data: Record<string, unknown>) => void) => void> }));
+vi.mock('socket.io-client', () => ({
+  io: (_url: string, options: { auth: (answer: (data: Record<string, unknown>) => void) => void }) => {
+    opened.auth.push(options.auth);
+    return { emit: () => undefined };
+  },
+}));
 
 const RESOURCE = 'urn:koala:instance:inst-1';
 
@@ -81,5 +89,30 @@ describe('a machine keeping its token for its Koala fresh', () => {
     const stop = machine.fresh();
     stop();
     expect(machine.waits[0]!.cancelled).toBe(true);
+  });
+});
+
+describe('a machine connecting to its Koala', () => {
+  it('connects with only its own details, no token, when root cannot give it one', async () => {
+    const access: KoalaAccess = { token: async () => 'held', freshToken: async () => { throw new Error('unexpected HTTP response status code'); }, renewsAt: () => undefined };
+    koalaSocket({ url: 'http://koala.test', resource: RESOURCE, access, auth: { bundle: 'b1' }, say: () => undefined });
+    const answered = await new Promise<Record<string, unknown>>((done) => opened.auth.at(-1)!(done));
+    expect(answered).toEqual({ bundle: 'b1' });
+  });
+
+  it('asks its Koala again only when its Koala refused it and it has stopped trying', () => {
+    const connects: string[] = [];
+    const socket = (active: boolean) => ({ active, connect: () => { connects.push(active ? 'active' : 'refused'); return undefined as never; } });
+    expect(connectAgainIfRefused(socket(true))).toBe(false);
+    expect(connectAgainIfRefused(socket(false))).toBe(true);
+    expect(connects).toEqual(['refused']);
+  });
+});
+
+describe('root naming this machine\'s Koala', () => {
+  it('starts the work the first time, asks the same Koala again when root names it again, and says it moved when root names another', () => {
+    expect(whenRootNamesKoala(undefined, 'http://koala.test')).toBe('start');
+    expect(whenRootNamesKoala({ url: 'http://koala.test' }, 'http://koala.test')).toBe('again');
+    expect(whenRootNamesKoala({ url: 'http://koala.test' }, 'http://elsewhere.test')).toBe('moved');
   });
 });
