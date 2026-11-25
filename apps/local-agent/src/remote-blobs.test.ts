@@ -56,4 +56,17 @@ describe('payloads a machine keeps with its instance', () => {
   it('does not ask while the machine is not connected', async () => {
     await expect(askOver(socketAnswering(() => ({}), false).socket, 'payloads:get', { ids: [] })).rejects.toThrow('this machine is not connected to Koala right now');
   });
+
+  it('fails an ask, saying so, when the connection drops before Koala answers it', async () => {
+    let dropped: () => void = () => undefined;
+    const socket: AskingSocket = {
+      connected: true,
+      once: (_event, listener) => { dropped = listener; return socket; },
+      off: () => socket,
+      emit: () => true,
+    };
+    const asked = askOver(socket, 'payloads:get', { ids: ['a'] });
+    dropped();
+    await expect(asked).rejects.toThrow('this machine lost its connection to Koala before payloads:get was answered');
+  });
 });
