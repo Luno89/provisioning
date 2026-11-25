@@ -12,7 +12,7 @@ import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
-import { machineAccessAt, machineAccessCheckedAt, machineAccessCheckedByServedRoot, machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
+import { machineAccessAt, machineAccessCheckedAt, machineAccessCheckedByServedRoot, machineClientsAt, rootPublicKeys, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { runResourceOf } from '../../instances/lib/oidc.js';
 import { temporal as proto } from '@temporalio/proto';
 import { deviceQueueOf, frame } from '../lib/temporal-gateway.js';
@@ -62,7 +62,8 @@ const accountsOn = (store: MongoDB['machines'], toMachines: MachineMessages): Ma
 });
 let gateway: MachineTemporalGateway;
 let gatewayAddress = '';
-let rootAway = false;
+let keysServedAt: string | undefined;
+const rootCheck = () => (keysServedAt ? machineAccessCheckedByServedRoot(ROOT_URL, 'inst-1', { keysAt: keysServedAt, now: () => clock.getTime() }) : machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime()));
 const TLS_DIR = path.dirname(inject('temporalCa'));
 let temporal: http2.Http2Server;
 const clients: ClientSocket[] = [];
@@ -173,7 +174,7 @@ beforeEach(async () => {
     namespace: 'default',
     tls: { cert: readFileSync(path.join(TLS_DIR, 'server.crt')), key: readFileSync(path.join(TLS_DIR, 'server.key')) },
     keys: () => ['the-key'],
-    admit: machineAdmission(db, { checkMachineToken: (token) => (rootAway ? machineAccessCheckedByServedRoot(ROOT_URL, 'inst-1') : machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime())).checkMachineToken(token) }, 'owner-1'),
+    admit: machineAdmission(db, { checkMachineToken: (token) => rootCheck().checkMachineToken(token) }, 'owner-1'),
     now: () => clock.getTime(),
     handed: async () => undefined,
   });
@@ -182,7 +183,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  rootAway = false;
+  keysServedAt = undefined;
   for (const client of clients.splice(0)) client.close();
   for (const session of gatewaySessions.splice(0)) session.destroy();
   await watching().close();
@@ -386,10 +387,29 @@ describe('a machine\'s token from root for its Koala, at the gateway to its Koal
   it('answers a poll as unavailable while root\'s keys cannot be fetched, never as unauthenticated, and lets the same token in once root is back', async () => {
     await saveDesk();
     const token = await access();
-    rootAway = true;
+    keysServedAt = `${ROOT_URL}/oidc/jwks`;
     expect(await gatewayConnection().poll(token, undefined, true)).toMatch(/^14: the machine's token could not be checked just now: /);
-    rootAway = false;
+    keysServedAt = undefined;
     expect(await gatewayAnswer(token)).toBe('answered by Temporal');
+  });
+
+  it('answers a poll as unavailable while root restarting behind its Caddy answers its key set 502, and lets the same token in once the keys are served again', async () => {
+    await saveDesk();
+    const token = await access();
+    const answers = [502];
+    const keySet = http.createServer((_req, res) => {
+      const status = answers.shift();
+      if (status) return res.writeHead(status).end('root is restarting');
+      return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(rootPublicKeys({ signing: root })));
+    });
+    await new Promise<void>((done) => keySet.listen(0, '127.0.0.1', done));
+    try {
+      keysServedAt = `http://127.0.0.1:${(keySet.address() as AddressInfo).port}/oidc/jwks`;
+      expect(await gatewayConnection().poll(token, undefined, true)).toMatch(/^14: the machine's token could not be checked just now: .*502/);
+      expect(await gatewayAnswer(token)).toBe('answered by Temporal');
+    } finally {
+      await new Promise<void>((done) => keySet.close(() => done()));
+    }
   });
 
   it('refuses none, one for another Koala, one another key signed, one that ran out, the old work token, and one of a machine this Koala does not have', async () => {

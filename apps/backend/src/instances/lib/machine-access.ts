@@ -1,6 +1,7 @@
-import { jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
+import { createRemoteJWKSet, customFetch, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
 import { MACHINE_SCOPE, machineOfMetricsClient, METRICS_SCOPE } from '@koala/engine-core/root-client';
 import { failureOf, stillDown } from '@koala/engine-core/failures';
+import { answerFailure } from '../../platform/lib/dependencies.js';
 import { ACCESS_JWT_TYP, SIGNING_ALG } from './oidc.js';
 
 export interface MachineAccess {
@@ -12,6 +13,16 @@ export interface MachineAccessExpected {
   issuer: string;
   audience: string;
   now: number;
+}
+
+export function rootKeySet(url: URL, doFetch: typeof fetch = (input, init) => globalThis.fetch(input, init)): JWTVerifyGetKey {
+  const answered = async (input: string | URL | Request, options: RequestInit): Promise<Response> => {
+    const { signal: _theirLimit, ...rest } = options;
+    const response = await doFetch(input, rest);
+    if (response.status !== 200) throw answerFailure(response.status, response.headers.get('retry-after'));
+    return response;
+  };
+  return createRemoteJWKSet(url, { [customFetch]: answered as never });
 }
 
 export const NOT_A_MACHINE_TOKEN = 'the token is not a machine\'s';

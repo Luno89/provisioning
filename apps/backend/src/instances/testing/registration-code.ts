@@ -5,9 +5,9 @@ import { generateIdentityKey, identityKeysFrom, type IdentityKeyPair } from '../
 import { InstanceReach } from '../services/InstanceReach.js';
 import { RootProvider } from '../services/RootProvider.js';
 import { rootWebFor } from './root-web.js';
-import { createLocalJWKSet, createRemoteJWKSet, type JWTVerifyGetKey } from 'jose';
+import { createLocalJWKSet, type JWTVerifyGetKey } from 'jose';
 import { publicJwkOf, runResourceOf, SIGNING_ALG } from '../lib/oidc.js';
-import { checkMachineAccess, checkMetricsAccess, type MachineAccess } from '../lib/machine-access.js';
+import { checkMachineAccess, checkMetricsAccess, rootKeySet, type MachineAccess } from '../lib/machine-access.js';
 
 type RootDb = Pick<Database, 'instances' | 'accounts' | 'machines'>;
 
@@ -70,10 +70,12 @@ export const machineAccessChecked = (rootUrl: string, keys: JWTVerifyGetKey, koa
 });
 
 export const machineAccessCheckedAt = (root: RootSigning, koala: string, now: () => number): MachineAccessCheck =>
-  machineAccessChecked(root.url, createLocalJWKSet({ keys: [{ ...publicJwkOf(root.signing), alg: SIGNING_ALG, use: 'sig' }] }), koala, now);
+  machineAccessChecked(root.url, createLocalJWKSet(rootPublicKeys(root)), koala, now);
 
-export const machineAccessCheckedByServedRoot = (rootUrl: string, koala: string): MachineAccessCheck =>
-  machineAccessChecked(rootUrl, createRemoteJWKSet(new URL(`${rootIssuerOf(rootUrl)}/jwks`)), koala, () => Date.now());
+export const rootPublicKeys = (root: Pick<RootSigning, 'signing'>) => ({ keys: [{ ...publicJwkOf(root.signing), alg: SIGNING_ALG, use: 'sig' }] });
+
+export const machineAccessCheckedByServedRoot = (rootUrl: string, koala: string, served: { keysAt?: string; now?: () => number } = {}): MachineAccessCheck =>
+  machineAccessChecked(rootUrl, rootKeySet(new URL(served.keysAt ?? `${rootIssuerOf(rootUrl)}/jwks`)), koala, served.now ?? (() => Date.now()));
 
 export const machineClientsAt =(db: RootDb, url = 'http://127.0.0.1:1'): Pick<RootProvider, 'machineRegistrationCode' | 'machineCaller' | 'machineOfKey' | 'keyReplacement'> => {
   const provider = providerAt({ db, url, signing: identityKeysFrom(generateIdentityKey()) });

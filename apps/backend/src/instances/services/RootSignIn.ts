@@ -1,7 +1,7 @@
 import * as client from 'openid-client';
-import { createRemoteJWKSet, customFetch as joseFetch, jwtVerify, type JWTPayload } from 'jose';
+import { jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
 import {
-  answerUnlimited, decryptValue, encryptValue, refusedByServer, revocationShaped, type Reopening,
+  decryptValue, encryptValue, refusedByServer, revocationShaped, type Reopening,
   type AccessRevocations, type AccessRevoked, type BrowserPerson, type BrowserSessions, type Claim, type Database, type DependencyId, type PersonThroughRoot, type SecretKey, type SignInStarted,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
@@ -11,7 +11,7 @@ import {
   SIGN_IN_SCOPES, SIGNING_ALG, type ClientKind,
 } from '../lib/oidc.js';
 import { RootClient } from './RootClient.js';
-import { checkMachineAccess, checkMetricsAccess, type MachineAccess } from '../lib/machine-access.js';
+import { checkMachineAccess, checkMetricsAccess, rootKeySet, type MachineAccess } from '../lib/machine-access.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -63,7 +63,7 @@ const reasonOf = (err: unknown): string => {
 type GrantedTokens = Awaited<ReturnType<typeof client.authorizationCodeGrant>>;
 
 export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
-  private keys: Promise<ReturnType<typeof createRemoteJWKSet>> | undefined;
+  private keys: Promise<JWTVerifyGetKey> | undefined;
   private readonly refreshing = new Map<string, Promise<Freshened>>();
   private readonly store: Store;
   private readonly revocations: AccessRevocations;
@@ -240,11 +240,11 @@ export class RootSignIn implements RunTokenRoot, PersonThroughRoot {
     return this.runTokenOf(tokens);
   }
 
-  private rootKeys(): Promise<ReturnType<typeof createRemoteJWKSet>> {
+  private rootKeys(): Promise<JWTVerifyGetKey> {
     this.keys ??= (async () => {
       const uri = (await this.config()).serverMetadata().jwks_uri;
       if (!uri) throw new Error('root names no keys in its discovery');
-      return createRemoteJWKSet(new URL(uri), { [joseFetch]: answerUnlimited() as never });
+      return rootKeySet(new URL(uri));
     })();
     this.keys.catch(() => { this.keys = undefined; });
     return this.keys;
