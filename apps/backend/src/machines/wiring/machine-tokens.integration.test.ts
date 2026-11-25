@@ -12,7 +12,7 @@ import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
-import { machineAccessAt, machineAccessCheckedAt, machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
+import { machineAccessAt, machineAccessCheckedAt, machineAccessCheckedByServedRoot, machineClientsAt, machineSignInKey, machineTokenAt } from '../../instances/testing/registration-code.js';
 import { runResourceOf } from '../../instances/lib/oidc.js';
 import { temporal as proto } from '@temporalio/proto';
 import { deviceQueueOf, frame } from '../lib/temporal-gateway.js';
@@ -62,6 +62,7 @@ const accountsOn = (store: MongoDB['machines'], toMachines: MachineMessages): Ma
 });
 let gateway: MachineTemporalGateway;
 let gatewayAddress = '';
+let rootAway = false;
 const TLS_DIR = path.dirname(inject('temporalCa'));
 let temporal: http2.Http2Server;
 const clients: ClientSocket[] = [];
@@ -110,11 +111,13 @@ function gatewayConnection() {
   gatewaySessions.push(session);
   session.on('error', () => undefined);
   const ended = new Promise<string>((done) => session.once('close', () => done('cut')));
-  const poll = (token: string, queue = deviceQueueOf('desk')): Promise<string> => new Promise((resolve) => {
+  const poll = (token: string, queue = deviceQueueOf('desk'), withStatus = false): Promise<string> => new Promise((resolve) => {
     if (session.closed || session.destroyed) return resolve('cut');
     const stream = session.request({ ':method': 'POST', ':path': POLL_PATH, 'content-type': 'application/grpc', authorization: `Bearer ${token}` });
     const settle = (headers: http2.IncomingHttpHeaders) => {
-      if (headers['grpc-status'] !== undefined) resolve(String(headers['grpc-message'] ?? headers['grpc-status']));
+      if (headers['grpc-status'] === undefined) return;
+      const said = String(headers['grpc-message'] ?? headers['grpc-status']);
+      resolve(withStatus ? `${String(headers['grpc-status'])}: ${decodeURIComponent(said)}` : said);
     };
     stream.on('response', settle);
     stream.on('trailers', settle);
@@ -170,7 +173,7 @@ beforeEach(async () => {
     namespace: 'default',
     tls: { cert: readFileSync(path.join(TLS_DIR, 'server.crt')), key: readFileSync(path.join(TLS_DIR, 'server.key')) },
     keys: () => ['the-key'],
-    admit: machineAdmission(db, machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime()), 'owner-1'),
+    admit: machineAdmission(db, { checkMachineToken: (token) => (rootAway ? machineAccessCheckedByServedRoot(ROOT_URL, 'inst-1') : machineAccessCheckedAt({ url: ROOT_URL, signing: root }, 'inst-1', () => clock.getTime())).checkMachineToken(token) }, 'owner-1'),
     now: () => clock.getTime(),
     handed: async () => undefined,
   });
@@ -179,6 +182,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  rootAway = false;
   for (const client of clients.splice(0)) client.close();
   for (const session of gatewaySessions.splice(0)) session.destroy();
   await watching().close();
@@ -377,6 +381,15 @@ describe('a machine\'s token from root for its Koala, at the gateway to its Koal
     await saveDesk();
     expect(await gatewayAnswer(await access())).toBe('answered by Temporal');
     expect(await gatewayAnswer(await access(), deviceQueueOf('other'))).toBe('a machine takes work only from its own queue, device-desk');
+  });
+
+  it('answers a poll as unavailable while root\'s keys cannot be fetched, never as unauthenticated, and lets the same token in once root is back', async () => {
+    await saveDesk();
+    const token = await access();
+    rootAway = true;
+    expect(await gatewayConnection().poll(token, undefined, true)).toMatch(/^14: the machine's token could not be checked just now: /);
+    rootAway = false;
+    expect(await gatewayAnswer(token)).toBe('answered by Temporal');
   });
 
   it('refuses none, one for another Koala, one another key signed, one that ran out, the old work token, and one of a machine this Koala does not have', async () => {

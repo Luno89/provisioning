@@ -118,7 +118,12 @@ export class MachineTemporalGateway {
       received.catch(ignore('what the machine sent is awaited below when its call goes on; a call refused before that has no use for it'));
       const token = (header(headers.authorization) ?? '').replace(/^Bearer\s+/i, '');
       const { session } = stream;
-      const admitted = session ? await this.deviceFor(session, token) : { refused: 'this machine\'s connection had already closed' };
+      let admitted: { deviceId: string } | { refused: string };
+      try {
+        admitted = session ? await this.deviceFor(session, token) : { refused: 'this machine\'s connection had already closed' };
+      } catch (err) {
+        return refuse(stream, GRPC.unavailable, (err as Error).message);
+      }
       if ('refused' in admitted) {
         refuse(stream, GRPC.unauthenticated, admitted.refused);
         if (session && this.admitted.delete(session)) session.close();

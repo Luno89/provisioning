@@ -205,6 +205,14 @@ describe('a machine reaching Temporal through the gateway', () => {
     expect(session.requests).toEqual([]);
   });
 
+  it('answers a token it could not check because root was away as unavailable, which the machine retries, never as unauthenticated, and keeps the connection', async () => {
+    const away = gateway({ admit: async () => { throw new Error('the machine\'s token could not be checked just now: fetch failed'); } });
+    const refused = await call(away, asMachine(SYSTEM_INFO), Buffer.alloc(0));
+    expect(refused.refusal()).toBe('14: the machine\'s token could not be checked just now: fetch failed');
+    expect(refused.session.closed).toBe(false);
+    expect(session.requests).toEqual([]);
+  });
+
   it('checks a token once on a connection, again on another connection, and again when the machine sends a fresh one', async () => {
     const machine = gateway();
     const desk = new FakeMachineSession();

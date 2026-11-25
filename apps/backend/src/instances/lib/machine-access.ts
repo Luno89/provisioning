@@ -1,5 +1,6 @@
 import { jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
 import { MACHINE_SCOPE, machineOfMetricsClient, METRICS_SCOPE } from '@koala/engine-core/root-client';
+import { failureOf, stillDown } from '@koala/engine-core/failures';
 import { ACCESS_JWT_TYP, SIGNING_ALG } from './oidc.js';
 
 export interface MachineAccess {
@@ -22,6 +23,8 @@ async function verified(token: string, keys: JWTVerifyGetKey, expected: MachineA
       issuer: expected.issuer, audience: expected.audience, algorithms: [SIGNING_ALG], typ: ACCESS_JWT_TYP, requiredClaims: ['exp', 'sub'], currentDate: new Date(expected.now),
     })).payload;
   } catch (err) {
+    const failure = failureOf(err);
+    if (failure.kind === 'temporary') throw Object.assign(stillDown(`${what} could not be checked just now: ${failure.reason}`), { status: 503 });
     return `${what} could not be checked: ${(err as Error).message}`;
   }
 }
